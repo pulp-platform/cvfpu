@@ -536,11 +536,9 @@ module fpnew_dotp #(
         // do nothing
       // The normalized sum is still denormal, align left - unless the result is not already subnormal
       end else if (normalized_exponent > 1) begin
-        maybe_denormal_res = 1'b1;
         {final_mantissa, sum_sticky_bits} = sum_shifted << 1;
         final_exponent                    = normalized_exponent - 1;
       end else begin
-        denormal_res = 1'b1;
         final_mantissa = '0; // flush denormals to zero
         final_exponent = '0;
       end
@@ -550,7 +548,6 @@ module fpnew_dotp #(
         {final_mantissa, sum_sticky_bits} = sum_shifted >> 1;
         final_exponent                    = normalized_exponent + 1 + carry_shift;
       end else begin
-        denormal_res = 1'b1;
         final_mantissa = '0; // flush denormals to zero
         final_exponent = '0;
       end
