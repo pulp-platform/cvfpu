@@ -167,15 +167,23 @@ or set Features.FpFmtMask to support only FP32");
         fpnew_pkg::get_conv_lane_int_formats(Width, FpFmtConfig, IntFmtConfig, LANE);
     localparam int unsigned CONV_WIDTH = fpnew_pkg::max_fp_width(CONV_FORMATS);
 
+    // Dotp-specific parameters
+    localparam fpnew_pkg::fmt_logic_t DOTP_FORMATS =
+        fpnew_pkg::get_dotp_lane_formats(Width, FpFmtConfig, LANE);
+    localparam int unsigned DOTP_MAX_FMT_WIDTH = fpnew_pkg::max_fp_width(DOTP_FORMATS);
+    localparam int unsigned DOTP_WIDTH = 2*DOTP_MAX_FMT_WIDTH;
+
     // Lane parameters from Opgroup
-    localparam fpnew_pkg::fmt_logic_t LANE_FORMATS = (OpGroup == fpnew_pkg::CONV)
-                                                     ? CONV_FORMATS : ACTIVE_FORMATS;
-    localparam int unsigned LANE_WIDTH = (OpGroup == fpnew_pkg::CONV) ? CONV_WIDTH : MAX_WIDTH;
+    localparam fpnew_pkg::fmt_logic_t LANE_FORMATS = (OpGroup == fpnew_pkg::CONV) ? CONV_FORMATS :
+                                                     (OpGroup == fpnew_pkg::DOTP) ? DOTP_FORMATS :
+                                                                                    ACTIVE_FORMATS;
+    localparam int unsigned LANE_WIDTH = (OpGroup == fpnew_pkg::CONV) ? CONV_WIDTH :
+                                         (OpGroup == fpnew_pkg::DOTP) ? DOTP_WIDTH : MAX_WIDTH;
 
     logic [LANE_WIDTH-1:0] local_result; // lane-local results
 
     // Generate instances only if needed, lane 0 always generated
-    if ((lane == 0) || EnableVectors) begin : active_lane
+    if ((lane == 0) || (EnableVectors & !(OpGroup == fpnew_pkg::DOTP && (lane > 3)) )) begin : active_lane
       logic in_valid, out_valid, out_ready; // lane-local handshake
 
       logic [NUM_OPERANDS-1:0][LANE_WIDTH-1:0] local_operands;  // lane-local oprands
@@ -187,8 +195,8 @@ or set Features.FpFmtMask to support only FP32");
       // Slice out the operands for this lane, upper bits are ignored in the unit
       always_comb begin : prepare_input
         for (int unsigned i = 0; i < NUM_OPERANDS; i++) begin
-          if (i == 2) begin
-            local_operands[i] = operands_i[i] >> LANE*fpnew_pkg::fp_width(dst_fmt_i);
+          if (OpGroup == fpnew_pkg::DOTP) begin
+            local_operands[i] = operands_i[i] >> LANE*2*fpnew_pkg::fp_width(src_fmt_i); // expanded format is twice the width of src_fmt
           end else begin
             local_operands[i] = operands_i[i] >> LANE*fpnew_pkg::fp_width(src_fmt_i);
           end
@@ -208,7 +216,7 @@ or set Features.FpFmtMask to support only FP32");
           // CPK
           end else if (dst_is_cpk) begin
             if (lane == 1) begin
-              local_operands[0] = operands_i[1][LANE_WIDTH-1:0]; // using opB as second argument
+              local_operands[0][LANE_WIDTH-1:0] = operands_i[1][LANE_WIDTH-1:0]; // using opB as second argument
             end
           end
         end
@@ -248,7 +256,37 @@ or set Features.FpFmtMask to support only FP32");
           .out_ready_i     ( out_ready           ),
           .busy_o          ( lane_busy[lane]     )
         );
-
+      end else if (OpGroup == fpnew_pkg::DOTP) begin : lane_instance
+        fpnew_dotp_wrapper #(
+          .FpFmtConfig ( LANE_FORMATS         ), // fp64 and fp32 not supported
+          .NumPipeRegs ( NumPipeRegs          ),
+          .PipeConfig  ( PipeConfig           ),
+          .TagType     ( TagType              ),
+          .AuxType     ( logic [AUX_BITS-1:0] )
+        ) i_fpnew_dotp_wrapper (
+          .clk_i,
+          .rst_ni,
+          .operands_i      ( local_operands[2:0] ), // 3 operands
+          .is_boxed_i,
+          .rnd_mode_i,
+          .op_i,
+          .op_mod_i,
+          .src_fmt_i,
+          .dst_fmt_i,
+          .tag_i,
+          .aux_i           ( aux_data            ),
+          .in_valid_i      ( in_valid            ),
+          .in_ready_o      ( lane_in_ready[lane] ),
+          .flush_i,
+          .result_o        ( op_result           ),
+          .status_o        ( op_status           ),
+          .extension_bit_o ( lane_ext_bit[lane]  ),
+          .tag_o           ( lane_tags[lane]     ),
+          .aux_o           ( lane_aux[lane]      ),
+          .out_valid_o     ( out_valid           ),
+          .out_ready_i     ( out_ready           ),
+          .busy_o          ( lane_busy[lane]     )
+        );
       end else if (OpGroup == fpnew_pkg::DIVSQRT) begin : lane_instance
         if (!PulpDivsqrt && LANE_FORMATS[0] && (LANE_FORMATS[1:fpnew_pkg::NUM_FP_FORMATS-1] == '0)) begin
           // The T-head-based DivSqrt unit is supported only in FP32-only configurations
@@ -375,17 +413,38 @@ or set Features.FpFmtMask to support only FP32");
     // Generate result packing depending on float format
     for (genvar fmt = 0; fmt < NUM_FORMATS; fmt++) begin : pack_fp_result
       // Set up some constants
-      localparam int unsigned FP_WIDTH = fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(fmt));
-      // only for active formats within the lane
-      if (ACTIVE_FORMATS[fmt]) begin
-        assign fmt_slice_result[fmt][(LANE+1)*FP_WIDTH-1:LANE*FP_WIDTH] =
-            local_result[FP_WIDTH-1:0];
-      end else if ((LANE+1)*FP_WIDTH <= Width) begin
-        assign fmt_slice_result[fmt][(LANE+1)*FP_WIDTH-1:LANE*FP_WIDTH] =
-            '{default: lane_ext_bit[LANE]};
-      end else if (LANE*FP_WIDTH < Width) begin
-        assign fmt_slice_result[fmt][Width-1:LANE*FP_WIDTH] =
-            '{default: lane_ext_bit[LANE]};
+      if (OpGroup == fpnew_pkg::DOTP) begin
+        localparam int unsigned INACTIVE_MASK = fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(LANE_FORMATS[fmt]));
+        localparam int unsigned FP_WIDTH      = fpnew_pkg::minimum(INACTIVE_MASK, fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(fmt)));
+        // only for active formats within the lane
+        if (ACTIVE_FORMATS[fmt] && (LANE_WIDTH>0)) begin
+          if (FP_WIDTH==INACTIVE_MASK) begin
+            assign fmt_slice_result[fmt][(LANE+1)*FP_WIDTH-1:LANE*FP_WIDTH] =
+                local_result[FP_WIDTH-1:0];
+          end else begin
+            assign fmt_slice_result[fmt][(LANE+1)*FP_WIDTH-1:LANE*FP_WIDTH] =
+                local_result[FP_WIDTH-1:0];
+          end
+        end else if ((LANE+1)*FP_WIDTH <= Width) begin
+          assign fmt_slice_result[fmt][(LANE+1)*FP_WIDTH-1:LANE*FP_WIDTH] =
+              '{default: lane_ext_bit[LANE]};
+        end else if (LANE*FP_WIDTH < Width) begin
+          assign fmt_slice_result[fmt][Width-1:LANE*FP_WIDTH] =
+              '{default: lane_ext_bit[LANE]};
+        end
+      end else begin
+        localparam int unsigned FP_WIDTH = fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(fmt));
+        // only for active formats within the lane
+        if (ACTIVE_FORMATS[fmt]) begin
+          assign fmt_slice_result[fmt][(LANE+1)*FP_WIDTH-1:LANE*FP_WIDTH] =
+              local_result[FP_WIDTH-1:0];
+        end else if ((LANE+1)*FP_WIDTH <= Width) begin
+          assign fmt_slice_result[fmt][(LANE+1)*FP_WIDTH-1:LANE*FP_WIDTH] =
+              '{default: lane_ext_bit[LANE]};
+        end else if (LANE*FP_WIDTH < Width) begin
+          assign fmt_slice_result[fmt][Width-1:LANE*FP_WIDTH] =
+              '{default: lane_ext_bit[LANE]};
+        end
       end
     end
 
@@ -470,7 +529,7 @@ or set Features.FpFmtMask to support only FP32");
 
           always_comb begin : pack_conv_cpk
             fmt_conv_cpk_result[fmt][op_idx] = conv_target_q; // rd pre-load
-            if(LOWER_LEFT != UPPER_LEFT) begin
+            if((LOWER_LEFT < UPPER_LEFT) && (LOWER_LEFT >= 0)) begin
               fmt_conv_cpk_result[fmt][op_idx][UPPER_LEFT-1:LOWER_LEFT] = fmt_slice_result[fmt][UPPER_RIGHT-1:0*FP_WIDTH]; // vfcpk
             end
           end
@@ -499,7 +558,7 @@ or set Features.FpFmtMask to support only FP32");
   assign {result_fmt_is_int, result_is_vector, result_fmt} = lane_aux[0];
 
   assign result_o = result_fmt_is_int ? ifmt_slice_result[result_fmt]                  :
-                        result_is_cpk ? fmt_conv_cpk_result[result_fmt][result_vec_op] :
+                    result_is_cpk     ? fmt_conv_cpk_result[result_fmt][result_vec_op] :
                                         fmt_slice_result[result_fmt];
 
   assign extension_bit_o = lane_ext_bit[0]; // don't care about upper ones
