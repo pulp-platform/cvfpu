@@ -76,7 +76,7 @@ or set Features.FpFmtMask to support only FP32");
   // We will send the format information along with the data
   localparam int unsigned FMT_BITS =
       fpnew_pkg::maximum($clog2(NUM_FORMATS), $clog2(NUM_INT_FORMATS));
-  localparam int unsigned AUX_BITS = FMT_BITS + 2; // also add vectorial and integer flags
+  localparam int unsigned AUX_BITS = FMT_BITS + 3; // also add vectorial and integer flags
 
   logic [NUM_LANES-1:0] lane_in_ready, lane_out_valid, divsqrt_done, divsqrt_ready; // Handshake signals for the lanes
   logic                 vectorial_op;
@@ -86,7 +86,7 @@ or set Features.FpFmtMask to support only FP32");
   // additional flags for CONV
   logic       dst_fmt_is_int, dst_is_cpk;
   logic [1:0] dst_vec_op; // info for vectorial results (for packing)
-  logic [2:0] target_aux_d;
+  logic [1:0] target_aux_d, target_aux_q;
   logic       is_up_cast, is_down_cast;
 
   logic [NUM_FORMATS-1:0][Width-1:0]      fmt_slice_result;
@@ -130,8 +130,8 @@ or set Features.FpFmtMask to support only FP32");
   assign dst_fmt    = dst_fmt_is_int ? int_fmt_i : dst_fmt_i;
 
   // The data sent along consists of the vectorial flag and format bits
-  assign aux_data      = {dst_fmt_is_int, vectorial_op, dst_fmt, op_is_vsum};
-  assign target_aux_d  = {dst_vec_op, dst_is_cpk};
+  assign aux_data      = {dst_is_cpk, dst_fmt_is_int, vectorial_op, dst_fmt, op_is_vsum};
+  assign target_aux_d  = dst_vec_op;
 
   // CONV passes one operand for assembly after the unit: opC for cpk, opB for others
   if (OpGroup == fpnew_pkg::CONV) begin : conv_target
@@ -487,7 +487,7 @@ or set Features.FpFmtMask to support only FP32");
   if (OpGroup == fpnew_pkg::CONV) begin : target_regs
     // Bypass pipeline signals, index i holds signal after i register stages
     logic [0:NumPipeRegs][Width-1:0] byp_pipe_target_q;
-    logic [0:NumPipeRegs][2:0]       byp_pipe_aux_q;
+    logic [0:NumPipeRegs][1:0]       byp_pipe_aux_q;
     logic [0:NumPipeRegs]            byp_pipe_valid_q;
     // Ready signal is combinatorial for all stages
     logic [0:NumPipeRegs] byp_pipe_ready;
@@ -518,7 +518,7 @@ or set Features.FpFmtMask to support only FP32");
     assign conv_target_q = byp_pipe_target_q[NumPipeRegs];
 
     // decode the aux data
-    assign {result_vec_op, result_is_cpk} = byp_pipe_aux_q[NumPipeRegs];
+    assign result_vec_op = byp_pipe_aux_q[NumPipeRegs];
 
     for (genvar fmt = 0; fmt < NUM_FORMATS; fmt++) begin : pack_conv_cpk_result
       localparam int unsigned FP_WIDTH = fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(fmt));
@@ -540,7 +540,7 @@ or set Features.FpFmtMask to support only FP32");
     end
 
   end else begin : no_conv
-    assign {result_vec_op, result_is_cpk} = '0;
+    assign result_vec_op = '0;
     assign fmt_conv_cpk_result = '0;
   end
 
@@ -557,7 +557,7 @@ or set Features.FpFmtMask to support only FP32");
   // ------------
   // Output Side
   // ------------
-  assign {result_fmt_is_int, result_is_vector, result_fmt, result_is_vsum} = lane_aux[0];
+  assign {result_is_cpk, result_fmt_is_int, result_is_vector, result_fmt, result_is_vsum} = lane_aux[0];
 
   assign result_o = result_fmt_is_int ? ifmt_slice_result[result_fmt]                   :
                     result_is_cpk     ? fmt_conv_cpk_result[result_fmt][result_vec_op]  :
