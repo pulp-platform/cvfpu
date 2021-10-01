@@ -76,7 +76,7 @@ or set Features.FpFmtMask to support only FP32");
   // We will send the format information along with the data
   localparam int unsigned FMT_BITS =
       fpnew_pkg::maximum($clog2(NUM_FORMATS), $clog2(NUM_INT_FORMATS));
-  localparam int unsigned AUX_BITS = FMT_BITS + 3; // also add vectorial and integer flags
+  localparam int unsigned AUX_BITS = FMT_BITS + 4; // also add vectorial and integer flags
 
   logic [NUM_LANES-1:0] lane_in_ready, lane_out_valid, divsqrt_done, divsqrt_ready; // Handshake signals for the lanes
   logic                 vectorial_op;
