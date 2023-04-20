@@ -74,9 +74,14 @@ module fpnew_opgroup_fmt_slice #(
 
   logic result_is_vector, result_is_class, result_is_cmp;
 
+  fpnew_pkg::roundmode_e rnd_mode;
+
   // -----------
   // Input Side
   // -----------
+  assign rnd_mode = ((rnd_mode_i == fpnew_pkg::RSR) || (rnd_mode_i == fpnew_pkg::RR))
+                     ? fpnew_pkg::RNE : rnd_mode_i; // RSR and RR supported only on SDOTP module
+
   assign in_ready_o   = lane_in_ready[0]; // Upstream ready is given by first lane
   assign vectorial_op = vectorial_op_i & EnableVectors; // only do vectorial stuff if enabled
   assign cmp_op       = (op_i == fpnew_pkg::CMP);
@@ -119,7 +124,7 @@ module fpnew_opgroup_fmt_slice #(
           .rst_ni,
           .operands_i      ( local_operands               ),
           .is_boxed_i      ( is_boxed_i[NUM_OPERANDS-1:0] ),
-          .rnd_mode_i,
+          .rnd_mode_i      ( rnd_mode             ),
           .op_i,
           .op_mod_i,
           .tag_i,
@@ -152,7 +157,7 @@ module fpnew_opgroup_fmt_slice #(
         //   .rst_ni,
         //   .operands_i      ( local_operands               ),
         //   .is_boxed_i      ( is_boxed_i[NUM_OPERANDS-1:0] ),
-        //   .rnd_mode_i,
+        //   .rnd_mode_i      ( rnd_mode            ),
         //   .op_i,
         //   .op_mod_i,
         //   .tag_i,
@@ -182,7 +187,7 @@ module fpnew_opgroup_fmt_slice #(
           .rst_ni,
           .operands_i      ( local_operands               ),
           .is_boxed_i      ( is_boxed_i[NUM_OPERANDS-1:0] ),
-          .rnd_mode_i,
+          .rnd_mode_i      ( rnd_mode              ),
           .op_i,
           .op_mod_i,
           .tag_i,
