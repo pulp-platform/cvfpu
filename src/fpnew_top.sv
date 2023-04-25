@@ -22,6 +22,8 @@ module fpnew_top #(
   parameter type                            TagType        = logic,
   parameter int unsigned                    TrueSIMDClass  = 0,
   parameter int unsigned                    EnableSIMDMask = 0,
+  parameter logic                           EnableRSR      = 1'b0, // stochastic rounding supported
+                                                                   // only by SDOTP
   // Do not change
   localparam int unsigned NumLanes     = fpnew_pkg::max_num_lanes(Features.Width, Features.FpFmtMask, Features.EnableVectors),
   localparam type         MaskType     = logic [NumLanes-1:0],
@@ -121,6 +123,7 @@ module fpnew_top #(
       .Width         ( WIDTH                           ),
       .EnableVectors ( Features.EnableVectors          ),
       .PulpDivsqrt   ( PulpDivsqrt                     ),
+      .EnableRSR     ( EnableRSR                       ),
       .FpFmtMask     ( Features.FpFmtMask              ),
       .IntFmtMask    ( Features.IntFmtMask             ),
       .FmtPipeRegs   ( Implementation.PipeRegs[opgrp]  ),
