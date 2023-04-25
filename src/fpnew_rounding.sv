@@ -52,7 +52,7 @@ module fpnew_rounding #(
   //    011    |   RUP    | Round Up (towards \infty)
   //    100    |   RMM    | Round to Nearest, ties to Max Magnitude
   //    101    |   ROD    | Round towards odd (this mode is not define in RISC-V FP-SPEC)
-  //    100    |   RSR    | Round by Stochastic Rounding
+  //    110    |   RSR    | Round by Stochastic Rounding
   //  others   |          | *invalid*
 
   // LFSR generating random numbers for RSR mode
@@ -79,8 +79,7 @@ module fpnew_rounding #(
   // Rounding results by stochastic rounding
   always_comb begin : rounding_decision
     unique case (rnd_mode_i)
-      // Decide according to round/sticky bits
-      fpnew_pkg::RNE:
+      fpnew_pkg::RNE: // Decide according to round/sticky bits
         unique case (round_sticky_bits_i)
           2'b00,
           2'b01: round_up = 1'b0;           // < ulp/2 away, round down

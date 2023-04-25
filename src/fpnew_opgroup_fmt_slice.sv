@@ -57,6 +57,7 @@ module fpnew_opgroup_fmt_slice #(
 
   localparam int unsigned FP_WIDTH  = fpnew_pkg::fp_width(FpFormat);
   localparam int unsigned SIMD_WIDTH = unsigned'(Width/NUM_LANES);
+  localparam int unsigned AUX_BITS = 2;
 
   logic [NUM_LANES-1:0] lane_in_ready, lane_out_valid; // Handshake signals for the lanes
   logic                 vectorial_op, cmp_op;
@@ -70,7 +71,8 @@ module fpnew_opgroup_fmt_slice #(
   fpnew_pkg::classmask_e [NUM_LANES-1:0] lane_class_mask;
   TagType                [NUM_LANES-1:0] lane_tags; // only the first one is actually used
   logic                  [NUM_LANES-1:0] lane_masks;
-  logic                  [NUM_LANES-1:0] lane_vectorial, lane_busy, lane_is_class; // dito
+  logic                  [NUM_LANES-1:0] lane_busy, lane_is_class; // dito
+  logic    [NUM_LANES-1:0][AUX_BITS-1:0] lane_aux; // dito
 
   logic result_is_vector, result_is_class, result_is_cmp;
 
@@ -129,7 +131,7 @@ module fpnew_opgroup_fmt_slice #(
           .op_mod_i,
           .tag_i,
           .mask_i          ( simd_mask_i[lane]    ),
-          .aux_i           ( vectorial_op         ), // Remember whether operation was vectorial
+          .aux_i           ( local_aux_data_input ), // Remember whether operation was vectorial
           .in_valid_i      ( in_valid             ),
           .in_ready_o      ( lane_in_ready[lane]  ),
           .flush_i,
@@ -138,7 +140,7 @@ module fpnew_opgroup_fmt_slice #(
           .extension_bit_o ( lane_ext_bit[lane]   ),
           .tag_o           ( lane_tags[lane]      ),
           .mask_o          ( lane_masks[lane]     ),
-          .aux_o           ( lane_vectorial[lane] ),
+          .aux_o           ( lane_aux[lane]       ),
           .out_valid_o     ( out_valid            ),
           .out_ready_i     ( out_ready            ),
           .busy_o          ( lane_busy[lane]      )
@@ -169,7 +171,7 @@ module fpnew_opgroup_fmt_slice #(
         //   .status_o        ( op_status            ),
         //   .extension_bit_o ( lane_ext_bit[lane]   ),
         //   .tag_o           ( lane_tags[lane]      ),
-        //   .aux_o           ( lane_vectorial[lane] ),
+        //   .aux_o           ( lane_aux[lane]       ),
         //   .out_valid_o     ( out_valid            ),
         //   .out_ready_i     ( out_ready            ),
         //   .busy_o          ( lane_busy[lane]      )
@@ -192,7 +194,7 @@ module fpnew_opgroup_fmt_slice #(
           .op_mod_i,
           .tag_i,
           .mask_i          ( simd_mask_i[lane]     ),
-          .aux_i           ( vectorial_op          ), // Remember whether operation was vectorial
+          .aux_i           ( local_aux_data_input  ), // Remember whether operation was vectorial
           .in_valid_i      ( in_valid              ),
           .in_ready_o      ( lane_in_ready[lane]   ),
           .flush_i,
@@ -203,7 +205,7 @@ module fpnew_opgroup_fmt_slice #(
           .is_class_o      ( lane_is_class[lane]   ),
           .tag_o           ( lane_tags[lane]       ),
           .mask_o          ( lane_masks[lane]      ),
-          .aux_o           ( lane_vectorial[lane]  ),
+          .aux_o           ( lane_aux[lane]        ),
           .out_valid_o     ( out_valid             ),
           .out_ready_i     ( out_ready             ),
           .busy_o          ( lane_busy[lane]       )
