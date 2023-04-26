@@ -46,6 +46,7 @@ module fpnew_sdotp_multi_wrapper #(
   input fpnew_pkg::fp_format_e         src_fmt_i,
   input fpnew_pkg::fp_format_e         dst_fmt_i,
   input TagType                        tag_i,
+  input logic                          mask_i,
   input AuxType                        aux_i,
   // Input Handshake
   input  logic                         in_valid_i,
@@ -56,6 +57,7 @@ module fpnew_sdotp_multi_wrapper #(
   output fpnew_pkg::status_t           status_o,
   output logic                         extension_bit_o,
   output TagType                       tag_o,
+  output logic                         mask_o,
   output AuxType                       aux_o,
   // Output handshake
   output logic                         out_valid_o,
@@ -165,6 +167,7 @@ module fpnew_sdotp_multi_wrapper #(
     .src_fmt_i, // format of the multiplicands
     .dst_fmt_i, // format of the addend and result
     .tag_i,
+    .mask_i,
     .aux_i,
     .in_valid_i,
     .in_ready_o ,
@@ -173,6 +176,7 @@ module fpnew_sdotp_multi_wrapper #(
     .status_o,
     .extension_bit_o,
     .tag_o,
+    .mask_o,
     .aux_o,
     .out_valid_o,
     .out_ready_i,

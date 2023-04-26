@@ -117,7 +117,8 @@ or set Features.FpFmtMask to support only FP32");
   // -----------
   // Input Side
   // -----------
-  assign rnd_mode = (rnd_mode_i == fpnew_pkg::RSR) ? fpnew_pkg::RNE : rnd_mode_i; // RSR supported only on SDOTP module
+  // RSR supported only on SDOTP module
+  assign rnd_mode = (rnd_mode_i == fpnew_pkg::RSR) ? fpnew_pkg::RNE : rnd_mode_i;
 
   assign in_ready_o   = lane_in_ready[0]; // Upstream ready is given by first lane
   assign vectorial_op = vectorial_op_i & EnableVectors; // only do vectorial stuff if enabled
@@ -289,6 +290,7 @@ or set Features.FpFmtMask to support only FP32");
           .src_fmt_i,
           .dst_fmt_i,
           .tag_i,
+          .mask_i          ( simd_mask_i[lane]   ),
           .aux_i           ( aux_data            ),
           .in_valid_i      ( in_valid            ),
           .in_ready_o      ( lane_in_ready[lane] ),
@@ -297,6 +299,7 @@ or set Features.FpFmtMask to support only FP32");
           .status_o        ( op_status           ),
           .extension_bit_o ( lane_ext_bit[lane]  ),
           .tag_o           ( lane_tags[lane]     ),
+          .mask_o          ( lane_masks[lane]    ),
           .aux_o           ( lane_aux[lane]      ),
           .out_valid_o     ( out_valid           ),
           .out_ready_i     ( out_ready           ),
