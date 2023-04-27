@@ -71,6 +71,14 @@ Set PulpDivsqrt to 1 not to use the PULP DivSqrt unit \
 or set Features.FpFmtMask to support only FP32");
   end
 
+  if ((OpGroup == fpnew_pkg::DOTP) &&
+      !(FpFmtConfig[0] && (FpFmtConfig[2] || FpFmtConfig[4]) && (FpFmtConfig[3] || FpFmtConfig[5]))) begin
+    $fatal(1, "SDOTP only supported on 32b and 64b CVFPU instances in which at \
+least one 16b and one 8b format are supported. \
+The SDOTP operations compute on 8b inputs producing 16b outputs \
+or on 16b inputs producing 32b outputs");
+  end
+
   localparam int unsigned MAX_FP_WIDTH   = fpnew_pkg::max_fp_width(FpFmtConfig);
   localparam int unsigned MAX_INT_WIDTH  = fpnew_pkg::max_int_width(IntFmtConfig);
   localparam int unsigned NUM_LANES = fpnew_pkg::max_num_lanes(Width, FpFmtConfig, 1'b1);
