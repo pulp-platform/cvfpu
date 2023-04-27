@@ -348,7 +348,7 @@ or set Features.FpFmtMask to support only FP32");
             .rst_ni,
             .operands_i       ( local_operands[1:0] ), // 2 operands
             .is_boxed_i       ( is_boxed_2op        ), // 2 operands
-            .rnd_mode_i,
+            .rnd_mode_i       ( rnd_mode            ),
             .op_i,
             .dst_fmt_i,
             .tag_i,
