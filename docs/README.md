@@ -41,6 +41,7 @@ For more in-depth explanations on how to configure the unit and the layout of th
 | `TrueSIMDClass`  | If enabled, the result of a classify operation in vectorial mode will be RISC-V compliant if each output has at least 10 bits|
 | `EnableSIMDMask` | Enable the RISC-V floating-point status flags masking of inactive vectorial lanes. When disabled, `simd_mask_i` is inactive  |
 | `EnableRSR`      | Enable stochastic rounding support for SDOTP                                                                                 |
+| `CompressedVecCmpResult` | Compress the result of a vector compare in the LSBs, conceived for RV32FD cores                                      |
 
 ### Ports
 
