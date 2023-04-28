@@ -23,6 +23,7 @@ module fpnew_opgroup_fmt_slice #(
   parameter fpnew_pkg::pipe_config_t PipeConfig    = fpnew_pkg::BEFORE,
   parameter type                     TagType       = logic,
   parameter int unsigned             TrueSIMDClass = 0,
+  parameter logic                    CompressedVecCmpResult = 0,
   // Do not change
   localparam int unsigned NUM_OPERANDS = fpnew_pkg::num_operands(OpGroup),
   localparam int unsigned NUM_LANES    = fpnew_pkg::num_lanes(Width, FpFormat, EnableVectors),
@@ -286,8 +287,12 @@ module fpnew_opgroup_fmt_slice #(
   assign slice_class_result = result_is_vector ? slice_vec_class_result : lane_class_mask[0];
 
   // Select the proper result
-  assign result_o = result_is_class ? slice_class_result     :
-                    result_is_cmp   ? {'0, slice_cmp_result} : slice_regular_result;
+  if (CompressedVecCmpResult) begin
+    assign result_o = result_is_class ? slice_class_result     :
+                      result_is_cmp   ? {'0, slice_cmp_result} : slice_regular_result;
+  end else begin
+    assign result_o = result_is_class ? slice_class_result : slice_regular_result;
+  end
 
   assign extension_bit_o                              = lane_ext_bit[0]; // upper lanes unused
   assign tag_o                                        = lane_tags[0];    // upper lanes unused
