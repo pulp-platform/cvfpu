@@ -207,7 +207,8 @@ or on 16b inputs producing 32b outputs");
       fpnew_pkg::status_t                      op_status;
 
       logic lane_is_used;
-      assign lane_is_used = (ACTIVE_FORMATS[src_fmt_i] & ~is_up_cast) | (ACTIVE_FORMATS[dst_fmt_i] & is_up_cast);
+      assign lane_is_used = (ACTIVE_FORMATS[src_fmt_i] & ~is_up_cast) |
+                            (ACTIVE_FORMATS[dst_fmt_i] &  is_up_cast) | (OpGroup == fpnew_pkg::DIVSQRT);
       assign in_valid = in_valid_i & ((lane == 0) | vectorial_op) & lane_is_used; // upper lanes only for vectors
 
       // Slice out the operands for this lane, upper bits are ignored in the unit
@@ -314,7 +315,7 @@ or on 16b inputs producing 32b outputs");
           .busy_o          ( lane_busy[lane]     )
         );
       end else if (OpGroup == fpnew_pkg::DIVSQRT) begin : lane_instance
-        if (!PulpDivsqrt && LANE_FORMATS[0] && (LANE_FORMATS[1:fpnew_pkg::NUM_FP_FORMATS-1] == '0)) begin
+        if (!PulpDivsqrt && LANE_FORMATS[0] && (LANE_FORMATS[1:fpnew_pkg::NUM_FP_FORMATS-1] == '0)) begin : gen_th_32_divsqrt
           // The T-head-based DivSqrt unit is supported only in FP32-only configurations
           fpnew_divsqrt_th_32 #(
             .NumPipeRegs ( NumPipeRegs          ),
@@ -344,7 +345,7 @@ or on 16b inputs producing 32b outputs");
             .out_ready_i     ( out_ready           ),
             .busy_o          ( lane_busy[lane]     )
           );
-        end else begin
+        end else begin : gen_pulp_divsqrt
           fpnew_divsqrt_multi #(
             .FpFmtConfig ( LANE_FORMATS         ),
             .NumPipeRegs ( NumPipeRegs          ),
