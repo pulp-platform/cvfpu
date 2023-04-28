@@ -40,6 +40,7 @@ For more in-depth explanations on how to configure the unit and the layout of th
 | `TagType`        | The SystemVerilog data type of the operation tag                                                                             |
 | `TrueSIMDClass`  | If enabled, the result of a classify operation in vectorial mode will be RISC-V compliant if each output has at least 10 bits|
 | `EnableSIMDMask` | Enable the RISC-V floating-point status flags masking of inactive vectorial lanes. When disabled, `simd_mask_i` is inactive  |
+| `EnableRSR`      | Enable stochastic rounding support for SDOTP                                                                                 |
 
 ### Ports
 
@@ -50,6 +51,7 @@ As the width of some input/output signals is defined by the configuration, it is
 |------------------|-----------|----------------------|----------------------------------------------------------------|
 | `clk_i`          | in        | `logic`              | Clock, synchronous, rising-edge triggered                      |
 | `rst_ni`         | in        | `logic`              | Asynchronous reset, active low                                 |
+| `hart_id_i`      | in        | `logic [31:0]`       | Core ID, used only when stochastic rounding is enabled         |
 | `operands_i`     | in        | `logic [2:0][W-1:0]` | Operands, henceforth referred to as `op[`*i*`]`                |
 | `rnd_mode_i`     | in        | `roundmode_e`        | Floating-point rounding mode                                   |
 | `op_i`           | in        | `operation_e`        | Operation select                                               |
@@ -79,15 +81,16 @@ Default values from the package are listed.
 
 Enumeration of type `logic [2:0]` holding available rounding modes, encoded for use in RISC-V cores:
 
-| Enumerator |  Value   |                    Rounding Mode                     |
-|------------|----------|------------------------------------------------------|
-| `RNE`      | `3'b000` | To nearest, tie to even (default)                    |
-| `RTZ`      | `3'b001` | Toward zero                                          |
-| `RDN`      | `3'b010` | Toward negative infinity                             |
-| `RUP`      | `3'b011` | Toward positive infinity                             |
-| `RMM`      | `3'b100` | To nearest, tie away from zero                       |
-| `ROD`      | `3'b101` | To odd                                               |
-| `DYN`      | `3'b111` | *RISC-V Dynamic RM, invalid if passed to operations* |
+| Enumerator |  Value   |                    Rounding Mode                         |
+|------------|----------|----------------------------------------------------------|
+| `RNE`      | `3'b000` | To nearest, tie to even (default)                        |
+| `RTZ`      | `3'b001` | Toward zero                                              |
+| `RDN`      | `3'b010` | Toward negative infinity                                 |
+| `RUP`      | `3'b011` | Toward positive infinity                                 |
+| `RMM`      | `3'b100` | To nearest, tie away from zero                           |
+| `ROD`      | `3'b101` | To odd                                                   |
+| `RSR`      | `3'b110` | Stochastic Rounding (available only on SDOTP operations) |
+| `DYN`      | `3'b111` | *RISC-V Dynamic RM, invalid if passed to operations*     |
 
 ##### `operation_e` - FP Operation
 
@@ -104,6 +107,8 @@ Unless noted otherwise, the first operand `op[0]` is used for the operation.
 | `ADD`      | `0`      | Addition (`op[1] + op[2]`) *note the operand indices*                                                                                                                                                            |
 | `ADD`      | `1`      | Subtraction (`op[1] - op[2]`) *note the operand indices*                                                                                                                                                         |
 | `MUL`      | `0`      | Multiplication (`op[0] * op[1]`)                                                                                                                                                                                 |
+| `SDOTP`    | `0`      | Sum of dot product )                                                                                                                                                                                 |
+| `VSUM`     | `0`      | Vector Inner Sum )                                                                                                                                                                                 |
 | `DIV`      | `0`      | Division (`op[0] / op[1]`)                                                                                                                                                                                       |
 | `SQRT`     | `0`      | Square root                                                                                                                                                                                                      |
 | `SGNJ`     | `0`      | Sign injection, operation encoded in rounding mode<br>`RNE`: `op[0]` with `sign(op[1])`<br>`RTZ`: `op[0]` with `~sign(op[1])`<br>`RDN`: `op[0]` with `sign(op[0]) ^ sign(op[1])`<br>`RUP`: `op[0]` (passthrough) |
@@ -132,6 +137,7 @@ Enumeration of type `logic [2:0]` holding the supported FP formats.
 | `FP16`     | IEEE binary16 | 16 bit | 5         | 10        |
 | `FP8`      | binary8       | 8 bit  | 5         | 2         |
 | `FP16ALT`  | binary16alt   | 16 bit | 8         | 7         |
+| `FP8ALT`   | binary8alt    | 8 bit  | 4         | 3         |
 
 The following global parameters associated with FP formats are set in `fpnew_pkg`:
 ```SystemVerilog
@@ -278,7 +284,7 @@ Otherwise, synthesis tools can optimize away any logic associated with this form
 
 #### `Implementation` - Implementation Options
 
-The FPU is divided into four operation groups,  `ADDMUL`, `DIVSQRT`, `NONDOMP`, and `CONV` (see [Architecture: Top-Level](#top-level)).
+The FPU is divided into five operation groups,  `ADDMUL`, `DIVSQRT`, `NONDOMP`, `CONV`, and DOTP (see [Architecture: Top-Level](#top-level)).
 The `Implementation` parameter controls the implementation of these operation groups.
 It is of type `fpu_implementation_t` which is defined as:
 ```SystemVerilog
@@ -320,17 +326,18 @@ The unit type `unit_type_t` is an enumeration of type `logic [1:0]` holding the 
 The `UnitTypes` parameter allows to control resources used for the FPU by either removing operation units for certain formats and operations, or merging multiple formats into one.
 Currently, the follwoing unit types are available for the FPU operation groups:
 
-|            |      `ADDMUL`      |     `DIVSQRT`      |     `NONCOMP`      |       `CONV`       |
-|------------|--------------------|--------------------|--------------------|--------------------|
-| `PARALLEL` | :heavy_check_mark: |                    | :heavy_check_mark: |                    |
-| `MERGED`   | :heavy_check_mark: | :heavy_check_mark: |                    | :heavy_check_mark: |
+|            |      `ADDMUL`      |     `DIVSQRT`      |     `NONCOMP`      |       `CONV`       |       `DOTP`       |
+|------------|--------------------|--------------------|--------------------|--------------------|--------------------|
+| `PARALLEL` | :heavy_check_mark: |                    | :heavy_check_mark: |                    |                    |
+| `MERGED`   | :heavy_check_mark: | :heavy_check_mark: |                    | :heavy_check_mark: | :heavy_check_mark: |
 
 *Default*:
 ```SystemVerilog
 '{'{default: PARALLEL}, // ADDMUL
   '{default: MERGED},   // DIVSQRT
   '{default: PARALLEL}, // NONCOMP
-  '{default: MERGED}}   // CONV`
+  '{default: MERGED},   // CONV`
+  '{default: DISABLED}} // DOTP`
 ```
 (all formats within operation group use same type)
 
@@ -391,7 +398,7 @@ The *operation group* is the highest level of grouping within FPnew and signifie
 
 ![FPnew](fig/top_block.png)
 
-There are currently four operation groups in FPnew which are enumerated in `opgroup_e` as outlined in the following table:
+There are currently five operation groups in FPnew which are enumerated in `opgroup_e` as outlined in the following table:
 
 | Enumerator |                  Description                  |         Associated Operations         |
 |------------|-----------------------------------------------|---------------------------------------|
@@ -399,6 +406,7 @@ There are currently four operation groups in FPnew which are enumerated in `opgr
 | `DIVSQRT`  | Division and Square Root                      | `DIV`, `SQRT`                         |
 | `NONCOMP`  | Non-Computational Operations like Comparisons | `SGNJ`, `MINMAX`, `CMP`, `CLASS`      |
 | `CONV`     | Conversions                                   | `F2I`, `I2F`, `F2F`, `CPKAB`, `CPKCD` |
+| `DOTP`     | Dot Products                                  | `SDOTP`, `EXVSUM`, `VSUM`             |
 
 Most architectural decisions for FPnew are made at very fine granularity.
 The big exception to this is the generation of vectorial hardware which is decided at top level through the `EnableVectors` parameter.

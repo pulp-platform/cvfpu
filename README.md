@@ -165,6 +165,23 @@ If you use FPnew in your work, you can cite us:
 }
 ```
 
+If you use FPnew SDOTP in your work, you can cite us:
+
+<details>
+<summary>SDOTP Publication</summary>
+<p>
+
+```
+@inproceedings{bertaccini2022minifloat,
+  title={MiniFloat-NN and ExSdotp: An ISA Extension and a Modular Open Hardware Unit for Low-Precision Training on RISC-V Cores},
+  author={Bertaccini, Luca and Paulin, Gianna and Fischer, Tim and Mach, Stefan and Benini, Luca},
+  booktitle={2022 IEEE 29th Symposium on Computer Arithmetic (ARITH)},
+  pages={1--8},
+  year={2022},
+  organization={IEEE}
+}
+```
+
 </p>
 </details>
 
