@@ -22,9 +22,8 @@ module fpnew_top #(
   parameter type                            TagType        = logic,
   parameter int unsigned                    TrueSIMDClass  = 0,
   parameter int unsigned                    EnableSIMDMask = 0,
-  parameter logic                           EnableRSR      = 1'b0, // stochastic rounding supported
-                                                                   // only by SDOTP
   parameter logic                           CompressedVecCmpResult = 0, // conceived for RV32FD cores
+  parameter fpnew_pkg::rsr_impl_t           StochasticRndImplementation = fpnew_pkg::DEFAULT_NO_RSR,
   // Do not change
   localparam int unsigned NumLanes     = fpnew_pkg::max_num_lanes(Features.Width, Features.FpFmtMask, Features.EnableVectors),
   localparam type         MaskType     = logic [NumLanes-1:0],
@@ -124,7 +123,6 @@ module fpnew_top #(
       .Width         ( WIDTH                           ),
       .EnableVectors ( Features.EnableVectors          ),
       .PulpDivsqrt   ( PulpDivsqrt                     ),
-      .EnableRSR     ( EnableRSR                       ),
       .FpFmtMask     ( Features.FpFmtMask              ),
       .IntFmtMask    ( Features.IntFmtMask             ),
       .FmtPipeRegs   ( Implementation.PipeRegs[opgrp]  ),
@@ -132,7 +130,8 @@ module fpnew_top #(
       .PipeConfig    ( Implementation.PipeConfig       ),
       .TagType       ( TagType                         ),
       .TrueSIMDClass ( TrueSIMDClass                   ),
-      .CompressedVecCmpResult ( CompressedVecCmpResult )
+      .CompressedVecCmpResult ( CompressedVecCmpResult ),
+      .StochasticRndImplementation ( StochasticRndImplementation )
     ) i_opgroup_block (
       .clk_i,
       .rst_ni,

@@ -297,6 +297,25 @@ package fpnew_pkg;
     PipeConfig: BEFORE
   };
 
+  // Stochastic rounding only supported by DOTP operation group block
+  typedef struct packed {
+    logic        EnableRSR;             // Enable RSR adding an LFSR in the SDOTP rounding modules
+    int unsigned RsrPrecision;          // Number of bits considered for the stochastic rounding decision
+    int unsigned LfsrInternalPrecision; // LFSR internal bitwidth setting the pseudorandom number periodicity
+  } rsr_impl_t;
+
+  localparam rsr_impl_t DEFAULT_NO_RSR = '{
+    EnableRSR:           1'b0,
+    RsrPrecision:          12,
+    LfsrInternalPrecision: 32
+  };
+
+  localparam rsr_impl_t DEFAULT_RSR = '{
+    EnableRSR:           1'b1,
+    RsrPrecision:          12,
+    LfsrInternalPrecision: 32
+  };
+
   // -----------------------
   // Synthesis optimization
   // -----------------------

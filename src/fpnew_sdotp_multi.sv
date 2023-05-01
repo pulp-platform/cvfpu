@@ -47,13 +47,11 @@ module fpnew_sdotp_multi #(
                                                               // Supported source formats (FP8, FP8ALT, FP16, FP16ALT)
   parameter fpnew_pkg::fmt_logic_t   DstDotpFpFmtConfig = '1, // FP8 and FP8alt are not supported
                                                               // Supported destination formats (FP16, FP16ALTt, FP32)
-  parameter logic                    EnableRSR    = 1'b1,
-  parameter int unsigned             RsrPrecision = 12,
-  parameter int unsigned             LfsrInternalPrecision = 32,
   parameter int unsigned             NumPipeRegs = 0,
   parameter fpnew_pkg::pipe_config_t PipeConfig  = fpnew_pkg::BEFORE,
   parameter type                     TagType     = logic,
   parameter type                     AuxType     = logic,
+  parameter fpnew_pkg::rsr_impl_t    StochasticRndImplementation = fpnew_pkg::DEFAULT_NO_RSR,
 // Do not change
   localparam int unsigned SRC_WIDTH = fpnew_pkg::max_fp_width(SrcDotpFpFmtConfig),
   localparam int unsigned DST_WIDTH = fpnew_pkg::max_fp_width(DstDotpFpFmtConfig), // must be 2*SRC_WIDTH (expanding SDOTP)
@@ -115,8 +113,10 @@ module fpnew_sdotp_multi #(
   // Destination precision bits 'p_dst' include the implicit bit
   localparam int unsigned DST_PRECISION_BITS = SUPER_DST_MAN_BITS + 1;
   localparam int unsigned ADDITIONAL_PRECISION_BITS = fpnew_pkg::maximum(DST_PRECISION_BITS - 2 * PRECISION_BITS, 0);
-  // Extra bits in intermediate results for stochastic rounding (RSR),'RSRexbits'
-  localparam int unsigned RSR_PRECISION_BITS = RsrPrecision;
+  // Stochastic rounding implementation
+  localparam logic        ENABLE_RSR         = StochasticRndImplementation.EnableRSR;
+  localparam int unsigned RSR_PRECISION_BITS = StochasticRndImplementation.RsrPrecision;
+  localparam int unsigned LFSR_WIDTH         = StochasticRndImplementation.LfsrInternalPrecision;
   // The leading-zero counter operates on LZC_SUM_WIDTH bits
   localparam int unsigned LZC_SUM_WIDTH  = 2*DST_PRECISION_BITS + PRECISION_BITS + 5;
   localparam int unsigned LZC_RESULT_WIDTH = $clog2(LZC_SUM_WIDTH);
@@ -1319,9 +1319,9 @@ module fpnew_sdotp_multi #(
   // Perform the rounding
   fpnew_rounding #(
     .AbsWidth     ( SUPER_DST_EXP_BITS + SUPER_DST_MAN_BITS ),
-    .EnableRSR    ( EnableRSR             ),
-    .RsrPrecision ( RSR_PRECISION_BITS    ),
-    .LfsrWidth    ( LfsrInternalPrecision )
+    .EnableRSR    ( ENABLE_RSR         ),
+    .RsrPrecision ( RSR_PRECISION_BITS ),
+    .LfsrWidth    ( LFSR_WIDTH         )
   ) i_fpnew_rounding (
     .clk_i                      ( clk_i                    ),
     .rst_ni                     ( rst_ni                   ),

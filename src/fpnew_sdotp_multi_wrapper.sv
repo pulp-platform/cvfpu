@@ -22,10 +22,9 @@ module fpnew_sdotp_multi_wrapper #(
   parameter fpnew_pkg::fmt_logic_t   FpFmtConfig = '1,
   parameter int unsigned             NumPipeRegs = 0,
   parameter fpnew_pkg::pipe_config_t PipeConfig  = fpnew_pkg::BEFORE,
-  parameter logic                    EnableRSR   = 1'b1,
   parameter type                     TagType     = logic,
   parameter type                     AuxType     = logic,
-
+  parameter fpnew_pkg::rsr_impl_t    StochasticRndImplementation = fpnew_pkg::DEFAULT_NO_RSR,
   // Do not change
   localparam fpnew_pkg::fmt_logic_t FpSrcFmtConfig = FpFmtConfig[0] ? (FpFmtConfig & 6'b001111) : (FpFmtConfig & 6'b000101),
   localparam fpnew_pkg::fmt_logic_t FpDstFmtConfig = fpnew_pkg::get_dotp_dst_fmts(FpFmtConfig, FpSrcFmtConfig),
@@ -146,11 +145,11 @@ module fpnew_sdotp_multi_wrapper #(
   fpnew_sdotp_multi #(
     .SrcDotpFpFmtConfig ( FpSrcFmtConfig ), // FP8, FP8ALT, FP16, FP16ALT
     .DstDotpFpFmtConfig ( FpDstFmtConfig ), // FP32, FP16, FP16ALT
-    .EnableRSR          ( EnableRSR      ),
     .NumPipeRegs        ( NumPipeRegs    ),
     .PipeConfig         ( PipeConfig     ),
     .TagType            ( TagType        ),
-    .AuxType            ( AuxType        )
+    .AuxType            ( AuxType        ),
+    .StochasticRndImplementation ( StochasticRndImplementation )
   ) i_fpnew_sdotp_multi (
     .clk_i,
     .rst_ni,

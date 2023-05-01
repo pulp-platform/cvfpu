@@ -19,7 +19,6 @@ module fpnew_opgroup_block #(
   parameter int unsigned                Width         = 32,
   parameter logic                       EnableVectors = 1'b1,
   parameter logic                       PulpDivsqrt   = 1'b1,
-  parameter logic                       EnableRSR     = 1'b1,
   parameter fpnew_pkg::fmt_logic_t      FpFmtMask     = '1,
   parameter fpnew_pkg::ifmt_logic_t     IntFmtMask    = '1,
   parameter fpnew_pkg::fmt_unsigned_t   FmtPipeRegs   = '{default: 0},
@@ -28,6 +27,7 @@ module fpnew_opgroup_block #(
   parameter type                        TagType       = logic,
   parameter int unsigned                TrueSIMDClass = 0,
   parameter logic                       CompressedVecCmpResult = 0,
+  parameter fpnew_pkg::rsr_impl_t       StochasticRndImplementation = fpnew_pkg::DEFAULT_NO_RSR,
   // Do not change
   localparam int unsigned NUM_FORMATS  = fpnew_pkg::NUM_FP_FORMATS,
   localparam int unsigned NUM_OPERANDS = fpnew_pkg::num_operands(OpGroup),
@@ -182,12 +182,12 @@ module fpnew_opgroup_block #(
       .Width         ( Width            ),
       .FpFmtConfig   ( FpFmtMask        ),
       .IntFmtConfig  ( IntFmtMask       ),
-      .EnableRSR     ( EnableRSR        ),
       .EnableVectors ( EnableVectors    ),
       .PulpDivsqrt   ( PulpDivsqrt      ),
       .NumPipeRegs   ( REG              ),
       .PipeConfig    ( PipeConfig       ),
-      .TagType       ( TagType          )
+      .TagType       ( TagType          ),
+      .StochasticRndImplementation ( StochasticRndImplementation )
     ) i_multifmt_slice (
       .clk_i,
       .rst_ni,

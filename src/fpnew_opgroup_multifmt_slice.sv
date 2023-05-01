@@ -21,12 +21,12 @@ module fpnew_opgroup_multifmt_slice #(
   // FPU configuration
   parameter fpnew_pkg::fmt_logic_t   FpFmtConfig   = '1,
   parameter fpnew_pkg::ifmt_logic_t  IntFmtConfig  = '1,
-  parameter logic                    EnableRSR     = 1'b1,
   parameter logic                    EnableVectors = 1'b1,
   parameter logic                    PulpDivsqrt   = 1'b1,
   parameter int unsigned             NumPipeRegs   = 0,
   parameter fpnew_pkg::pipe_config_t PipeConfig    = fpnew_pkg::BEFORE,
   parameter type                     TagType       = logic,
+  parameter fpnew_pkg::rsr_impl_t    StochasticRndImplementation = fpnew_pkg::DEFAULT_NO_RSR,
   // Do not change
   localparam int unsigned NUM_OPERANDS = fpnew_pkg::num_operands(OpGroup),
   localparam int unsigned NUM_FORMATS  = fpnew_pkg::NUM_FP_FORMATS,
@@ -284,9 +284,9 @@ or on 16b inputs producing 32b outputs");
           .FpFmtConfig ( LANE_FORMATS         ), // fp64 and fp32 not supported
           .NumPipeRegs ( NumPipeRegs          ),
           .PipeConfig  ( PipeConfig           ),
-          .EnableRSR   ( EnableRSR            ),
           .TagType     ( TagType              ),
-          .AuxType     ( logic [AUX_BITS-1:0] )
+          .AuxType     ( logic [AUX_BITS-1:0] ),
+          .StochasticRndImplementation ( StochasticRndImplementation )
         ) i_fpnew_sdotp_multi_wrapper (
           .clk_i,
           .rst_ni,

@@ -40,7 +40,7 @@ For more in-depth explanations on how to configure the unit and the layout of th
 | `TagType`        | The SystemVerilog data type of the operation tag                                                                             |
 | `TrueSIMDClass`  | If enabled, the result of a classify operation in vectorial mode will be RISC-V compliant if each output has at least 10 bits|
 | `EnableSIMDMask` | Enable the RISC-V floating-point status flags masking of inactive vectorial lanes. When disabled, `simd_mask_i` is inactive  |
-| `EnableRSR`      | Enable stochastic rounding support for SDOTP                                                                                 |
+| `StochasticRndImplementation` | Enable stochastic rounding support for SDOTP, define LFSR bitwidth and number of trailing bits considered for the SR decision  |
 | `CompressedVecCmpResult` | Compress the result of a vector compare in the LSBs, conceived for RV32FD cores                                      |
 
 ### Ports
@@ -142,7 +142,7 @@ Enumeration of type `logic [2:0]` holding the supported FP formats.
 
 The following global parameters associated with FP formats are set in `fpnew_pkg`:
 ```SystemVerilog
-localparam int unsigned NUM_FP_FORMATS = 5;
+localparam int unsigned NUM_FP_FORMATS = 6;
 localparam int unsigned FP_FORMAT_BITS = $clog2(NUM_FP_FORMATS);
 ```
 
@@ -237,7 +237,7 @@ typedef struct packed {
 ```
 The fields of this struct behave as follows:
 
-##### `Width` - Datapath Wdith
+##### `Width` - Datapath Width
 
 Specifies the width of the FPU datapath and of the input and output data ports (`operands_i`/`result_o`).
 It must be larger or equal to the width of the widest enabled FP and integer format.
@@ -285,7 +285,7 @@ Otherwise, synthesis tools can optimize away any logic associated with this form
 
 #### `Implementation` - Implementation Options
 
-The FPU is divided into five operation groups,  `ADDMUL`, `DIVSQRT`, `NONDOMP`, `CONV`, and DOTP (see [Architecture: Top-Level](#top-level)).
+The FPU is divided into five operation groups,  `ADDMUL`, `DIVSQRT`, `NONDOMP`, `CONV`, and `DOTP` (see [Architecture: Top-Level](#top-level)).
 The `Implementation` parameter controls the implementation of these operation groups.
 It is of type `fpu_implementation_t` which is defined as:
 ```SystemVerilog
@@ -358,7 +358,33 @@ The configuration  `pipe_config_t` is an enumeration of type `logic [1:0]` holdi
 | `INSIDE`      | All registers are inserted at roughly the middle of the operational unit (if not possible, `BEFORE`) |
 | `DISTRIBUTED` | Registers are evenly distributed to `INSIDE`, `BEFORE`, and `AFTER` (if no `INSIDE`, all `BEFORE`)   |
 
+### `Stochastic Rounding Implementation`
 
+The `StochasticRndImplementation` parameter is used to configure the RSR support.
+It is of type `rsr_impl_t` which is defined as:
+```SystemVerilog
+typedef struct packed {
+  logic        EnableRSR;
+  int unsigned RsrPrecision;
+  int unsigned LfsrInternalPrecision;
+} rsr_impl_t;
+```
+The fields of this struct behave as follows:
+
+##### `EnableRSR` - Enable RSR support
+Enables stochastic rounding support in the `DOTP` operation group block. It instantiates an `LFSR` in the rounding module.
+
+*Default*: `1'b0`
+
+##### `RsrPrecision`
+Specifies the number of trailing bits considered for the stochastic rounding decision.
+
+*Default*: `12`
+
+##### `LfsrInternalPrecision`
+Specifies the LFSR internal bitwidth, thus controlling the pseudorandom number periodicity.
+
+*Default*: `32`
 
 ### Adding Custom Formats
 
