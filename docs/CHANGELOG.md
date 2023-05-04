@@ -11,6 +11,11 @@ Versions of the IP in the same major relase are "pin-compatible" with each other
 ## [Unreleased]
 
 ### Added
+- Add support for alternative FP32-only DivSqrt unit
+
+## [0.7.0] - 2023-03-20
+
+### Added
 - Citation file `CITATION.cff`
 - Add support for RISC-V compliant classify in vectorial mode when the vector element width is at least 10 bits
 - Add `mask` input signal to mask exceptions from inactive SIMD elements

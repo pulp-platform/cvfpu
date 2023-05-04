@@ -26,6 +26,8 @@ module fpnew_opgroup_block #(
   parameter fpnew_pkg::pipe_config_t    PipeConfig    = fpnew_pkg::BEFORE,
   parameter type                        TagType       = logic,
   parameter int unsigned                TrueSIMDClass = 0,
+  parameter logic                       CompressedVecCmpResult = 0,
+  parameter fpnew_pkg::rsr_impl_t       StochasticRndImplementation = fpnew_pkg::DEFAULT_NO_RSR,
   // Do not change
   localparam int unsigned NUM_FORMATS  = fpnew_pkg::NUM_FP_FORMATS,
   localparam int unsigned NUM_OPERANDS = fpnew_pkg::num_operands(OpGroup),
@@ -34,6 +36,7 @@ module fpnew_opgroup_block #(
 ) (
   input logic                                     clk_i,
   input logic                                     rst_ni,
+  input logic [31:0]                              hart_id_i,
   // Input signals
   input logic [NUM_OPERANDS-1:0][Width-1:0]       operands_i,
   input logic [NUM_FORMATS-1:0][NUM_OPERANDS-1:0] is_boxed_i,
@@ -110,7 +113,8 @@ module fpnew_opgroup_block #(
         .NumPipeRegs   ( FmtPipeRegs[fmt]             ),
         .PipeConfig    ( PipeConfig                   ),
         .TagType       ( TagType                      ),
-        .TrueSIMDClass ( TrueSIMDClass                )
+        .TrueSIMDClass ( TrueSIMDClass                ),
+        .CompressedVecCmpResult ( CompressedVecCmpResult )
       ) i_fmt_slice (
         .clk_i,
         .rst_ni,
@@ -182,10 +186,12 @@ module fpnew_opgroup_block #(
       .PulpDivsqrt   ( PulpDivsqrt      ),
       .NumPipeRegs   ( REG              ),
       .PipeConfig    ( PipeConfig       ),
-      .TagType       ( TagType          )
+      .TagType       ( TagType          ),
+      .StochasticRndImplementation ( StochasticRndImplementation )
     ) i_multifmt_slice (
       .clk_i,
       .rst_ni,
+      .hart_id_i,
       .operands_i,
       .is_boxed_i,
       .rnd_mode_i,
