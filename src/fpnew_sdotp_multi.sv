@@ -1270,7 +1270,7 @@ module fpnew_sdotp_multi #(
     // Set up some constants
     localparam int unsigned EXP_BITS = fpnew_pkg::exp_bits(fpnew_pkg::fp_format_e'(fmt));
     localparam int unsigned MAN_BITS = fpnew_pkg::man_bits(fpnew_pkg::fp_format_e'(fmt));
-    localparam int unsigned ALL_EXTRA_BITS = SUPER_DST_MAN_BITS-MAN_BITS+1+DST_PRECISION_BITS+PRECISION_BITS+2+1;
+    localparam int unsigned ALL_EXTRA_BITS = fpnew_pkg::maximum(SUPER_DST_MAN_BITS-MAN_BITS+1+DST_PRECISION_BITS+PRECISION_BITS+2+1, 1);
 
     logic [EXP_BITS-1:0] pre_round_exponent;
     logic [MAN_BITS-1:0] pre_round_mantissa;

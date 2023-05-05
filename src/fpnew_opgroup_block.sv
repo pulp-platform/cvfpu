@@ -25,8 +25,8 @@ module fpnew_opgroup_block #(
   parameter fpnew_pkg::fmt_unit_types_t FmtUnitTypes  = '{default: fpnew_pkg::PARALLEL},
   parameter fpnew_pkg::pipe_config_t    PipeConfig    = fpnew_pkg::BEFORE,
   parameter type                        TagType       = logic,
-  parameter int unsigned                TrueSIMDClass = 0,
-  parameter logic                       CompressedVecCmpResult = 0,
+  parameter logic                       TrueSIMDClass = 1'b0,
+  parameter logic                       CompressedVecCmpResult = 1'b0,
   parameter fpnew_pkg::rsr_impl_t       StochasticRndImplementation = fpnew_pkg::DEFAULT_NO_RSR,
   // Do not change
   localparam int unsigned NUM_FORMATS  = fpnew_pkg::NUM_FP_FORMATS,

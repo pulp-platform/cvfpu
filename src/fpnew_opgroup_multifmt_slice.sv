@@ -315,7 +315,7 @@ or on 16b inputs producing 32b outputs");
           .busy_o          ( lane_busy[lane]     )
         );
       end else if (OpGroup == fpnew_pkg::DIVSQRT) begin : lane_instance
-        if (!PulpDivsqrt && LANE_FORMATS[0] && (LANE_FORMATS[1:fpnew_pkg::NUM_FP_FORMATS-1] == '0)) begin : gen_th_32_divsqrt
+        if (!PulpDivsqrt) begin : gen_th_32_divsqrt
           // The T-head-based DivSqrt unit is supported only in FP32-only configurations
           fpnew_divsqrt_th_32 #(
             .NumPipeRegs ( NumPipeRegs          ),
@@ -433,6 +433,7 @@ or on 16b inputs producing 32b outputs");
       assign lane_out_valid[lane] = 1'b0; // unused lane
       assign lane_in_ready[lane]  = 1'b0; // unused lane
       assign lane_aux[lane]       = 1'b0; // unused lane
+      assign lane_masks[lane]     = 1'b1; // unused lane
       assign lane_tags[lane]      = 1'b0; // unused lane
       assign lane_ext_bit[lane]   = 1'b1; // NaN-box unused lane
       assign local_result         = {(LANE_WIDTH){lane_ext_bit[0]}}; // sign-extend/nan box
@@ -571,7 +572,7 @@ or on 16b inputs producing 32b outputs");
     assign fmt_conv_cpk_result = '0;
   end
 
-  if (PulpDivsqrt) begin
+  if (PulpDivsqrt && (OpGroup == fpnew_pkg::DIVSQRT)) begin
     // Synch lanes if there is more than one
     assign simd_synch_rdy  = EnableVectors ? &divsqrt_ready : divsqrt_ready[0];
     assign simd_synch_done = EnableVectors ? &divsqrt_done  : divsqrt_done[0];

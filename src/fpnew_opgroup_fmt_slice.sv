@@ -22,8 +22,8 @@ module fpnew_opgroup_fmt_slice #(
   parameter int unsigned             NumPipeRegs   = 0,
   parameter fpnew_pkg::pipe_config_t PipeConfig    = fpnew_pkg::BEFORE,
   parameter type                     TagType       = logic,
-  parameter int unsigned             TrueSIMDClass = 0,
-  parameter logic                    CompressedVecCmpResult = 0,
+  parameter logic                    TrueSIMDClass = 1'b0,
+  parameter logic                    CompressedVecCmpResult = 1'b0,
   // Do not change
   localparam int unsigned NUM_OPERANDS = fpnew_pkg::num_operands(OpGroup),
   localparam int unsigned NUM_LANES    = fpnew_pkg::num_lanes(Width, FpFormat, EnableVectors),
