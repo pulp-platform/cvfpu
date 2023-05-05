@@ -20,9 +20,9 @@ module fpnew_top #(
   // PulpDivSqrt = 0 enables T-head-based DivSqrt unit. Supported only for FP32-only instances of Fpnew
   parameter logic                           PulpDivsqrt    = 1'b1,
   parameter type                            TagType        = logic,
-  parameter int unsigned                    TrueSIMDClass  = 0,
-  parameter int unsigned                    EnableSIMDMask = 0,
-  parameter logic                           CompressedVecCmpResult = 0, // conceived for RV32FD cores
+  parameter logic                           TrueSIMDClass  = 1'b0,
+  parameter logic                           EnableSIMDMask = 1'b0,
+  parameter logic                           CompressedVecCmpResult = 1'b0, // conceived for RV32FD cores
   parameter fpnew_pkg::rsr_impl_t           StochasticRndImplementation = fpnew_pkg::DEFAULT_NO_RSR,
   // Do not change
   localparam int unsigned NumLanes     = fpnew_pkg::max_num_lanes(Features.Width, Features.FpFmtMask, Features.EnableVectors),
@@ -99,7 +99,7 @@ module fpnew_top #(
 
   // Filter out the mask if not used
   MaskType simd_mask;
-  assign simd_mask = simd_mask_i | ~{NumLanes{logic'(EnableSIMDMask)}};
+  assign simd_mask = simd_mask_i | ~{NumLanes{EnableSIMDMask}};
 
   // -------------------------
   // Generate Operation Blocks
