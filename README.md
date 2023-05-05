@@ -165,6 +165,9 @@ If you use FPnew in your work, you can cite us:
 }
 ```
 
+<p>
+</details>
+
 If you use FPnew SDOTP in your work, you can cite us:
 
 <details>
