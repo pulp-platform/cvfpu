@@ -62,6 +62,9 @@ module fpnew_divsqrt_multi #(
   // ----------
   // Constants
   // ----------
+  localparam int unsigned NUM_INT_FORMATS = fpnew_pkg::NUM_INT_FORMATS;
+  localparam int unsigned FMT_BITS =
+      fpnew_pkg::maximum($clog2(NUM_FORMATS), $clog2(NUM_INT_FORMATS));
   // Pipelines
   localparam NUM_INP_REGS = (PipeConfig == fpnew_pkg::BEFORE)
                             ? NumPipeRegs
@@ -105,7 +108,7 @@ module fpnew_divsqrt_multi #(
   assign inp_pipe_mask_q[0]     = mask_i;
   assign inp_pipe_aux_q[0]      = aux_i;
   assign inp_pipe_valid_q[0]    = in_valid_i;
-  // Input stage: Propagate pipeline ready signal to updtream circuitry
+  // Input stage: Propagate pipeline ready signal to upstream circuitry
   assign in_ready_o = inp_pipe_ready[0];
   // Generate the register stages
   for (genvar i = 0; i < NUM_INP_REGS; i++) begin : gen_input_pipeline
@@ -170,27 +173,43 @@ module fpnew_divsqrt_multi #(
   logic op_starting;            // high in the cycle a new operation starts
   logic out_valid, out_ready;   // output handshake with downstream
   logic unit_busy;              // valid data in flight
+  logic simd_synch_done;
   // FSM states
   typedef enum logic [1:0] {IDLE, BUSY, HOLD} fsm_state_e;
   fsm_state_e state_q, state_d;
-
-  // Ready synch with other lanes
-  // Bring the FSM-generated ready outside the unit, to synchronize it with the other lanes
-  assign divsqrt_ready_o = in_ready;
-  // Upstream ready comes from sanitization FSM, and it is synched among all the lanes
-  assign inp_pipe_ready[NUM_INP_REGS] = simd_synch_rdy_i;
-
-  // Valid synch with other lanes
-  // When one divsqrt unit completes an operation, keep its done high, waiting for the other lanes
-  // As soon as all the lanes are over, we can clear this FF and start with a new operation
-  `FFLARNC(unit_done_q, unit_done, unit_done, simd_synch_done_i, 1'b0, clk_i, rst_ni);
-  // Tell the other units that this unit has finished now or in the past
-  assign divsqrt_done_o = unit_done_q | unit_done;
 
   // Valids are gated by the FSM ready. Invalid input ops run a sqrt to not lose illegal instr.
   assign div_valid   = in_valid_q & (op_q == fpnew_pkg::DIV) & in_ready & ~flush_i;
   assign sqrt_valid  = in_valid_q & (op_q != fpnew_pkg::DIV) & in_ready & ~flush_i;
   assign op_starting = div_valid | sqrt_valid;
+
+  // Hold additional information while the operation is in progress
+  logic result_is_fp8_q;
+  TagType result_tag_q;
+  logic result_mask_q;
+  AuxType result_aux_q;
+
+  // Fill the registers everytime a valid operation arrives (load FF, active low asynch rst)
+  `FFL(result_is_fp8_q, input_is_fp8,                 op_starting, '0)
+  `FFL(result_tag_q,    inp_pipe_tag_q[NUM_INP_REGS], op_starting, '0)
+  `FFL(result_mask_q,   inp_pipe_mask_q[NUM_INP_REGS],op_starting, '0)
+  `FFL(result_aux_q,    inp_pipe_aux_q[NUM_INP_REGS], op_starting, '0)
+
+  // Wait for other lanes only if the operation is vectorial
+  assign simd_synch_done = simd_synch_done_i || ~result_aux_q[FMT_BITS+1];
+
+  // Valid synch with other lanes
+  // When one divsqrt unit completes an operation, keep its done high, waiting for the other lanes
+  // As soon as all the lanes are over, we can clear this FF and start with a new operation
+  `FFLARNC(unit_done_q, unit_done, unit_done, simd_synch_done, 1'b0, clk_i, rst_ni);
+  // Tell the other units that this unit has finished now or in the past
+  assign divsqrt_done_o = (unit_done_q | unit_done) & result_aux_q[FMT_BITS+1];
+
+  // Ready synch with other lanes
+  // Bring the FSM-generated ready outside the unit, to synchronize it with the other lanes
+  assign divsqrt_ready_o = in_ready;
+  // Upstream ready comes from sanitization FSM, and it is synched among all the lanes
+  assign inp_pipe_ready[NUM_INP_REGS] = result_aux_q[FMT_BITS+1] ? simd_synch_rdy_i : in_ready;
 
   // FSM to safely apply and receive data from DIVSQRT unit
   always_comb begin : flag_fsm
@@ -212,13 +231,13 @@ module fpnew_divsqrt_multi #(
       BUSY: begin
         unit_busy = 1'b1; // data in flight
         // If all the lanes are done with processing
-        if (simd_synch_done_i) begin
+        if (simd_synch_done_i || (~result_aux_q[FMT_BITS+1] && unit_done)) begin
           out_valid = 1'b1; // try to commit result downstream
           // If downstream accepts our result
           if (out_ready) begin
             state_d = IDLE; // we anticipate going back to idling..
+            in_ready = 1'b1; // we acknowledge the instruction
             if (in_valid_q && unit_ready) begin // ..unless new work comes in
-              in_ready = 1'b1; // we acknowledge the instruction
               state_d  = BUSY; // and stay busy with it
             end
           // Otherwise if downstream is not ready for the result
@@ -255,18 +274,6 @@ module fpnew_divsqrt_multi #(
   // FSM status register (asynch active low reset)
   `FF(state_q, state_d, IDLE)
 
-  // Hold additional information while the operation is in progress
-  logic result_is_fp8_q;
-  TagType result_tag_q;
-  logic result_mask_q;
-  AuxType result_aux_q;
-
-  // Fill the registers everytime a valid operation arrives (load FF, active low asynch rst)
-  `FFL(result_is_fp8_q, input_is_fp8,                 op_starting, '0)
-  `FFL(result_tag_q,    inp_pipe_tag_q[NUM_INP_REGS], op_starting, '0)
-  `FFL(result_mask_q,   inp_pipe_mask_q[NUM_INP_REGS],op_starting, '0)
-  `FFL(result_aux_q,    inp_pipe_aux_q[NUM_INP_REGS], op_starting, '0)
-
   // -----------------
   // DIVSQRT instance
   // -----------------
@@ -295,9 +302,9 @@ module fpnew_divsqrt_multi #(
   // Adjust result width and fix FP8
   assign adjusted_result = result_is_fp8_q ? unit_result >> 8 : unit_result;
 
-  // Hold the result when one lane has finished execution, except when all the lanes finish together
-  // and the result can be accepted downstream
-  assign hold_en = unit_done & (~simd_synch_done_i | ~out_ready);
+  // Hold the result when one lane has finished execution, except when all the lanes finish together,
+  // or the operation is not vectorial, and the result can be accepted downstream
+  assign hold_en = unit_done & (~simd_synch_done_i | ~out_ready) & ~(~result_aux_q[FMT_BITS+1] & out_ready);
   // The Hold register (load, no reset)
   `FFLNR(held_result_q, adjusted_result, hold_en, clk_i)
   `FFLNR(held_status_q, unit_status,     hold_en, clk_i)
