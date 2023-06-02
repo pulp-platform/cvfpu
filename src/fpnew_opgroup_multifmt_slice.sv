@@ -97,7 +97,7 @@ or on 16b inputs producing 32b outputs");
   // additional flags for CONV
   logic       dst_fmt_is_int, dst_is_cpk;
   logic [1:0] dst_vec_op; // info for vectorial results (for packing)
-  logic [1:0] target_aux_d, target_aux_q;
+  logic [1:0] target_aux_d;
   logic       is_up_cast, is_down_cast;
 
   logic [NUM_FORMATS-1:0][Width-1:0]      fmt_slice_result;
@@ -151,6 +151,8 @@ or on 16b inputs producing 32b outputs");
   // CONV passes one operand for assembly after the unit: opC for cpk, opB for others
   if (OpGroup == fpnew_pkg::CONV) begin : conv_target
     assign conv_target_d = dst_is_cpk ? operands_i[2] : operands_i[1];
+  end else begin : not_conv_target
+    assign conv_target_d = '0;
   end
 
   // For 2-operand units, prepare boxing info
@@ -435,6 +437,8 @@ or on 16b inputs producing 32b outputs");
       assign lane_aux[lane]       = 1'b0; // unused lane
       assign lane_masks[lane]     = 1'b1; // unused lane
       assign lane_tags[lane]      = 1'b0; // unused lane
+      assign divsqrt_done[lane]   = 1'b0; // unused lane
+      assign divsqrt_ready[lane]  = 1'b0; // unused lane
       assign lane_ext_bit[lane]   = 1'b1; // NaN-box unused lane
       assign local_result         = {(LANE_WIDTH){lane_ext_bit[0]}}; // sign-extend/nan box
       assign lane_status[lane]    = '0;
@@ -570,6 +574,7 @@ or on 16b inputs producing 32b outputs");
   end else begin : no_conv
     assign result_vec_op = '0;
     assign fmt_conv_cpk_result = '0;
+    assign conv_target_q = '0;
   end
 
   if (PulpDivsqrt && (OpGroup == fpnew_pkg::DIVSQRT)) begin
