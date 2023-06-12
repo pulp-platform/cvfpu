@@ -123,11 +123,11 @@ package fpnew_pkg;
   localparam int unsigned OP_BITS = 5;
 
   typedef enum logic [OP_BITS-1:0] {
-    SDOTP, EXVSUM, VSUM,         // DOTP operation group
     FMADD, FNMSUB, ADD, MUL,     // ADDMUL operation group
     DIV, SQRT,                   // DIVSQRT operation group
     SGNJ, MINMAX, CMP, CLASSIFY, // NONCOMP operation group
-    F2F, F2I, I2F, CPKAB, CPKCD  // CONV operation group
+    F2F, F2I, I2F, CPKAB, CPKCD, // CONV operation group
+    SDOTP, EXVSUM, VSUM          // DOTP operation group
   } operation_e;
 
   // -------------------
