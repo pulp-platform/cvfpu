@@ -7,12 +7,17 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 In this sense, we interpret the "Public API" of a hardware module as its port/parameter list.
 Versions of the IP in the same major relase are "pin-compatible" with each other. Minor relases are permitted to add new parameters as long as their default bindings ensure backwards compatibility.
 
-## [0.1.1] - 2023-05-05
+## [pulp-v0.1.2] - 2023-06-12
+
+### Fixed
+- Fix synchronization scheme for SIMD DivSqrt
+
+## [pulp-v0.1.1] - 2023-05-05
 
 ### Fixed
 - Fix various tool compatibility issues
 
-## [0.1.0] - 2023-05-04
+## [pulp-v0.1.0] - 2023-05-04
 
 ### Added
 - Add low and mixed-precision SDOTP with support for stochastic rounding
