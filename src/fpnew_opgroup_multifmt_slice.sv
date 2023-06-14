@@ -71,7 +71,7 @@ Set PulpDivsqrt to 1 not to use the PULP DivSqrt unit \
 or set Features.FpFmtMask to support only FP32");
   end
 
-  if ((OpGroup == fpnew_pkg::DOTP) &&
+  if (((OpGroup == fpnew_pkg::DOTP) || (OpGroup == fpnew_pkg::CDOTP)) &&
       !(FpFmtConfig[0] && (FpFmtConfig[2] || FpFmtConfig[4]) && (FpFmtConfig[3] || FpFmtConfig[5]))) begin
     $fatal(1, "SDOTP only supported on 32b and 64b CVFPU instances in which at \
 least one 16b and one 8b format are supported. \
@@ -316,6 +316,148 @@ or on 16b inputs producing 32b outputs");
           .out_ready_i     ( out_ready           ),
           .busy_o          ( lane_busy[lane]     )
         );
+
+      // TODO: Reuse one of the SDOTP slices for SDOTP only instructions
+      end else if (OpGroup == fpnew_pkg::CDOTP) begin : lane_instance
+
+        // Input Output
+        logic [NUM_OPERANDS-1:0][LANE_WIDTH-1:0] local_operands_real, local_operands_imag;
+        logic [LANE_WIDTH-1:0]                   op_result_real, op_result_imag;
+        logic [LANE_WIDTH-1:0]                   operand_a, operand_b, operand_c, operand_d, operand_d_neg, operand_x, operand_y;
+
+        // Control
+        fpnew_pkg::status_t    op_status_real, op_status_imag;
+        fpnew_pkg::operation_e complexop_i;
+        TagType                lane_tags_real, lane_tags_imag;
+        logic                  lane_masks_real, lane_masks_imag;
+        logic   [AUX_BITS-1:0] lane_aux_real, lane_aux_imag;
+        // Handshake
+        logic lane_in_ready_real, lane_in_ready_imag;
+        logic out_valid_real, lane_busy_real;
+        logic out_valid_imag, lane_busy_imag;
+
+        // Operation Selection
+        // | \c op_q  | \c op_mod_q | Operation Adjustment
+        // |:--------:|:-----------:|---------------------
+        // | CSDOTP   | \c 0        | CSDOTP: SDOTP on real and imag lane
+        // | CSDOTP   | \c 1        | CSDOTPN: SDOTPN on real and imag lane
+        // | CCSDOTP  | \c 0        | CSDOTP: SDOTP on real and imag lane, invert operand_d
+        // | CCSDOTP  | \c 1        | CSDOTPN: SDOTPN on real and imag lane, invert operand_d
+        // | *others* | \c -        | *invalid*
+        // \note \c op_mod_q always inverts the sign of the addend.
+        always_comb begin : op_select
+          operand_a = local_operands[0][LANE_WIDTH-1:LANE_WIDTH/2-1];
+          operand_b = local_operands[0][LANE_WIDTH/2-1:0];
+          operand_c = local_operands[1][LANE_WIDTH-1:LANE_WIDTH/2-1];
+          operand_d = local_operands[1][LANE_WIDTH/2-1:0];
+          operand_d_neg = {~operand_d[LANE_WIDTH-1], operand_d[LANE_WIDTH-2:0]};
+          complexop_i = fpnew_pkg::SDOTP; // All complex operations translate to SDOTP on two lanes
+          // Complex product (a + jb) * (c + jd) = (a * c - b * d) + j (b * c + a * d)
+          // The accumulator (x + jy) is in LANE_WIDTH/2 as we only have a LANE_WIDTH output
+          // Extension to LANE_WIDTH of the result is not supported
+          local_operands_real[0] = {operand_a, operand_b};
+          local_operands_imag[0] = {operand_b, operand_a};
+          local_operands_real[2] = {{(LANE_WIDTH/2){1'b1}}, local_operands[2][LANE_WIDTH-1:LANE_WIDTH/2]};
+          local_operands_imag[2] = {{(LANE_WIDTH/2){1'b1}}, local_operands[2][LANE_WIDTH/2-1:0]};
+          op_result[LANE_WIDTH-1:LANE_WIDTH/2-1] = op_result_real[LANE_WIDTH/2-1:0];
+          op_result[LANE_WIDTH/2-1:0] = op_result_imag[LANE_WIDTH/2-1:0];
+          unique case (op_i)
+            fpnew_pkg::CSDOTP: begin
+              local_operands_real[1] = {operand_c, operand_d_neg};
+              local_operands_imag[1] = {operand_c, operand_d};
+            end
+            fpnew_pkg::CCSDOTP: begin
+              local_operands_real[1] = {operand_c, operand_d};
+              local_operands_imag[1] = {operand_c, operand_d_neg};
+            end
+          endcase // op_i
+        end
+
+        assign op_status.NV = op_status_real.NV || op_status_imag.NV;
+        assign op_status.DZ = op_status_real.DZ || op_status_imag.DZ;
+        assign op_status.OF = op_status_real.OF || op_status_imag.OF;
+        assign op_status.UF = op_status_real.UF || op_status_imag.UF;
+        assign op_status.NX = op_status_real.NX || op_status_imag.NX;
+        assign lane_ext_bit[lane] = 1'b1;
+        assign lane_tags = lane_tags_real || lane_tags_imag;
+        assign lane_masks[lane] = lane_masks_real || lane_masks_imag;
+        assign lane_aux[lane] = lane_aux_real || lane_aux_imag;
+
+        assign lane_in_ready = lane_in_ready_real && lane_in_ready_imag;
+        assign out_valid = out_valid_real && out_valid_imag;
+        assign lane_busy[lane] = lane_busy_real && lane_busy_imag;
+
+        fpnew_sdotp_multi_wrapper #(
+          .LaneWidth   ( LANE_WIDTH           ),
+          .FpFmtConfig ( 6'b001111            ), // fp64 and fp32 not supported
+          .NumPipeRegs ( NumPipeRegs          ),
+          .PipeConfig  ( PipeConfig           ),
+          .TagType     ( TagType              ),
+          .AuxType     ( logic [AUX_BITS-1:0] ),
+          .StochasticRndImplementation ( StochasticRndImplementation )
+        ) i_fpnew_sdotp_multi_wrapper_real (
+          .clk_i,
+          .rst_ni,
+          .sdotp_hart_id_i ( {hart_id_i, 2'b00} + lane ),
+          .operands_i      ( local_operands_real[2:0] ), // 3 operands
+          .is_boxed_i,
+          .rnd_mode_i,
+          .op_i            ( complexop_i         ),
+          .op_mod_i,
+          .src_fmt_i,
+          .dst_fmt_i,
+          .tag_i,
+          .mask_i          ( simd_mask_i[lane]   ),
+          .aux_i           ( aux_data            ),
+          .in_valid_i      ( in_valid            ),
+          .in_ready_o      ( lane_in_ready_real  ),
+          .flush_i,
+          .result_o        ( op_result_real     ),
+          .status_o        ( op_status_real     ),
+          .extension_bit_o ( ), // Always extended to pack two LANE_WIDTH/2 results
+          .tag_o           ( lane_tags_real     ),
+          .mask_o          ( lane_masks_real    ),
+          .aux_o           ( lane_aux_real      ),
+          .out_valid_o     ( out_valid_real     ),
+          .out_ready_i     ( out_ready          ),
+          .busy_o          ( lane_busy_real     )
+        );
+        fpnew_sdotp_multi_wrapper #(
+          .LaneWidth   ( LANE_WIDTH           ),
+          .FpFmtConfig ( 6'b001111            ), // fp64 and fp32 not supported
+          .NumPipeRegs ( NumPipeRegs          ),
+          .PipeConfig  ( PipeConfig           ),
+          .TagType     ( TagType              ),
+          .AuxType     ( logic [AUX_BITS-1:0] ),
+          .StochasticRndImplementation ( StochasticRndImplementation )
+        ) i_fpnew_sdotp_multi_wrapper_imag (
+          .clk_i,
+          .rst_ni,
+          .sdotp_hart_id_i ( {hart_id_i, 2'b00} + lane ),
+          .operands_i      ( local_operands_imag[2:0] ), // 3 operands
+          .is_boxed_i,
+          .rnd_mode_i,
+          .op_i            ( complexop_i         ),
+          .op_mod_i,
+          .src_fmt_i,
+          .dst_fmt_i,
+          .tag_i,
+          .mask_i          ( simd_mask_i[lane]   ),
+          .aux_i           ( aux_data            ),
+          .in_valid_i      ( in_valid            ),
+          .in_ready_o      ( lane_in_ready_imag  ),
+          .flush_i,
+          .result_o        ( op_result_imag     ),
+          .status_o        ( op_status_imag     ),
+          .extension_bit_o ( ), // Always extended to pack two LANE_WIDTH/2 results
+          .tag_o           ( lane_tags_imag     ),
+          .mask_o          ( lane_masks_imag    ),
+          .aux_o           ( lane_aux_imag      ),
+          .out_valid_o     ( out_valid_imag     ),
+          .out_ready_i     ( out_ready          ),
+          .busy_o          ( lane_busy_imag     )
+        );
+
       end else if (OpGroup == fpnew_pkg::DIVSQRT) begin : lane_instance
         if (!PulpDivsqrt) begin : gen_th_32_divsqrt
           // The T-head-based DivSqrt unit is supported only in FP32-only configurations
