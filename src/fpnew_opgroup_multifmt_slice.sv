@@ -193,15 +193,14 @@ or on 16b inputs producing 32b outputs");
 
     // Lane parameters from Opgroup
     localparam fpnew_pkg::fmt_logic_t LANE_FORMATS = (OpGroup == fpnew_pkg::CONV) ? CONV_FORMATS :
-                                                     (OpGroup == fpnew_pkg::DOTP) ? DOTP_FORMATS :
-                                                                                    ACTIVE_FORMATS;
+                                                     (OpGroup == fpnew_pkg::DOTP || OpGroup == fpnew_pkg::CDOTP) ? DOTP_FORMATS : ACTIVE_FORMATS;
     localparam int unsigned LANE_WIDTH = (OpGroup == fpnew_pkg::CONV) ? CONV_WIDTH :
-                                         (OpGroup == fpnew_pkg::DOTP) ? DOTP_WIDTH : MAX_WIDTH;
+                                         (OpGroup == fpnew_pkg::DOTP || OpGroup == fpnew_pkg::CDOTP) ? DOTP_WIDTH : MAX_WIDTH;
 
     logic [LANE_WIDTH-1:0] local_result; // lane-local results
 
     // Generate instances only if needed, lane 0 always generated
-    if ((lane == 0) || (EnableVectors & !(OpGroup == fpnew_pkg::DOTP && (lane >= NUM_DOTP_LANES)))) begin : active_lane
+    if ((lane == 0) || (EnableVectors & !((OpGroup == fpnew_pkg::DOTP || OpGroup == fpnew_pkg::CDOTP) && (lane >= NUM_DOTP_LANES)))) begin : active_lane
       logic in_valid, out_valid, out_ready; // lane-local handshake
 
       logic [NUM_OPERANDS-1:0][LANE_WIDTH-1:0] local_operands;  // lane-local oprands
@@ -219,7 +218,7 @@ or on 16b inputs producing 32b outputs");
           local_operands[i] = operands_i[i] >> LANE*fpnew_pkg::fp_width(src_fmt_i);
         end
 
-        if (OpGroup == fpnew_pkg::DOTP) begin
+        if (OpGroup == fpnew_pkg::DOTP || OpGroup == fpnew_pkg::CDOTP) begin
           for (int unsigned i = 0; i < NUM_OPERANDS; i++) begin
             if (i == 2) begin
               local_operands[i] = operands_i[i] >> LANE*fpnew_pkg::fp_width(dst_fmt_i); // expanded format the width of dst_fmt
@@ -346,11 +345,11 @@ or on 16b inputs producing 32b outputs");
         // | *others* | \c -        | *invalid*
         // \note \c op_mod_q always inverts the sign of the addend.
         always_comb begin : op_select
-          operand_a = local_operands[0][LANE_WIDTH-1:LANE_WIDTH/2-1];
+          operand_a = local_operands[0][LANE_WIDTH-1:LANE_WIDTH/2];
           operand_b = local_operands[0][LANE_WIDTH/2-1:0];
-          operand_c = local_operands[1][LANE_WIDTH-1:LANE_WIDTH/2-1];
+          operand_c = local_operands[1][LANE_WIDTH-1:LANE_WIDTH/2];
           operand_d = local_operands[1][LANE_WIDTH/2-1:0];
-          operand_d_neg = {~operand_d[LANE_WIDTH-1], operand_d[LANE_WIDTH-2:0]};
+          operand_d_neg = {~operand_d[LANE_WIDTH/2-1], operand_d[LANE_WIDTH/2-2:0]};
           complexop_i = fpnew_pkg::SDOTP; // All complex operations translate to SDOTP on two lanes
           // Complex product (a + jb) * (c + jd) = (a * c - b * d) + j (b * c + a * d)
           // The accumulator (x + jy) is in LANE_WIDTH/2 as we only have a LANE_WIDTH output
@@ -359,7 +358,7 @@ or on 16b inputs producing 32b outputs");
           local_operands_imag[0] = {operand_b, operand_a};
           local_operands_real[2] = {{(LANE_WIDTH/2){1'b1}}, local_operands[2][LANE_WIDTH-1:LANE_WIDTH/2]};
           local_operands_imag[2] = {{(LANE_WIDTH/2){1'b1}}, local_operands[2][LANE_WIDTH/2-1:0]};
-          op_result[LANE_WIDTH-1:LANE_WIDTH/2-1] = op_result_real[LANE_WIDTH/2-1:0];
+          op_result[LANE_WIDTH-1:LANE_WIDTH/2] = op_result_real[LANE_WIDTH/2-1:0];
           op_result[LANE_WIDTH/2-1:0] = op_result_imag[LANE_WIDTH/2-1:0];
           unique case (op_i)
             fpnew_pkg::CSDOTP: begin
@@ -369,6 +368,10 @@ or on 16b inputs producing 32b outputs");
             fpnew_pkg::CCSDOTP: begin
               local_operands_real[1] = {operand_c, operand_d};
               local_operands_imag[1] = {operand_c, operand_d_neg};
+            end
+            default: begin // propagate don't cares
+              local_operands_real[1] = '{default: fpnew_pkg::DONT_CARE};
+              local_operands_imag[1] = '{default: fpnew_pkg::DONT_CARE};
             end
           endcase // op_i
         end
@@ -389,7 +392,7 @@ or on 16b inputs producing 32b outputs");
 
         fpnew_sdotp_multi_wrapper #(
           .LaneWidth   ( LANE_WIDTH           ),
-          .FpFmtConfig ( 6'b001111            ), // fp64 and fp32 not supported
+          .FpFmtConfig ( LANE_FORMATS         ), // fp64 and fp32 not supported
           .NumPipeRegs ( NumPipeRegs          ),
           .PipeConfig  ( PipeConfig           ),
           .TagType     ( TagType              ),
@@ -424,7 +427,7 @@ or on 16b inputs producing 32b outputs");
         );
         fpnew_sdotp_multi_wrapper #(
           .LaneWidth   ( LANE_WIDTH           ),
-          .FpFmtConfig ( 6'b001111            ), // fp64 and fp32 not supported
+          .FpFmtConfig ( LANE_FORMATS         ), // fp64 and fp32 not supported
           .NumPipeRegs ( NumPipeRegs          ),
           .PipeConfig  ( PipeConfig           ),
           .TagType     ( TagType              ),
@@ -608,6 +611,19 @@ or on 16b inputs producing 32b outputs");
               '{default: lane_ext_bit[LANE]};
         end else if (LANE*FP_WIDTH < Width) begin
           assign fmt_slice_result[fmt][Width-1:LANE*FP_WIDTH] =
+              '{default: lane_ext_bit[LANE]};
+        end
+      end else if (OpGroup == fpnew_pkg::CDOTP) begin
+        localparam int unsigned FP_WIDTH = fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(fmt));
+        // only for active formats within the lane
+        if (ACTIVE_FORMATS[fmt]) begin
+          assign fmt_slice_result[fmt][(LANE+1)*2*FP_WIDTH-1:LANE*2*FP_WIDTH] =
+              local_result[2*FP_WIDTH-1:0];
+        end else if ((LANE+1)*2*FP_WIDTH <= Width) begin
+          assign fmt_slice_result[fmt][(LANE+1)*2*FP_WIDTH-1:LANE*2*FP_WIDTH] =
+              '{default: lane_ext_bit[LANE]};
+        end else if (LANE*2*FP_WIDTH < Width) begin
+          assign fmt_slice_result[fmt][Width-1:LANE*2*FP_WIDTH] =
               '{default: lane_ext_bit[LANE]};
         end
       end else begin
