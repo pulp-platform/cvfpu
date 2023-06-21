@@ -376,19 +376,19 @@ or on 16b inputs producing 32b outputs");
           endcase // op_i
         end
 
-        assign op_status.NV = op_status_real.NV || op_status_imag.NV;
-        assign op_status.DZ = op_status_real.DZ || op_status_imag.DZ;
-        assign op_status.OF = op_status_real.OF || op_status_imag.OF;
-        assign op_status.UF = op_status_real.UF || op_status_imag.UF;
-        assign op_status.NX = op_status_real.NX || op_status_imag.NX;
+        assign op_status.NV = op_status_real.NV | op_status_imag.NV;
+        assign op_status.DZ = op_status_real.DZ | op_status_imag.DZ;
+        assign op_status.OF = op_status_real.OF | op_status_imag.OF;
+        assign op_status.UF = op_status_real.UF | op_status_imag.UF;
+        assign op_status.NX = op_status_real.NX | op_status_imag.NX;
         assign lane_ext_bit[lane] = 1'b1;
-        assign lane_tags = lane_tags_real || lane_tags_imag;
-        assign lane_masks[lane] = lane_masks_real || lane_masks_imag;
-        assign lane_aux[lane] = lane_aux_real || lane_aux_imag;
+        assign lane_tags[lane] = lane_tags_real & lane_tags_imag;
+        assign lane_masks[lane] = ~(lane_masks_real & lane_masks_imag);
+        assign lane_aux[lane] = lane_aux_real & lane_aux_imag;
 
-        assign lane_in_ready = lane_in_ready_real && lane_in_ready_imag;
-        assign out_valid = out_valid_real && out_valid_imag;
-        assign lane_busy[lane] = lane_busy_real && lane_busy_imag;
+        assign lane_in_ready[lane] = lane_in_ready_real & lane_in_ready_imag;
+        assign out_valid = out_valid_real & out_valid_imag;
+        assign lane_busy[lane] = lane_busy_real & lane_busy_imag;
 
         fpnew_sdotp_multi_wrapper #(
           .LaneWidth   ( LANE_WIDTH           ),
