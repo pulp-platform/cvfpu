@@ -616,7 +616,7 @@ or on 16b inputs producing 32b outputs");
       end else if (OpGroup == fpnew_pkg::CDOTP) begin
         localparam int unsigned FP_WIDTH = fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(fmt));
         // only for active formats within the lane
-        if (ACTIVE_FORMATS[fmt]) begin
+        if (ACTIVE_FORMATS[fmt] && ((LANE+1)*2*FP_WIDTH <= Width)) begin
           assign fmt_slice_result[fmt][(LANE+1)*2*FP_WIDTH-1:LANE*2*FP_WIDTH] =
               local_result[2*FP_WIDTH-1:0];
         end else if ((LANE+1)*2*FP_WIDTH <= Width) begin
