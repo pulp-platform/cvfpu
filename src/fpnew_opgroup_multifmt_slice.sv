@@ -322,7 +322,7 @@ or on 16b inputs producing 32b outputs");
         // Input Output
         logic [NUM_OPERANDS-1:0][LANE_WIDTH-1:0] local_operands_real, local_operands_imag;
         logic [LANE_WIDTH-1:0]                   op_result_real, op_result_imag;
-        logic [LANE_WIDTH-1:0]                   operand_a, operand_b, operand_c, operand_d, operand_d_neg, operand_x, operand_y;
+        logic [LANE_WIDTH/2-1:0]                 operand_c, operand_d, operand_d_neg;
 
         // Control
         fpnew_pkg::status_t    op_status_real, op_status_imag;
@@ -345,8 +345,6 @@ or on 16b inputs producing 32b outputs");
         // | *others* | \c -        | *invalid*
         // \note \c op_mod_q always inverts the sign of the addend.
         always_comb begin : op_select
-          operand_a = local_operands[0][LANE_WIDTH-1:LANE_WIDTH/2];
-          operand_b = local_operands[0][LANE_WIDTH/2-1:0];
           operand_c = local_operands[1][LANE_WIDTH-1:LANE_WIDTH/2];
           operand_d = local_operands[1][LANE_WIDTH/2-1:0];
           operand_d_neg = {~operand_d[LANE_WIDTH/2-1], operand_d[LANE_WIDTH/2-2:0]};
@@ -354,8 +352,8 @@ or on 16b inputs producing 32b outputs");
           // Complex product (a + jb) * (c + jd) = (a * c - b * d) + j (b * c + a * d)
           // The accumulator (x + jy) is in LANE_WIDTH/2 as we only have a LANE_WIDTH output
           // Extension to LANE_WIDTH of the result is not supported
-          local_operands_real[0] = {operand_a, operand_b};
-          local_operands_imag[0] = {operand_b, operand_a};
+          local_operands_real[0] = local_operands[0];
+          local_operands_imag[0] = local_operands[0];
           local_operands_real[2] = {{(LANE_WIDTH/2){1'b1}}, local_operands[2][LANE_WIDTH-1:LANE_WIDTH/2]};
           local_operands_imag[2] = {{(LANE_WIDTH/2){1'b1}}, local_operands[2][LANE_WIDTH/2-1:0]};
           op_result[LANE_WIDTH-1:LANE_WIDTH/2] = op_result_real[LANE_WIDTH/2-1:0];
@@ -363,11 +361,11 @@ or on 16b inputs producing 32b outputs");
           unique case (op_i)
             fpnew_pkg::CSDOTP: begin
               local_operands_real[1] = {operand_c, operand_d_neg};
-              local_operands_imag[1] = {operand_c, operand_d};
+              local_operands_imag[1] = {operand_d, operand_c};
             end
             fpnew_pkg::CCSDOTP: begin
               local_operands_real[1] = {operand_c, operand_d};
-              local_operands_imag[1] = {operand_c, operand_d_neg};
+              local_operands_imag[1] = {operand_d_neg, operand_c};
             end
             default: begin // propagate don't cares
               local_operands_real[1] = '{default: fpnew_pkg::DONT_CARE};
@@ -614,7 +612,8 @@ or on 16b inputs producing 32b outputs");
               '{default: lane_ext_bit[LANE]};
         end
       end else if (OpGroup == fpnew_pkg::CDOTP) begin
-        localparam int unsigned FP_WIDTH = fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(fmt));
+        localparam int unsigned INACTIVE_MASK = fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(LANE_FORMATS[fmt]));
+        localparam int unsigned FP_WIDTH      = fpnew_pkg::minimum(INACTIVE_MASK, fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(fmt)));
         // only for active formats within the lane
         if (ACTIVE_FORMATS[fmt] && ((LANE+1)*2*FP_WIDTH <= Width)) begin
           assign fmt_slice_result[fmt][(LANE+1)*2*FP_WIDTH-1:LANE*2*FP_WIDTH] =
