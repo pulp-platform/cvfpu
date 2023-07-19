@@ -209,8 +209,8 @@ or on 16b inputs producing 32b outputs");
       fpnew_pkg::status_t                      op_status;
 
       logic lane_is_used;
-      assign lane_is_used = (ACTIVE_FORMATS[src_fmt_i] & ~is_up_cast) |
-                            (ACTIVE_FORMATS[dst_fmt_i] &  is_up_cast) | (OpGroup == fpnew_pkg::DIVSQRT);
+      assign lane_is_used = (LANE_FORMATS[src_fmt_i] & ~is_up_cast) |
+                            (LANE_FORMATS[dst_fmt_i] &  is_up_cast) | (OpGroup == fpnew_pkg::DIVSQRT);
       assign in_valid = in_valid_i & ((lane == 0) | vectorial_op) & lane_is_used; // upper lanes only for vectors
 
       // Slice out the operands for this lane, upper bits are ignored in the unit
