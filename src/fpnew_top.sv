@@ -19,6 +19,8 @@ module fpnew_top #(
   parameter fpnew_pkg::fpu_implementation_t Implementation = fpnew_pkg::DEFAULT_NOREGS,
   // PulpDivSqrt = 0 enables T-head-based DivSqrt unit. Supported only for FP32-only instances of Fpnew
   parameter logic                           PulpDivsqrt    = 1'b1,
+  // ComplexDotp = 1 enables single issue complex dotp Supported only for FP32-only instances of Fpnew with DOTP opgroup
+  parameter logic                           ComplexDotp    = 1'b0,
   parameter type                            TagType        = logic,
   parameter logic                           TrueSIMDClass  = 1'b0,
   parameter logic                           EnableSIMDMask = 1'b0,
@@ -123,6 +125,7 @@ module fpnew_top #(
       .Width         ( WIDTH                           ),
       .EnableVectors ( Features.EnableVectors          ),
       .PulpDivsqrt   ( PulpDivsqrt                     ),
+      .ComplexDotp   ( ComplexDotp                     ),
       .FpFmtMask     ( Features.FpFmtMask              ),
       .IntFmtMask    ( Features.IntFmtMask             ),
       .FmtPipeRegs   ( Implementation.PipeRegs[opgrp]  ),
