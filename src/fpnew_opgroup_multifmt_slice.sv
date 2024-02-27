@@ -73,9 +73,10 @@ or set Features.FpFmtMask to support only FP32");
   end
 
   if ((OpGroup == fpnew_pkg::DOTP) &&
-      !(FpFmtConfig[0] && (FpFmtConfig[2] || FpFmtConfig[4]) && (FpFmtConfig[3] || FpFmtConfig[5]))) begin
+      !( (FpFmtConfig[0] && (FpFmtConfig[2] || FpFmtConfig[4])) ||
+         ((FpFmtConfig[0] && (FpFmtConfig[2] || FpFmtConfig[4]) && (FpFmtConfig[3] || FpFmtConfig[5]))))) begin
     $fatal(1, "SDOTP only supported on 32b and 64b CVFPU instances in which at \
-least one 16b and one 8b format are supported. \
+least one 16b or one 8b format are supported. \
 The SDOTP operations compute on 8b inputs producing 16b outputs \
 or on 16b inputs producing 32b outputs");
   end
