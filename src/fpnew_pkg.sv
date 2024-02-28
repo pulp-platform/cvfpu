@@ -512,7 +512,7 @@ package fpnew_pkg;
     automatic fmt_logic_t res;
     res = { cfg[FP32] && (src_cfg[FP16] || src_cfg[FP16ALT] || src_cfg[FP8] || src_cfg[FP8ALT]),
             1'b0,                                               // FP64 not supported as dstFmt
-            cfg[FP16] && (src_cfg[FP8] || src_cfg[FP8ALT]),
+            cfg[FP16] && (src_cfg[FP16] || src_cfg[FP8] || src_cfg[FP8ALT]), // If no FP8 complex dotp needs FP16 as dst format too
             cfg[FP8],                                           // FP8 supported as dstFmt for VSUM
             cfg[FP16ALT] && (src_cfg[FP8] || src_cfg[FP8ALT]),
             cfg[FP8ALT]                                         // FP8ALT supported as dstFmt for VSUM

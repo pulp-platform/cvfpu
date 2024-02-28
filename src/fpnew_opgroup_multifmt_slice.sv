@@ -619,6 +619,7 @@ or on 16b inputs producing 32b outputs");
         localparam int unsigned INACTIVE_MASK = fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(LANE_FORMATS[fmt]));
         localparam int unsigned FP_WIDTH      = fpnew_pkg::minimum(INACTIVE_MASK, fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(fmt)));
         // only for active formats within the lane
+        // output for scalar dotp
         if (ACTIVE_FORMATS[fmt] && (LANE_WIDTH>0)) begin
           assign dotp_fmt_slice_result[fmt][(LANE+1)*FP_WIDTH-1:LANE*FP_WIDTH] = local_result[FP_WIDTH-1:0];
         end else if ((LANE+1)*FP_WIDTH <= Width) begin
@@ -626,7 +627,7 @@ or on 16b inputs producing 32b outputs");
         end else if (LANE*FP_WIDTH < Width) begin
           assign dotp_fmt_slice_result[fmt][Width-1:LANE*FP_WIDTH] = '{default: lane_ext_bit[LANE]};
         end
-        // Output for complex dotp
+        // output for complex dotp
         if (ACTIVE_FORMATS[fmt] && ((LANE+1)*2*FP_WIDTH <= Width)) begin
           assign cdotp_fmt_slice_result[fmt][(LANE+1)*2*FP_WIDTH-1:LANE*2*FP_WIDTH] = local_result[2*FP_WIDTH-1:0];
         end else if ((LANE+1)*2*FP_WIDTH <= Width) begin
@@ -638,14 +639,11 @@ or on 16b inputs producing 32b outputs");
         localparam int unsigned FP_WIDTH = fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(fmt));
         // only for active formats within the lane
         if (ACTIVE_FORMATS[fmt]) begin
-          assign fmt_slice_result[fmt][(LANE+1)*FP_WIDTH-1:LANE*FP_WIDTH] =
-              local_result[FP_WIDTH-1:0];
+          assign fmt_slice_result[fmt][(LANE+1)*FP_WIDTH-1:LANE*FP_WIDTH] = local_result[FP_WIDTH-1:0];
         end else if ((LANE+1)*FP_WIDTH <= Width) begin
-          assign fmt_slice_result[fmt][(LANE+1)*FP_WIDTH-1:LANE*FP_WIDTH] =
-              '{default: lane_ext_bit[LANE]};
+          assign fmt_slice_result[fmt][(LANE+1)*FP_WIDTH-1:LANE*FP_WIDTH] = '{default: lane_ext_bit[LANE]};
         end else if (LANE*FP_WIDTH < Width) begin
-          assign fmt_slice_result[fmt][Width-1:LANE*FP_WIDTH] =
-              '{default: lane_ext_bit[LANE]};
+          assign fmt_slice_result[fmt][Width-1:LANE*FP_WIDTH] = '{default: lane_ext_bit[LANE]};
         end
       end
     end
@@ -667,17 +665,15 @@ or on 16b inputs producing 32b outputs");
     end
   end
 
-  // Assign outputs for complex dotp
-  if (OpGroup == fpnew_pkg::DOTP) begin
-    assign fmt_slice_result = ((op_i == fpnew_pkg::CSDOTP) || (op_i == fpnew_pkg::CCSDOTP)) ?
-                              cdotp_fmt_slice_result : dotp_fmt_slice_result;
-  end
-
   // Extend slice result if needed
   for (genvar fmt = 0; fmt < NUM_FORMATS; fmt++) begin : extend_fp_result
     // Set up some constants
     localparam int unsigned FP_WIDTH = fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(fmt));
-    if (NUM_LANES*FP_WIDTH < Width)
+    if ((2*NUM_LANES*FP_WIDTH < Width) && (OpGroup == fpnew_pkg::DOTP) && ComplexDotp)
+      assign cdotp_fmt_slice_result[fmt][Width-1:2*NUM_LANES*FP_WIDTH] = '{default: lane_ext_bit[0]};
+    if ((NUM_LANES*FP_WIDTH < Width) && (OpGroup == fpnew_pkg::DOTP) && ComplexDotp)
+      assign dotp_fmt_slice_result[fmt][Width-1:NUM_LANES*FP_WIDTH] = '{default: lane_ext_bit[0]};
+    if ((NUM_LANES*FP_WIDTH < Width) && (OpGroup != fpnew_pkg::DOTP))
       assign fmt_slice_result[fmt][Width-1:NUM_LANES*FP_WIDTH] = '{default: lane_ext_bit[0]};
   end
 
@@ -693,6 +689,12 @@ or on 16b inputs producing 32b outputs");
       if (NUM_LANES*INT_WIDTH < Width)
         assign ifmt_slice_result[ifmt][Width-1:NUM_LANES*INT_WIDTH] = '0;
     end
+  end
+
+  // Assign outputs for complex dotp
+  if (OpGroup == fpnew_pkg::DOTP) begin
+    assign fmt_slice_result = ((op_i == fpnew_pkg::CSDOTP) || (op_i == fpnew_pkg::CCSDOTP)) ?
+                              cdotp_fmt_slice_result : dotp_fmt_slice_result;
   end
 
   // Bypass lanes with target operand for vectorial casts
