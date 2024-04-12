@@ -28,6 +28,7 @@ module fpnew_opgroup_block #(
   parameter logic                       TrueSIMDClass = 1'b0,
   parameter logic                       CompressedVecCmpResult = 1'b0,
   parameter fpnew_pkg::rsr_impl_t       StochasticRndImplementation = fpnew_pkg::DEFAULT_NO_RSR,
+  parameter int unsigned                LockRepetition = 1,
   // Do not change
   localparam int unsigned NUM_FORMATS  = fpnew_pkg::NUM_FP_FORMATS,
   localparam int unsigned NUM_OPERANDS = fpnew_pkg::num_operands(OpGroup),
@@ -61,6 +62,7 @@ module fpnew_opgroup_block #(
   // Output handshake
   output logic                                    out_valid_o,
   input  logic                                    out_ready_i,
+  input  logic [LockRepetition-1:0]               out_lock_i,
   // Indication of valid data in flight
   output logic                                    busy_o
 );
@@ -222,16 +224,23 @@ module fpnew_opgroup_block #(
   // ------------------
   output_t arbiter_output;
 
+  logic [LockRepetition-1:0] flush;
+  for (genvar r = 0; r < LockRepetition; r++) begin: gen_rr_flush
+    assign flush[r] = flush_i;
+  end
+
   // Round-Robin arbiter to decide which result to use
-  rr_arb_tree #(
+  rr_arb_tree_lock #(
     .NumIn     ( NUM_FORMATS ),
     .DataType  ( output_t    ),
-    .AxiVldRdy ( 1'b1        )
+    .AxiVldRdy ( 1'b1        ),
+    .InternalRedundancy ( LockRepetition > 1 )
   ) i_arbiter (
     .clk_i,
     .rst_ni,
-    .flush_i,
+    .flush_i ( flush         ),
     .rr_i   ( '0             ),
+    .lock_rr_i ( out_lock_i  ),
     .req_i  ( fmt_out_valid  ),
     .gnt_o  ( fmt_out_ready  ),
     .data_i ( fmt_outputs    ),
