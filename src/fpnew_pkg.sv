@@ -325,6 +325,31 @@ package fpnew_pkg;
     LfsrInternalPrecision: 32
   };
 
+  // Different kinds of Redundancy that might be used
+  typedef enum logic [2:0] {
+    NONE,       // No redundancy module is generated - redundancy can not be enabled
+    TMR_FAST,   // Operands will be tripplicated in time - if nothing goes wrong output after 2 cycles (longer critical path)
+    TMR_SMALL,  // Operands will be tripplicated in time - always output after 3 cycles (shorter critical path)
+    DMR,        // Operands will be duplicated in time and are retried on failure
+    DMR_INORDER // Operands will be duplicated in time and are retried on failure - always keeps the order of outputs the same
+  } redundancy_type_t;
+
+  // FPU configuration: redundancy
+  typedef struct packed {
+    logic             TripplicateRepetition; // Whether to tripplicate the state machines for redundant operations
+    redundancy_type_t RedundancyType;
+  } redundancy_features_t;
+
+  localparam redundancy_features_t DEFAULT_NO_REDUNDANCY = '{
+    TripplicateRepetition:  1'b0,
+    RedundancyType:         NONE
+  };
+
+  localparam redundancy_features_t DEFAULT_REDUNDANCY = '{
+    TripplicateRepetition:  1'b1,
+    RedundancyType:         TMR_FAST
+  };
+
   // -----------------------
   // Synthesis optimization
   // -----------------------
@@ -589,4 +614,30 @@ package fpnew_pkg;
     return res;
   endfunction
 
+  // Returns the number data elements in the longest path of the FPU
+  function automatic int unsigned longest_path(fmt_unsigned_t regs, fmt_logic_t cfg);
+    automatic int unsigned res = 0;
+    for (int unsigned i = 0; i < NUM_FP_FORMATS; i++) begin
+      if (cfg[i]) res = maximum(res, regs[i]);
+    end
+    return res + 1;
+  endfunction
+
+  // Returns the number data elements in the shortest path of the FPU
+  function automatic int unsigned shortest_path(fmt_unsigned_t regs, fmt_logic_t cfg);
+    automatic int unsigned res = 0;
+    for (int unsigned i = 0; i < NUM_FP_FORMATS; i++) begin
+      if (cfg[i]) res = minimum(res, regs[i]);
+    end
+    return res + 1;
+  endfunction
+
+  // Return whether any active format is set as MERGED
+  function automatic logic division_enabled(opgrp_fmt_unit_types_t unit_types);
+    for (int unsigned i = 0; i < NUM_FP_FORMATS; i++) begin
+      if (unit_types[DIVSQRT][i] != DISABLED) return 1'b1;
+    end
+    return 1'b0;
+  endfunction
+  
 endpackage
