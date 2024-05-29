@@ -22,7 +22,7 @@ module fpnew_opgroup_multifmt_slice #(
   parameter fpnew_pkg::fmt_logic_t    FpFmtConfig   = '1,
   parameter fpnew_pkg::ifmt_logic_t   IntFmtConfig  = '1,
   parameter logic                     EnableVectors = 1'b1,
-  parameter fpnew_pkg::divsqrt_unit_t DivSqrtSel    = fpnew_pkg::PULP,
+  parameter fpnew_pkg::divsqrt_unit_t DivSqrtSel    = fpnew_pkg::THMULTI,
   parameter int unsigned              NumPipeRegs   = 0,
   parameter fpnew_pkg::pipe_config_t  PipeConfig    = fpnew_pkg::BEFORE,
   parameter type                      TagType       = logic,
