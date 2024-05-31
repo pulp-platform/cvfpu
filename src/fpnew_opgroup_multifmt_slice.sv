@@ -67,9 +67,10 @@ module fpnew_opgroup_multifmt_slice #(
   if ((OpGroup == fpnew_pkg::DIVSQRT)) begin
     if ((DivSqrtSel == fpnew_pkg::TH32) && !((FpFmtConfig[0] == 1) && (FpFmtConfig[1:NUM_FORMATS-1] == '0))) begin
       $fatal(1, "T-Head-based DivSqrt unit supported only in FP32-only configurations. \
-      Set DivSqrtSel = THMULTI or DivSqrtSel = PULP to use a multi-format divider");
+Set DivSqrtSel = THMULTI or DivSqrtSel = PULP to use a multi-format divider");
     end else if ((DivSqrtSel == fpnew_pkg::THMULTI) && (FpFmtConfig[3] == 1'b1 || FpFmtConfig[4] == 1'b1 || FpFmtConfig[5] == 1'b1)) begin
-      $warning("The DivSqrt unit of C910 (instantiated by DivSqrtSel = THMULTI) does not support FP16alt, FP8, FP8alt. Please use the PULP DivSqrt unit when in need of div/sqrt operations on FP16alt, FP8, FP8alt.");
+      $warning("The DivSqrt unit of C910 (instantiated by DivSqrtSel = THMULTI) does not support \
+FP16alt, FP8, FP8alt. Please use the PULP DivSqrt unit when in need of div/sqrt operations on FP16alt, FP8, FP8alt.");
     end
   end
 
