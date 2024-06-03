@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 In this sense, we interpret the "Public API" of a hardware module as its port/parameter list.
 Versions of the IP in the same major relase are "pin-compatible" with each other. Minor relases are permitted to add new parameters as long as their default bindings ensure backwards compatibility.
 
+## [pulp-v0.2.0] - 2024-05-29
+
+### Added
+- Add support for alternative multi-format DivSqrt unit (from openC910), supporting FP64, FP32, FP16 and SIMD operations
+- Replace `PulpDivsqrt` top-level parameter with `DivSqrtSel` to choose among the legacy PULP DivSqrt unit (`PULP`), the openE906 DivSqrt (`TH32`), and the openC910 DivSqrt (`THMULTI`). The default choice is set to `THMULTI`
+
 ## [pulp-v0.1.3] - 2023-07-19
 
 ### Fixed
