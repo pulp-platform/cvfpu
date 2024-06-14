@@ -196,22 +196,29 @@ module fpnew_fma_multi #(
   // | MUL      | \c 0        | MUL: Set operand C to +0.0 or -0.0 depending on the rounding mode
   // | *others* | \c -        | *invalid*
   // \note \c op_mod_q always inverts the sign of the addend.
+
+  // Fix for InjectaFault
+  fp_t                 operand_a_base, operand_b_base, operand_c_base;
+  assign operand_a_base = {fmt_sign[src_fmt_q][0], fmt_exponent[src_fmt_q][0], fmt_mantissa[src_fmt_q][0]};
+  assign operand_b_base = {fmt_sign[src_fmt_q][1], fmt_exponent[src_fmt_q][1], fmt_mantissa[src_fmt_q][1]};
+  assign operand_c_base = {fmt_sign[dst_fmt_q][2], fmt_exponent[dst_fmt_q][2], fmt_mantissa[dst_fmt_q][2]};
+
   always_comb begin : op_select
 
     // Default assignments - packing-order-agnostic
-    operand_a = {fmt_sign[src_fmt_q][0], fmt_exponent[src_fmt_q][0], fmt_mantissa[src_fmt_q][0]};
-    operand_b = {fmt_sign[src_fmt_q][1], fmt_exponent[src_fmt_q][1], fmt_mantissa[src_fmt_q][1]};
-    operand_c = {fmt_sign[dst_fmt_q][2], fmt_exponent[dst_fmt_q][2], fmt_mantissa[dst_fmt_q][2]};
+    operand_a = operand_a_base;
+    operand_b = operand_b_base;
+    operand_c = operand_c_base;
     info_a    = info_q[src_fmt_q][0];
     info_b    = info_q[src_fmt_q][1];
     info_c    = info_q[dst_fmt_q][2];
 
     // op_mod_q inverts sign of operand C
-    operand_c.sign = operand_c.sign ^ inp_pipe_op_mod_q[NUM_INP_REGS];
+    operand_c.sign = operand_c_base.sign ^ inp_pipe_op_mod_q[NUM_INP_REGS];
 
     unique case (inp_pipe_op_q[NUM_INP_REGS])
       fpnew_pkg::FMADD:  ; // do nothing
-      fpnew_pkg::FNMSUB: operand_a.sign = ~operand_a.sign; // invert sign of product
+      fpnew_pkg::FNMSUB: operand_a.sign = ~operand_a_base.sign; // invert sign of product
       fpnew_pkg::ADD: begin // Set multiplicand to +1
         operand_a = '{sign: 1'b0, exponent: fpnew_pkg::bias(src_fmt_q), mantissa: '0};
         info_a    = '{is_normal: 1'b1, is_boxed: 1'b1, default: 1'b0}; //normal, boxed value.

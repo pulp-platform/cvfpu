@@ -176,7 +176,7 @@ module fpnew_opgroup_block #(
 
     logic in_valid;
 
-    assign in_valid = in_valid_i & (FmtUnitTypes[dst_fmt_i] == fpnew_pkg::MERGED);
+    assign in_valid = in_valid_i & (FmtUnitTypes[dst_fmt_i] == fpnew_pkg::MERGED && dst_fmt_i < dst_fmt_i.num());
 
     fpnew_opgroup_multifmt_slice #(
       .OpGroup       ( OpGroup          ),
