@@ -530,7 +530,6 @@ endcase
 // &CombEnd; @248
 end
 
-// &CombBeg; @204
 always @( vfdsu_ex2_expnt_rst[12:0])
 begin
 case(vfdsu_ex2_expnt_rst[12:0])
@@ -544,7 +543,6 @@ case(vfdsu_ex2_expnt_rst[12:0])
   13'h1f7b:ex2_result_bfloat_denorm_round_add_num[52:0] = 53'h10000000000000; //-133 -6
   default: ex2_result_bfloat_denorm_round_add_num[52:0] = 53'h0;  // -23
 endcase
-// &CombEnd; @232
 end
 
 //===================special result========================

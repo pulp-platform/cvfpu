@@ -288,7 +288,7 @@ case(vfdsu_ex4_expnt_rst[12:0])
 endcase                                                                  
 // &CombEnd; @147
 end
-// &CombBeg; @132
+
 always @( vfdsu_ex4_expnt_rst[12:0]
        or ex4_frac[54:1]
        or vfdsu_ex4_denorm_to_tiny_frac)
@@ -304,7 +304,6 @@ case(vfdsu_ex4_expnt_rst[12:0])
   13'h1ffa:ex4_bfloat_denorm_frac[51:0] = {5'b0, ex4_frac[54:8]}; //-1029 -6
   default :ex4_bfloat_denorm_frac[51:0] = vfdsu_ex4_denorm_to_tiny_frac ?{7'b1,45'b0} : 52'b0; //-1045
 endcase
-// &CombEnd; @147
 end
 
 //here when denormal number round to add1, it will become normal number

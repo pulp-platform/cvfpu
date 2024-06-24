@@ -767,9 +767,8 @@ case(vfdsu_ex3_bfloat_expnt_rst[8:0])
                  bfloat_denorm_lst_frac = 1'b0;
             end//-1022 1
 endcase
-// &CombEnd;  @363
 end
-//rounding evaluation for single denormalize number
+//rounding evaluation for bfloat denormalize number
 assign ex3_bfloat_denorm_eq      = qt_result_bfloat_denorm_for_round[10]
                                    &&  !ex3_bfloat_low_not_zero;
 assign ex3_bfloat_low_not_zero   = |qt_result_bfloat_denorm_for_round[9:0];
