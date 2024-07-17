@@ -1,18 +1,18 @@
-From 032de47f043e3fe1dcb34c52363f7cb837681b33 Mon Sep 17 00:00:00 2001
+From baa4cce505e993db2985c6d6ff50e2feee402681 Mon Sep 17 00:00:00 2001
 From: Luca Bertaccini <lbertaccini@iis.ee.ethz.ch>
-Date: Mon, 24 Jun 2024 17:30:43 +0200
-Subject: [PATCH] Add FP16ALT support to THMULTI DivSqrt unit
+Date: Tue, 25 Jun 2024 16:05:20 +0200
+Subject: [PATCH] Add FP16ALT support to THMULTI DivSqrt
 
 ---
  .../gen_rtl/vfdsu/rtl/ct_vfdsu_ctrl.v              |  21 ++-
  .../gen_rtl/vfdsu/rtl/ct_vfdsu_double.v            |  29 ++++
- .../gen_rtl/vfdsu/rtl/ct_vfdsu_pack.v              |  65 +++++++--
+ .../gen_rtl/vfdsu/rtl/ct_vfdsu_pack.v              |  64 +++++++--
  .../gen_rtl/vfdsu/rtl/ct_vfdsu_prepare.v           |  96 +++++++++----
- .../gen_rtl/vfdsu/rtl/ct_vfdsu_round.v             | 152 ++++++++++++++++++---
+ .../gen_rtl/vfdsu/rtl/ct_vfdsu_round.v             | 151 ++++++++++++++++++---
  .../gen_rtl/vfdsu/rtl/ct_vfdsu_scalar_dp.v         |  24 +++-
- .../gen_rtl/vfdsu/rtl/ct_vfdsu_srt.v               |  88 ++++++++++--
+ .../gen_rtl/vfdsu/rtl/ct_vfdsu_srt.v               |  86 ++++++++++--
  .../gen_rtl/vfdsu/rtl/ct_vfdsu_top.v               |  16 ++-
- 8 files changed, 423 insertions(+), 68 deletions(-)
+ 8 files changed, 419 insertions(+), 68 deletions(-)
 
 diff --git a/C910_RTL_FACTORY/gen_rtl/vfdsu/rtl/ct_vfdsu_ctrl.v b/C910_RTL_FACTORY/gen_rtl/vfdsu/rtl/ct_vfdsu_ctrl.v
 index f7f541f..0aba4f1 100644
@@ -239,7 +239,7 @@ index b57e289..ccd34f9 100644
  );
  
 diff --git a/C910_RTL_FACTORY/gen_rtl/vfdsu/rtl/ct_vfdsu_pack.v b/C910_RTL_FACTORY/gen_rtl/vfdsu/rtl/ct_vfdsu_pack.v
-index e1d2e18..b29c70f 100644
+index e1d2e18..681b77a 100644
 --- a/C910_RTL_FACTORY/gen_rtl/vfdsu/rtl/ct_vfdsu_pack.v
 +++ b/C910_RTL_FACTORY/gen_rtl/vfdsu/rtl/ct_vfdsu_pack.v
 @@ -39,6 +39,8 @@ module ct_vfdsu_pack(
@@ -289,11 +289,10 @@ index e1d2e18..b29c70f 100644
  wire            vfdsu_ex4_uf;                 
  
  
-@@ -276,6 +288,24 @@ case(vfdsu_ex4_expnt_rst[12:0])
- endcase                                                                  
+@@ -277,6 +289,23 @@ endcase
  // &CombEnd; @147
  end
-+// &CombBeg; @132
+ 
 +always @( vfdsu_ex4_expnt_rst[12:0]
 +       or ex4_frac[54:1]
 +       or vfdsu_ex4_denorm_to_tiny_frac)
@@ -309,12 +308,12 @@ index e1d2e18..b29c70f 100644
 +  13'h1ffa:ex4_bfloat_denorm_frac[51:0] = {5'b0, ex4_frac[54:8]}; //-1029 -6
 +  default :ex4_bfloat_denorm_frac[51:0] = vfdsu_ex4_denorm_to_tiny_frac ?{7'b1,45'b0} : 52'b0; //-1045
 +endcase
-+// &CombEnd; @147
 +end
- 
++
  //here when denormal number round to add1, it will become normal number
  assign ex4_denorm_potnt_norm    = (vfdsu_ex4_potnt_norm[1] && ex4_frac[53]) || 
-@@ -286,9 +316,11 @@ assign ex4_rslt_denorm          = !vfdsu_ex4_result_qnan
+                                   (vfdsu_ex4_potnt_norm[0] && ex4_frac[54]) ;
+@@ -286,9 +315,11 @@ assign ex4_rslt_denorm          = !vfdsu_ex4_result_qnan
  assign ex4_denorm_result[63:0]  = vfdsu_ex4_double ? 
                                    {vfdsu_ex4_result_sign,11'h0,ex4_denorm_frac[51:0]} :
                                    vfdsu_ex4_single ? {32'hffffffff,vfdsu_ex4_result_sign,
@@ -329,7 +328,7 @@ index e1d2e18..b29c70f 100644
  
                                 
  
-@@ -299,6 +331,15 @@ assign ex4_half_rst_norm[63:0] = {48'hffffffffffff,vfdsu_ex4_result_sign,
+@@ -299,6 +330,15 @@ assign ex4_half_rst_norm[63:0] = {48'hffffffffffff,vfdsu_ex4_result_sign,
                                    ex4_expnt_rst[4:0],
                                    ex4_frac_52[51:42]};
  assign ex4_half_rst0[63:0] = {48'hffffffffffff,vfdsu_ex4_result_sign,15'h0};                                
@@ -345,7 +344,7 @@ index e1d2e18..b29c70f 100644
  //ex4 overflow/underflow plus                                 
  assign ex4_rst_nor = vfdsu_ex4_result_nor;                    
  assign ex4_of_plus = vfdsu_ex4_potnt_of  && 
-@@ -345,21 +386,23 @@ assign ex4_sing_rst_norm[63:0] = {32'hffffffff,vfdsu_ex4_result_sign,
+@@ -345,21 +385,23 @@ assign ex4_sing_rst_norm[63:0] = {32'hffffffff,vfdsu_ex4_result_sign,
                                    ex4_expnt_rst[7:0],
                                    ex4_frac_52[51:29]};
  assign ex4_rst_lfn[63:0]       = (vfdsu_ex4_double) ? ex4_doub_lfn[63:0] :
@@ -609,7 +608,7 @@ index 7c5821c..0ef958a 100644
  end
  
 diff --git a/C910_RTL_FACTORY/gen_rtl/vfdsu/rtl/ct_vfdsu_round.v b/C910_RTL_FACTORY/gen_rtl/vfdsu/rtl/ct_vfdsu_round.v
-index 6eece52..a419289 100644
+index 6eece52..cb3dc8e 100644
 --- a/C910_RTL_FACTORY/gen_rtl/vfdsu/rtl/ct_vfdsu_round.v
 +++ b/C910_RTL_FACTORY/gen_rtl/vfdsu/rtl/ct_vfdsu_round.v
 @@ -27,6 +27,7 @@ module ct_vfdsu_round(
@@ -782,7 +781,7 @@ index 6eece52..a419289 100644
                               
  // &CombBeg; @108
  always @( vfdsu_ex3_doub_expnt_rst[12:0]
-@@ -682,14 +732,64 @@ assign ex3_half_denorm_gr      = qt_result_half_denorm_for_round[13]
+@@ -682,14 +732,63 @@ assign ex3_half_denorm_gr      = qt_result_half_denorm_for_round[13]
  assign ex3_half_denorm_zero    = !qt_result_half_denorm_for_round[13] 
                                     && !ex3_half_low_not_zero;
  
@@ -817,13 +816,12 @@ index 6eece52..a419289 100644
 +  9'h17a:begin qt_result_bfloat_denorm_for_round[10:0] = {total_qt_rt_58[56:46]}; //-93 -6
 +                bfloat_denorm_lst_frac =  1'b0;
 +          end//-1022 1
-+  default:  begin qt_result_bfloat_denorm_for_round[10:0] = '0;
++  default:  begin qt_result_bfloat_denorm_for_round[10:0] = 11'b0;
 +                 bfloat_denorm_lst_frac = 1'b0;
 +            end//-1022 1
 +endcase
-+// &CombEnd;  @363
 +end
-+//rounding evaluation for single denormalize number
++//rounding evaluation for bfloat denormalize number
 +assign ex3_bfloat_denorm_eq      = qt_result_bfloat_denorm_for_round[10]
 +                                   &&  !ex3_bfloat_low_not_zero;
 +assign ex3_bfloat_low_not_zero   = |qt_result_bfloat_denorm_for_round[9:0];
@@ -851,7 +849,7 @@ index 6eece52..a419289 100644
    
  //Different Round Mode with different rounding rule
  //Here we call rounding bit as "rb", remainder as "rem"
-@@ -824,7 +924,9 @@ end
+@@ -824,7 +923,9 @@ end
  // &CombBeg; @540
  always @( total_qt_rt_58[56]
         or vfdsu_ex3_single
@@ -862,7 +860,7 @@ index 6eece52..a419289 100644
  begin
  case({total_qt_rt_58[56],vfdsu_ex3_double,vfdsu_ex3_single})
    3'b001: 
-@@ -849,13 +951,23 @@ case({total_qt_rt_58[56],vfdsu_ex3_double,vfdsu_ex3_single})
+@@ -849,13 +950,23 @@ case({total_qt_rt_58[56],vfdsu_ex3_double,vfdsu_ex3_single})
    end
    3'b100:
    begin
@@ -890,7 +888,7 @@ index 6eece52..a419289 100644
    end
    default:
    begin
-@@ -898,7 +1010,7 @@ assign ex3_nx      = ex3_rst_nor &&
+@@ -898,7 +1009,7 @@ assign ex3_nx      = ex3_rst_nor &&
  assign ex3_denorm_nx = ex3_rslt_denorm && (!ex3_denorm_zero ||  !vfdsu_ex3_rem_zero);
  //Adjust expnt
  //Div:Actural expnt should plus 1 when op0 is id, sub 1 when op1 id
@@ -899,7 +897,7 @@ index 6eece52..a419289 100644
  assign ex3_expnt_adjust_result[12:0] = vfdsu_ex3_expnt_rst[12:0] + 
                                         ex3_expnt_adjst[12:0];
  //this information is for the packing, which determin the result is normal
-@@ -954,6 +1066,8 @@ begin
+@@ -954,6 +1065,8 @@ begin
      vfdsu_ex4_potnt_norm[1:0] <= 2'b0;
      vfdsu_ex4_double          <= 1'b0;
      vfdsu_ex4_single          <= 1'b0;
@@ -908,7 +906,7 @@ index 6eece52..a419289 100644
  
    end
    else if(ex3_pipedown)
-@@ -982,6 +1096,8 @@ begin
+@@ -982,6 +1095,8 @@ begin
      vfdsu_ex4_potnt_norm[1:0] <= ex3_potnt_norm[1:0];
      vfdsu_ex4_double          <= vfdsu_ex3_double;
      vfdsu_ex4_single          <= vfdsu_ex3_single;
@@ -917,7 +915,7 @@ index 6eece52..a419289 100644
    end
    else
    begin
-@@ -1009,6 +1125,8 @@ begin
+@@ -1009,6 +1124,8 @@ begin
      vfdsu_ex4_potnt_norm[1:0] <= vfdsu_ex4_potnt_norm[1:0];
      vfdsu_ex4_double          <= vfdsu_ex4_double;
      vfdsu_ex4_single          <= vfdsu_ex4_single;
@@ -1030,7 +1028,7 @@ index c7a679c..4d91a2c 100644
      vfdsu_ex2_sqrt          <= vfdsu_ex2_sqrt;
    end
 diff --git a/C910_RTL_FACTORY/gen_rtl/vfdsu/rtl/ct_vfdsu_srt.v b/C910_RTL_FACTORY/gen_rtl/vfdsu/rtl/ct_vfdsu_srt.v
-index cdeb3a3..8e8d66b 100644
+index cdeb3a3..4e2c68b 100644
 --- a/C910_RTL_FACTORY/gen_rtl/vfdsu/rtl/ct_vfdsu_srt.v
 +++ b/C910_RTL_FACTORY/gen_rtl/vfdsu/rtl/ct_vfdsu_srt.v
 @@ -49,12 +49,15 @@ module ct_vfdsu_srt(
@@ -1210,11 +1208,10 @@ index cdeb3a3..8e8d66b 100644
  assign ex2_rslt_denorm            = ex2_uf;
  
  //=======================EX2 skip srt iteration======================
-@@ -490,6 +530,23 @@ endcase
+@@ -490,6 +530,21 @@ endcase
  // &CombEnd; @248
  end
  
-+// &CombBeg; @204
 +always @( vfdsu_ex2_expnt_rst[12:0])
 +begin
 +case(vfdsu_ex2_expnt_rst[12:0])
@@ -1228,13 +1225,12 @@ index cdeb3a3..8e8d66b 100644
 +  13'h1f7b:ex2_result_bfloat_denorm_round_add_num[52:0] = 53'h10000000000000; //-133 -6
 +  default: ex2_result_bfloat_denorm_round_add_num[52:0] = 53'h0;  // -23
 +endcase
-+// &CombEnd; @232
 +end
 +
  //===================special result========================
  assign ex2_result_zero = vfdsu_ex2_result_zero;
  assign ex2_result_qnan = vfdsu_ex2_result_qnan;
-@@ -541,6 +598,7 @@ begin
+@@ -541,6 +596,7 @@ begin
      vfdsu_ex3_doub_expnt_rst[12:0] <= 13'b0;
      vfdsu_ex3_sing_expnt_rst[8:0] <= 9'b0;
      vfdsu_ex3_half_expnt_rst[12:0] <= 13'b0;
@@ -1242,7 +1238,7 @@ index cdeb3a3..8e8d66b 100644
      vfdsu_ex3_result_sign     <= 1'b0;
      vfdsu_ex3_qnan_sign       <= 1'b0;    
      vfdsu_ex3_qnan_f[51:0]    <= 52'b0;
-@@ -551,6 +609,8 @@ begin
+@@ -551,6 +607,8 @@ begin
      vfdsu_ex3_id_srt_skip     <= 1'b0;
      vfdsu_ex3_double          <=  1'b0;
      vfdsu_ex3_single          <=  1'b0;
@@ -1251,7 +1247,7 @@ index cdeb3a3..8e8d66b 100644
    end
    else if(ex2_pipedown)
    begin
-@@ -569,6 +629,7 @@ begin
+@@ -569,6 +627,7 @@ begin
      vfdsu_ex3_doub_expnt_rst[12:0] <= vfdsu_ex2_expnt_rst[12:0];
      vfdsu_ex3_sing_expnt_rst[8:0] <= vfdsu_ex2_expnt_rst[8:0];
      vfdsu_ex3_half_expnt_rst[12:0] <= vfdsu_ex2_expnt_rst[12:0];
@@ -1259,7 +1255,7 @@ index cdeb3a3..8e8d66b 100644
      vfdsu_ex3_result_sign     <= vfdsu_ex2_result_sign;
      vfdsu_ex3_qnan_sign       <= vfdsu_ex2_qnan_sign;    
      vfdsu_ex3_qnan_f[51:0]    <= vfdsu_ex2_qnan_f[51:0];
-@@ -579,6 +640,8 @@ begin
+@@ -579,6 +638,8 @@ begin
      vfdsu_ex3_id_srt_skip     <= ex2_id_nor_srt_skip;
      vfdsu_ex3_double          <= vfdsu_ex2_double;
      vfdsu_ex3_single          <= vfdsu_ex2_single;
@@ -1268,7 +1264,7 @@ index cdeb3a3..8e8d66b 100644
    end
    else
    begin
-@@ -597,6 +660,7 @@ begin
+@@ -597,6 +658,7 @@ begin
      vfdsu_ex3_doub_expnt_rst[12:0] <= vfdsu_ex3_doub_expnt_rst[12:0];
      vfdsu_ex3_sing_expnt_rst[8:0] <= vfdsu_ex3_sing_expnt_rst[8:0];
      vfdsu_ex3_half_expnt_rst[12:0] <= vfdsu_ex3_half_expnt_rst[12:0];
@@ -1276,7 +1272,7 @@ index cdeb3a3..8e8d66b 100644
      vfdsu_ex3_result_sign     <= vfdsu_ex3_result_sign;
      vfdsu_ex3_qnan_sign       <= vfdsu_ex3_qnan_sign;     
      vfdsu_ex3_qnan_f[51:0]    <= vfdsu_ex3_qnan_f[51:0];
-@@ -607,6 +671,8 @@ begin
+@@ -607,6 +669,8 @@ begin
      vfdsu_ex3_id_srt_skip    <=  vfdsu_ex3_id_srt_skip;
      vfdsu_ex3_double          <= vfdsu_ex3_double;
      vfdsu_ex3_single          <= vfdsu_ex3_single;

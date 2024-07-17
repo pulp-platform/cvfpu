@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 In this sense, we interpret the "Public API" of a hardware module as its port/parameter list.
 Versions of the IP in the same major relase are "pin-compatible" with each other. Minor relases are permitted to add new parameters as long as their default bindings ensure backwards compatibility.
 
+## [pulp-v0.3.0] - 2024-07-17
+
+### Added
+- Add FP8 and FP8ALT support to THMULTI DivSqrt (THMULTI DivSqrt now supports FP64, FP32, FP16, FP16ALT, FP8, FP8ALT and SIMD operations)
+- Add FP8 and FP8ALT DivSqrt LUTs for 8-bit SIMD lanes
+
 ## [pulp-v0.2.2] - 2024-06-24
 
 ### Added
