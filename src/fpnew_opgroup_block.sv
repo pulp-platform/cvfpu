@@ -61,6 +61,7 @@ module fpnew_opgroup_block #(
   // Output handshake
   output logic                                    out_valid_o,
   input  logic                                    out_ready_i,
+  input  logic                                    out_lock_i,
   // Indication of valid data in flight
   output logic                                    busy_o
 );
@@ -175,7 +176,7 @@ module fpnew_opgroup_block #(
 
     logic in_valid;
 
-    assign in_valid = in_valid_i & (FmtUnitTypes[dst_fmt_i] == fpnew_pkg::MERGED);
+    assign in_valid = in_valid_i & (FmtUnitTypes[dst_fmt_i] == fpnew_pkg::MERGED && dst_fmt_i < dst_fmt_i.num());
 
     fpnew_opgroup_multifmt_slice #(
       .OpGroup       ( OpGroup          ),
@@ -223,7 +224,7 @@ module fpnew_opgroup_block #(
   output_t arbiter_output;
 
   // Round-Robin arbiter to decide which result to use
-  rr_arb_tree #(
+  rr_arb_tree_lock #(
     .NumIn     ( NUM_FORMATS ),
     .DataType  ( output_t    ),
     .AxiVldRdy ( 1'b1        )
@@ -232,6 +233,7 @@ module fpnew_opgroup_block #(
     .rst_ni,
     .flush_i,
     .rr_i   ( '0             ),
+    .lock_rr_i ( out_lock_i  ),
     .req_i  ( fmt_out_valid  ),
     .gnt_o  ( fmt_out_ready  ),
     .data_i ( fmt_outputs    ),

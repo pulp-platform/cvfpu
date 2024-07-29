@@ -55,20 +55,21 @@ module fpnew_classifier #(
       is_boxed      = is_boxed_i[op];
       is_normal     = is_boxed && (value.exponent != '0) && (value.exponent != '1);
       is_zero       = is_boxed && (value.exponent == '0) && (value.mantissa == '0);
-      is_subnormal  = is_boxed && (value.exponent == '0) && !is_zero;
       is_inf        = is_boxed && ((value.exponent == '1) && (value.mantissa == '0));
+      is_subnormal  = is_boxed && (value.exponent == '0) && !is_zero;
       is_nan        = !is_boxed || ((value.exponent == '1) && (value.mantissa != '0));
       is_signalling = is_boxed && is_nan && (value.mantissa[MAN_BITS-1] == 1'b0);
       is_quiet      = is_nan && !is_signalling;
-      // Assign output for current input
-      info_o[op].is_normal     = is_normal;
-      info_o[op].is_subnormal  = is_subnormal;
-      info_o[op].is_zero       = is_zero;
-      info_o[op].is_inf        = is_inf;
-      info_o[op].is_nan        = is_nan;
-      info_o[op].is_signalling = is_signalling;
-      info_o[op].is_quiet      = is_quiet;
-      info_o[op].is_boxed      = is_boxed;
     end
+
+    // Assign output for current input
+    assign info_o[op].is_normal     = is_normal;
+    assign info_o[op].is_subnormal  = is_subnormal;
+    assign info_o[op].is_zero       = is_zero;
+    assign info_o[op].is_inf        = is_inf;
+    assign info_o[op].is_nan        = is_nan;
+    assign info_o[op].is_signalling = is_signalling;
+    assign info_o[op].is_quiet      = is_quiet;
+    assign info_o[op].is_boxed      = is_boxed;
   end
 endmodule

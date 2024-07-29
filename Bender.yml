@@ -8,6 +8,7 @@ package:
 dependencies:
   common_cells: {git: "https://github.com/pulp-platform/common_cells.git",         version: 1.21.0}
   fpu_div_sqrt_mvp: {git: "https://github.com/pulp-platform/fpu_div_sqrt_mvp.git", version: 1.0.4}
+  redundancy_cells: { git: "git@github.com:Lynx005F/redundancy_cells.git", rev: d1bc37491a9ca17383ded5c17eb2f40a6e42674a}
 
 sources:
   - src/fpnew_pkg.sv
@@ -37,6 +38,8 @@ sources:
   - vendor/openc910/C910_RTL_FACTORY/gen_rtl/vfdsu/rtl/ct_vfdsu_srt_radix16_with_sqrt.v
   - vendor/openc910/C910_RTL_FACTORY/gen_rtl/vfdsu/rtl/ct_vfdsu_srt.v
   - vendor/openc910/C910_RTL_FACTORY/gen_rtl/vfdsu/rtl/ct_vfdsu_top.v
+  - src/fpnew_aux.sv
+  - src/fpnew_aux_fsm.sv
   - src/fpnew_divsqrt_th_32.sv
   - src/fpnew_divsqrt_th_64_multi.sv
   - src/fpnew_divsqrt_multi.sv
