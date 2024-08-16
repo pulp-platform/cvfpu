@@ -176,7 +176,8 @@ or on 16b inputs producing 32b outputs");
   for (genvar lane = 0; lane < int'(NUM_LANES); lane++) begin : gen_num_lanes
     localparam int unsigned LANE = unsigned'(lane); // unsigned to please the linter
     // Get a mask of active formats for this lane
-    localparam fpnew_pkg::fmt_logic_t ACTIVE_FORMATS =
+    localparam fpnew_pkg::fmt_logic_t ACTIVE_FORMATS = (OpGroup == fpnew_pkg::SHFL) ?
+        fpnew_pkg::get_vfshfl_lane_formats(Width, FpFmtConfig, LANE) :
         fpnew_pkg::get_lane_formats(Width, FpFmtConfig, LANE);
     localparam fpnew_pkg::ifmt_logic_t ACTIVE_INT_FORMATS =
         fpnew_pkg::get_lane_int_formats(Width, FpFmtConfig, IntFmtConfig, LANE);
@@ -195,6 +196,11 @@ or on 16b inputs producing 32b outputs");
     localparam int unsigned DOTP_MAX_FMT_WIDTH = fpnew_pkg::max_fp_width(DOTP_FORMATS);
     localparam int unsigned DOTP_WIDTH = fpnew_pkg::minimum(2*DOTP_MAX_FMT_WIDTH, Width);
 
+    // Shuffle-specific parameters
+    localparam fpnew_pkg::fmt_logic_t SHFL_FORMATS =
+        fpnew_pkg::get_vfshfl_lane_formats(Width, FpFmtConfig, LANE);
+    localparam int unsigned SHFL_WIDTH = fpnew_pkg::max_fp_width(SHFL_FORMATS);
+
     // Lane parameters from Opgroup
     localparam fpnew_pkg::fmt_logic_t LANE_FORMATS = (OpGroup == fpnew_pkg::CONV) ? CONV_FORMATS :
                                                      (OpGroup == fpnew_pkg::DOTP) ? DOTP_FORMATS :
@@ -211,6 +217,7 @@ or on 16b inputs producing 32b outputs");
 
       logic [NUM_OPERANDS-1:0][LANE_WIDTH-1:0] local_operands;  // lane-local oprands
       logic [LANE_WIDTH-1:0]                   op_result;       // lane-local results
+      logic [NUM_OPERANDS-1:0][Width-1:0]      operands;
       fpnew_pkg::status_t                      op_status;
 
       logic lane_is_used;
@@ -221,6 +228,7 @@ or on 16b inputs producing 32b outputs");
       // Slice out the operands for this lane, upper bits are ignored in the unit
       always_comb begin : prepare_input
         for (int unsigned i = 0; i < NUM_OPERANDS; i++) begin
+          operands[i] = operands_i[i];
           local_operands[i] = operands_i[i] >> LANE*fpnew_pkg::fp_width(src_fmt_i);
         end
 
@@ -248,6 +256,8 @@ or on 16b inputs producing 32b outputs");
               local_operands[0] = operands_i[1];
             end
           end
+        end else if (OpGroup == fpnew_pkg::SHFL) begin
+          operands[1] = operands_i[1] >> LANE*4; // shift the mask to the right lane
         end
       end
 
@@ -448,6 +458,38 @@ or on 16b inputs producing 32b outputs");
           .int_fmt_i,
           .tag_i,
           .mask_i          ( simd_mask_i[lane]   ),
+          .aux_i           ( aux_data            ),
+          .in_valid_i      ( in_valid            ),
+          .in_ready_o      ( lane_in_ready[lane] ),
+          .flush_i,
+          .result_o        ( op_result           ),
+          .status_o        ( op_status           ),
+          .extension_bit_o ( lane_ext_bit[lane]  ),
+          .tag_o           ( lane_tags[lane]     ),
+          .mask_o          ( lane_masks[lane]    ),
+          .aux_o           ( lane_aux[lane]      ),
+          .out_valid_o     ( out_valid           ),
+          .out_ready_i     ( out_ready           ),
+          .busy_o          ( lane_busy[lane]     )
+        );
+      end else if (OpGroup == fpnew_pkg::SHFL) begin : lane_instance
+        fpnew_vfshuffle_multi #(
+          .FpFmtConfig ( LANE_FORMATS         ),
+          .PipeConfig  ( PipeConfig           ),
+          .NumPipeRegs ( NumPipeRegs          ),
+          .SrcWidth    ( MAX_FP_WIDTH         ),
+          .TagType     ( TagType              ),
+          .AuxType     ( logic [AUX_BITS-1:0] )
+        ) i_fpnew_vfshuffle_multi (
+          .clk_i,
+          .rst_ni,
+          .operands_i      ( operands            ),
+          .op_i,
+          .op_mod_i,
+          .src_fmt_i,
+          .dst_fmt_i,
+          .tag_i,
+          .mask_i          ( simd_mask_i[lane]   ), // Not used
           .aux_i           ( aux_data            ),
           .in_valid_i      ( in_valid            ),
           .in_ready_o      ( lane_in_ready[lane] ),

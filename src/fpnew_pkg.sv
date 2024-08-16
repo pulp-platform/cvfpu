@@ -113,11 +113,11 @@ package fpnew_pkg;
   // --------------
   // FP OPERATIONS
   // --------------
-  localparam int unsigned NUM_OPGROUPS = 5;
+  localparam int unsigned NUM_OPGROUPS = 6;
 
   // Each FP operation belongs to an operation group
   typedef enum logic [2:0] {
-    ADDMUL, DIVSQRT, NONCOMP, CONV, DOTP
+    ADDMUL, DIVSQRT, NONCOMP, CONV, DOTP, SHFL
   } opgroup_e;
 
   localparam int unsigned OP_BITS = 5;
@@ -127,7 +127,8 @@ package fpnew_pkg;
     DIV, SQRT,                   // DIVSQRT operation group
     SGNJ, MINMAX, CMP, CLASSIFY, // NONCOMP operation group
     F2F, F2I, I2F, CPKAB, CPKCD, // CONV operation group
-    SDOTP, EXVSUM, VSUM          // DOTP operation group
+    SDOTP, EXVSUM, VSUM,         // DOTP operation group
+    VFSHFL                       // SHFL operation group
   } operation_e;
 
   // -------------
@@ -292,7 +293,8 @@ package fpnew_pkg;
                   '{default: MERGED},   // DIVSQRT
                   '{default: PARALLEL}, // NONCOMP
                   '{default: MERGED},   // CONV
-                  '{default: DISABLED}},  // DOTP
+                  '{default: DISABLED},   // DOTP
+                  '{default: DISABLED}},  // SHFL
     PipeConfig: BEFORE
   };
 
@@ -302,7 +304,8 @@ package fpnew_pkg;
                   '{default: DISABLED}, // DIVSQRT
                   '{default: PARALLEL}, // NONCOMP
                   '{default: MERGED},   // CONV
-                  '{default: MERGED}},  // DOTP
+                  '{default: MERGED},   // DOTP
+                  '{default: MERGED}},  // SHFL
     PipeConfig: BEFORE
   };
 
@@ -425,6 +428,7 @@ package fpnew_pkg;
       SGNJ, MINMAX, CMP, CLASSIFY: return NONCOMP;
       F2F, F2I, I2F, CPKAB, CPKCD: return CONV;
       SDOTP, EXVSUM, VSUM:         return DOTP;
+      VFSHFL:                      return SHFL;
       default:                     return NONCOMP;
     endcase
   endfunction
@@ -437,6 +441,7 @@ package fpnew_pkg;
       NONCOMP: return 2;
       CONV:    return 3; // vectorial casts use 3 operands
       DOTP:    return 3; // splitting into 5 operands done in wrapper
+      SHFL:    return 3;
       default: return 0;
     endcase
   endfunction
@@ -586,6 +591,25 @@ package fpnew_pkg;
     for (int unsigned i = 0; i < NUM_FP_FORMATS; i++) begin
       if (cfg[i] && types[i] == MERGED) res = maximum(res, regs[i]);
     end
+    return res;
+  endfunction
+
+  // Returns all lanes that are active for SIMD shuffling
+  function automatic fmt_logic_t get_vfshfl_lane_formats(int unsigned width,
+                                                         fmt_logic_t cfg,
+                                                         int unsigned lane_no);
+    automatic fmt_logic_t res;
+    for (int unsigned fmt = 0; fmt < NUM_FP_FORMATS; fmt++) begin
+      automatic int unsigned simd_lanes = width / fp_width(fp_format_e'(fmt));
+      res[fmt] = cfg[fmt] &&
+                (simd_lanes >= 2) && // Only SIMD formats
+                (simd_lanes > lane_no);
+    end
+    // Merge alt and non-alt formats
+    res[FP16] = res[FP16] || res[FP16ALT];
+    res[FP8] = res[FP8] || res[FP8ALT];
+    res[FP16ALT] = 1'b0;
+    res[FP8ALT] = 1'b0;
     return res;
   endfunction
 
