@@ -56,7 +56,9 @@ module fpnew_opgroup_fmt_slice #(
   // Indication of valid data in flight
   output logic                              busy_o,
   // External register enable override
-  input  logic [ExtRegEnaWidth-1:0]         reg_ena_i
+  input  logic [ExtRegEnaWidth-1:0]         reg_ena_i,
+  // Early valid for external structural hazard generation
+  output logic                              early_out_valid_o
 );
 
   localparam int unsigned FP_WIDTH  = fpnew_pkg::fp_width(FpFormat);
@@ -75,6 +77,7 @@ module fpnew_opgroup_fmt_slice #(
   TagType                [NUM_LANES-1:0] lane_tags; // only the first one is actually used
   logic                  [NUM_LANES-1:0] lane_masks;
   logic                  [NUM_LANES-1:0] lane_vectorial, lane_busy, lane_is_class; // dito
+  logic                  [NUM_LANES-1:0] lane_early_out_valid;
 
   logic result_is_vector, result_is_class;
 
@@ -118,27 +121,28 @@ module fpnew_opgroup_fmt_slice #(
         ) i_fma (
           .clk_i,
           .rst_ni,
-          .operands_i      ( local_operands               ),
-          .is_boxed_i      ( is_boxed_i[NUM_OPERANDS-1:0] ),
+          .operands_i       ( local_operands               ),
+          .is_boxed_i       ( is_boxed_i[NUM_OPERANDS-1:0] ),
           .rnd_mode_i,
           .op_i,
           .op_mod_i,
           .tag_i,
-          .mask_i          ( simd_mask_i[lane]    ),
-          .aux_i           ( vectorial_op         ), // Remember whether operation was vectorial
-          .in_valid_i      ( in_valid             ),
-          .in_ready_o      ( lane_in_ready[lane]  ),
+          .mask_i           ( simd_mask_i[lane]    ),
+          .aux_i            ( vectorial_op         ), // Remember whether operation was vectorial
+          .in_valid_i       ( in_valid             ),
+          .in_ready_o       ( lane_in_ready[lane]  ),
           .flush_i,
-          .result_o        ( op_result            ),
-          .status_o        ( op_status            ),
-          .extension_bit_o ( lane_ext_bit[lane]   ),
-          .tag_o           ( lane_tags[lane]      ),
-          .mask_o          ( lane_masks[lane]     ),
-          .aux_o           ( lane_vectorial[lane] ),
-          .out_valid_o     ( out_valid            ),
-          .out_ready_i     ( out_ready            ),
-          .busy_o          ( lane_busy[lane]      ),
-          .reg_ena_i
+          .result_o         ( op_result            ),
+          .status_o         ( op_status            ),
+          .extension_bit_o  ( lane_ext_bit[lane]   ),
+          .tag_o            ( lane_tags[lane]      ),
+          .mask_o           ( lane_masks[lane]     ),
+          .aux_o            ( lane_vectorial[lane] ),
+          .out_valid_o      ( out_valid            ),
+          .out_ready_i      ( out_ready            ),
+          .busy_o           ( lane_busy[lane]      ),
+          .reg_ena_i,
+          .early_out_valid_o( lane_early_out_valid[lane] )
         );
         assign lane_is_class[lane]   = 1'b0;
         assign lane_class_mask[lane] = fpnew_pkg::NEGINF;
@@ -189,23 +193,24 @@ module fpnew_opgroup_fmt_slice #(
           .op_i,
           .op_mod_i,
           .tag_i,
-          .mask_i          ( simd_mask_i[lane]     ),
-          .aux_i           ( vectorial_op          ), // Remember whether operation was vectorial
-          .in_valid_i      ( in_valid              ),
-          .in_ready_o      ( lane_in_ready[lane]   ),
+          .mask_i            ( simd_mask_i[lane]     ),
+          .aux_i             ( vectorial_op          ), // Remember whether operation was vectorial
+          .in_valid_i        ( in_valid              ),
+          .in_ready_o        ( lane_in_ready[lane]   ),
           .flush_i,
-          .result_o        ( op_result             ),
-          .status_o        ( op_status             ),
-          .extension_bit_o ( lane_ext_bit[lane]    ),
-          .class_mask_o    ( lane_class_mask[lane] ),
-          .is_class_o      ( lane_is_class[lane]   ),
-          .tag_o           ( lane_tags[lane]       ),
-          .mask_o          ( lane_masks[lane]      ),
-          .aux_o           ( lane_vectorial[lane]  ),
-          .out_valid_o     ( out_valid             ),
-          .out_ready_i     ( out_ready             ),
-          .busy_o          ( lane_busy[lane]       ),
-          .reg_ena_i
+          .result_o          ( op_result             ),
+          .status_o          ( op_status             ),
+          .extension_bit_o   ( lane_ext_bit[lane]    ),
+          .class_mask_o      ( lane_class_mask[lane] ),
+          .is_class_o        ( lane_is_class[lane]   ),
+          .tag_o             ( lane_tags[lane]       ),
+          .mask_o            ( lane_masks[lane]      ),
+          .aux_o             ( lane_vectorial[lane]  ),
+          .out_valid_o       ( out_valid             ),
+          .out_ready_i       ( out_ready             ),
+          .busy_o            ( lane_busy[lane]       ),
+          .reg_ena_i,
+          .early_out_valid_o ( lane_early_out_valid[lane] )
         );
       end // ADD OTHER OPTIONS HERE
 
@@ -285,6 +290,7 @@ module fpnew_opgroup_fmt_slice #(
   assign tag_o                                        = lane_tags[0];    // upper lanes unused
   assign busy_o                                       = (| lane_busy);
   assign out_valid_o                                  = lane_out_valid[0]; // upper lanes unused
+  assign early_out_valid_o                            = |lane_early_out_valid;
 
 
   // Collapse the lane status
