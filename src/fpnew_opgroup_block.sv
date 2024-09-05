@@ -62,7 +62,8 @@ module fpnew_opgroup_block #(
   output logic                                    out_valid_o,
   input  logic                                    out_ready_i,
   // Indication of valid data in flight
-  output logic                                    busy_o
+  output logic                                    busy_o,
+  output logic                                    early_valid_o
 );
 
   // ----------------
@@ -77,6 +78,7 @@ module fpnew_opgroup_block #(
 
   // Handshake signals for the slices
   logic [NUM_FORMATS-1:0] fmt_in_ready, fmt_out_valid, fmt_out_ready, fmt_busy;
+  logic [NUM_FORMATS-1:0] early_valid;
   output_t [NUM_FORMATS-1:0] fmt_outputs;
 
   // -----------
@@ -135,7 +137,8 @@ module fpnew_opgroup_block #(
         .tag_o          ( fmt_outputs[fmt].tag     ),
         .out_valid_o    ( fmt_out_valid[fmt]       ),
         .out_ready_i    ( fmt_out_ready[fmt]       ),
-        .busy_o         ( fmt_busy[fmt]            )
+        .busy_o         ( fmt_busy[fmt]            ),
+        .early_out_valid_o (early_valid[fmt])
       );
     // If the format wants to use merged ops, tie off the dangling ones not used here
     end else if (FpFmtMask[fmt] && ANY_MERGED && !IS_FIRST_MERGED) begin : merged_unused
@@ -162,6 +165,8 @@ module fpnew_opgroup_block #(
       assign fmt_outputs[fmt].status  = '{default: fpnew_pkg::DONT_CARE};
       assign fmt_outputs[fmt].ext_bit = fpnew_pkg::DONT_CARE;
       assign fmt_outputs[fmt].tag     = TagType'(fpnew_pkg::DONT_CARE);
+      // Disabled early_valid forced to 0.
+      assign early_valid[fmt] = 1'b0;
     end
   end
 
@@ -212,7 +217,8 @@ module fpnew_opgroup_block #(
       .tag_o           ( fmt_outputs[FMT].tag     ),
       .out_valid_o     ( fmt_out_valid[FMT]       ),
       .out_ready_i     ( fmt_out_ready[FMT]       ),
-      .busy_o          ( fmt_busy[FMT]            )
+      .busy_o          ( fmt_busy[FMT]            ),
+      .early_out_valid_o (early_valid[FMT])
     );
 
   end
@@ -246,6 +252,8 @@ module fpnew_opgroup_block #(
   assign status_o        = arbiter_output.status;
   assign extension_bit_o = arbiter_output.ext_bit;
   assign tag_o           = arbiter_output.tag;
+
+  assign early_valid_o   = |early_valid;
 
   assign busy_o = (| fmt_busy);
 

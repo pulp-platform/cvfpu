@@ -53,7 +53,8 @@ module fpnew_opgroup_fmt_slice #(
   output logic                              out_valid_o,
   input  logic                              out_ready_i,
   // Indication of valid data in flight
-  output logic                              busy_o
+  output logic                              busy_o,
+  output logic                              early_out_valid_o
 );
 
   localparam int unsigned FP_WIDTH  = fpnew_pkg::fp_width(FpFormat);
@@ -72,8 +73,8 @@ module fpnew_opgroup_fmt_slice #(
   fpnew_pkg::classmask_e [NUM_LANES-1:0] lane_class_mask;
   TagType                [NUM_LANES-1:0] lane_tags; // only the first one is actually used
   logic                  [NUM_LANES-1:0] lane_masks;
-  logic                  [NUM_LANES-1:0] lane_busy, lane_is_class; // dito
-  logic    [NUM_LANES-1:0][AUX_BITS-1:0] lane_aux; // dito
+  logic                  [NUM_LANES-1:0] lane_vectorial, lane_busy, lane_is_class; // dito
+  logic                  [NUM_LANES-1:0] lane_early_out_valid;
 
   logic result_is_vector, result_is_class, result_is_cmp;
 
@@ -144,7 +145,8 @@ module fpnew_opgroup_fmt_slice #(
           .aux_o           ( lane_aux[lane]       ),
           .out_valid_o     ( out_valid            ),
           .out_ready_i     ( out_ready            ),
-          .busy_o          ( lane_busy[lane]      )
+          .busy_o          ( lane_busy[lane]      ),
+          .early_out_valid_o ( lane_early_out_valid[lane] )
         );
         assign lane_is_class[lane]   = 1'b0;
         assign lane_class_mask[lane] = fpnew_pkg::NEGINF;
@@ -209,7 +211,8 @@ module fpnew_opgroup_fmt_slice #(
           .aux_o           ( lane_aux[lane]        ),
           .out_valid_o     ( out_valid             ),
           .out_ready_i     ( out_ready             ),
-          .busy_o          ( lane_busy[lane]       )
+          .busy_o          ( lane_busy[lane]       ),
+          .early_out_valid_o ( lane_early_out_valid[lane] )          
         );
       end // ADD OTHER OPTIONS HERE
 
@@ -298,6 +301,7 @@ module fpnew_opgroup_fmt_slice #(
   assign tag_o                                        = lane_tags[0];    // upper lanes unused
   assign busy_o                                       = (| lane_busy);
   assign out_valid_o                                  = lane_out_valid[0]; // upper lanes unused
+  assign early_out_valid_o                            = |lane_early_out_valid;
 
 
   // Collapse the lane status

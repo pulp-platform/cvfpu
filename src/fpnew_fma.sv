@@ -50,7 +50,9 @@ module fpnew_fma #(
   output logic                     out_valid_o,
   input  logic                     out_ready_i,
   // Indication of valid data in flight
-  output logic                     busy_o
+  output logic                     busy_o,
+  // Early valid for dual-issue dispatching.
+  output logic                     early_out_valid_o
 );
 
   // ----------
@@ -693,4 +695,15 @@ module fpnew_fma #(
   assign aux_o           = out_pipe_aux_q[NUM_OUT_REGS];
   assign out_valid_o     = out_pipe_valid_q[NUM_OUT_REGS];
   assign busy_o          = (| {inp_pipe_valid_q, mid_pipe_valid_q, out_pipe_valid_q});
+
+  // Early valid_o signal. This is used for dispatching instructions for dual-issue processor.
+  if (NUM_OUT_REGS > 0) begin
+    assign early_out_valid_o = out_pipe_valid_q[NUM_OUT_REGS-1];
+  end else if (NUM_MID_REGS > 0) begin
+    assign early_out_valid_o = mid_pipe_valid_q[NUM_MID_REGS-1];
+  end else if (NUM_INP_REGS > 0) begin
+    assign early_out_valid_o = inp_pipe_valid_q[NUM_INP_REGS-1];
+  end else begin
+    assign early_out_valid_o = 1'b0;
+  end
 endmodule
