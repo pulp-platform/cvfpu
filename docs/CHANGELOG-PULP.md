@@ -7,6 +7,11 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 In this sense, we interpret the "Public API" of a hardware module as its port/parameter list.
 Versions of the IP in the same major relase are "pin-compatible" with each other. Minor relases are permitted to add new parameters as long as their default bindings ensure backwards compatibility.
 
+## [pulp-v0.2.3] - 2024-09-27
+
+### Fix
+- Fix illegal Verilog `'0`
+
 ## [pulp-v0.2.2] - 2024-06-24
 
 ### Added
