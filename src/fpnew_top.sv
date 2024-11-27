@@ -161,7 +161,7 @@ module fpnew_top #(
        .valid_i  ( in_valid_i              ),
        .ready_o  ( in_ready_o              ), 
        .valid_o  ( in_gated_valid          ),
-       .ready_i  ( in_gated_valid          )
+       .ready_i  ( in_gated_ready          )
     );  
   end
 
