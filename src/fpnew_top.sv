@@ -96,10 +96,10 @@ module fpnew_top #(
     $clog2(MAX_DELAY) + (DIVISION_ENABLED ? (TTR_ENABLED ? 4 : 1) : 0)
     // In case of a TTR approach we add extra ID Bits for the Division since it can take up to 12 cycles
     // For DTR we only need 1 bit extra as we split the storage
-  );
+  );  
 
   // We have an extra bit for DMR methods to do error detection
-  localparam int unsigned ID_SIZE = ID_SIZE_BASE + (DTR_ENABLED ? 1 : 0);
+  localparam int unsigned ID_SIZE = ID_SIZE_BASE + (DTR_ENABLED ? 3 : 0);
 
   // ----------------
   // Type Definition
@@ -185,14 +185,8 @@ module fpnew_top #(
 
   // Connection down to counterpart
   retry_interface #(
-    .IDSize ( ID_SIZE -1 )
+    .IDSize ( ID_SIZE )
   ) retry_connection ();
-
-  // Connection down to counterpart
-  DTR_interface #(
-    .IDSize             ( ID_SIZE       ),
-    .InternalRedundancy ( SELF_CHECKING )
-  ) dtr_connection ();
 
   if (TTR_ENABLED) begin: gen_in_ttr
 
@@ -224,7 +218,7 @@ module fpnew_top #(
   end else if (DTR_ENABLED) begin: gen_in_dtr
     // Connection directly to next module
     tmr_in_stacked_t retry2dmr_data;
-    logic [ID_SIZE-2:0] retry2dmr_opid;
+    logic [ID_SIZE-1:0] retry2dmr_opid;
     logic retry2dmr_valid, retry2dmr_ready;
 
     logic op_is_div;
@@ -233,7 +227,7 @@ module fpnew_top #(
     if (RedundancyFeatures.RedundancyType == fpnew_pkg::DTR) begin: gen_in_oo_retry
       retry_start #(
           .DataType       ( tmr_in_stacked_t        ),
-          .IDSize         ( ID_SIZE - 1             ),
+          .IDSize         ( ID_SIZE                 ),
           .ExternalIDBits ( DIVISION_ENABLED ? 1: 0 )
       ) i_retry_start (
           .clk_i,
@@ -255,7 +249,7 @@ module fpnew_top #(
 
       retry_inorder_start #(
           .DataType       ( tmr_in_stacked_t        ),
-          .IDSize         ( ID_SIZE - 1             ),
+          .IDSize         ( ID_SIZE                 ),
           .ExternalIDBits ( DIVISION_ENABLED ? 1: 0 )
       ) i_retry_inorder_start (
           .clk_i,
@@ -282,7 +276,6 @@ module fpnew_top #(
         .clk_i,
         .rst_ni,
         .enable_i      ( gated_redundancy_enable ),
-        .dtr_interface ( dtr_connection          ),
         .data_i        ( retry2dmr_data          ),
         .id_i          ( retry2dmr_opid          ),
         .valid_i       ( retry2dmr_valid         ),
@@ -475,7 +468,7 @@ module fpnew_top #(
 
   end else if (DTR_ENABLED) begin : gen_out_dmr
     tmr_out_stacked_t dmr2retry_data;
-    logic [ID_SIZE-2:0] dmr2retry_opid;
+    logic [ID_SIZE-1:0] dmr2retry_opid;
     logic dmr2retry_valid, dmr2retry_ready, dmr2retry_needs_retry;
 
     DTR_end #(
@@ -487,7 +480,6 @@ module fpnew_top #(
         .clk_i,
         .rst_ni,
         .enable_i         ( gated_redundancy_enable ),
-        .dtr_interface    ( dtr_connection          ),
         .data_i           ( out_redundant_data_noid ),
         .id_i             ( out_redundant_data.opid ),
         .valid_i          ( out_redundant_valid     ),
@@ -504,7 +496,7 @@ module fpnew_top #(
     if (RedundancyFeatures.RedundancyType == fpnew_pkg::DTR) begin: gen_out_oo_retry
       retry_end #(
           .DataType ( tmr_out_stacked_t ),
-          .IDSize   ( ID_SIZE - 1       )
+          .IDSize   ( ID_SIZE           )
       ) i_retry_end (
           .clk_i,
           .rst_ni,
@@ -523,7 +515,7 @@ module fpnew_top #(
     end else begin: gen_out_io_retry
       retry_inorder_end #(
           .DataType ( tmr_out_stacked_t ),
-          .IDSize   ( ID_SIZE - 1       )
+          .IDSize   ( ID_SIZE           )
       ) i_retry_inorder_end (
           .clk_i,
           .rst_ni,
