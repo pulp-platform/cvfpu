@@ -8,7 +8,7 @@ package:
 dependencies:
   common_cells: {git: "https://github.com/pulp-platform/common_cells.git",         version: 1.21.0}
   fpu_div_sqrt_mvp: {git: "https://github.com/pulp-platform/fpu_div_sqrt_mvp.git", version: 1.0.4}
-  redundancy_cells: { git: "git@github.com:Lynx005F/redundancy_cells.git", rev: 8c9cfee55faffbe4e1e8af4dc8676439d9c92152}
+  redundancy_cells: { git: "git@github.com:Lynx005F/redundancy_cells.git", rev: a08ea1b3a19e38eb47a4e7b270c5f9e6fd0c07f9}
 
 sources:
   - src/fpnew_pkg.sv

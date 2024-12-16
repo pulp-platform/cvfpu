@@ -210,11 +210,6 @@ module fpnew_top #(
         .ready_i ( in_redundant_ready      )
     );
 
-    // Don't care for dtr specific signals
-    assign dmr_next_id = fpnew_pkg::DONT_CARE;
-    assign retry_ready = fpnew_pkg::DONT_CARE;
-    assign retry_replacement_id = fpnew_pkg::DONT_CARE;
-
   end else if (DTR_ENABLED) begin: gen_in_dtr
     // Connection directly to next module
     tmr_in_stacked_t retry2dmr_data;
@@ -224,47 +219,23 @@ module fpnew_top #(
     logic op_is_div;
     assign op_is_div = in_data.op == fpnew_pkg::SQRT || in_data.op == fpnew_pkg::DIV;
 
-    if (RedundancyFeatures.RedundancyType == fpnew_pkg::DTR) begin: gen_in_oo_retry
-      retry_start #(
-          .DataType       ( tmr_in_stacked_t        ),
-          .IDSize         ( ID_SIZE                 ),
-          .ExternalIDBits ( DIVISION_ENABLED ? 1: 0 )
-      ) i_retry_start (
-          .clk_i,
-          .rst_ni,
-          .data_i        ( in_data              ),
-          .ext_id_bits_i ( op_is_div            ),
-          .valid_i       ( in_gated_valid       ),
-          .ready_o       ( in_gated_ready       ),
-          .data_o        ( retry2dmr_data       ),
-          .id_o          ( retry2dmr_opid       ),
-          .valid_o       ( retry2dmr_valid      ),
-          .ready_i       ( retry2dmr_ready      ),
-          .retry         ( retry_connection     )
-      );
-      assign retry_replacement_id = fpnew_pkg::DONT_CARE;
-
-    end else begin: gen_in_io_retry
-
-
-      retry_inorder_start #(
-          .DataType       ( tmr_in_stacked_t        ),
-          .IDSize         ( ID_SIZE                 ),
-          .ExternalIDBits ( DIVISION_ENABLED ? 1: 0 )
-      ) i_retry_inorder_start (
-          .clk_i,
-          .rst_ni,
-          .data_i        ( in_data              ),
-          .ext_id_bits_i ( op_is_div            ),
-          .valid_i       ( in_gated_valid       ),
-          .ready_o       ( in_gated_ready       ),
-          .data_o        ( retry2dmr_data       ),
-          .id_o          ( retry2dmr_opid       ),
-          .valid_o       ( retry2dmr_valid      ),
-          .ready_i       ( retry2dmr_ready      ),
-          .retry         ( retry_connection     )
-      );
-    end
+    retry_start #(
+        .DataType       ( tmr_in_stacked_t        ),
+        .IDSize         ( ID_SIZE                 ),
+        .ExternalIDBits ( DIVISION_ENABLED ? 1: 0 )
+    ) i_retry_start (
+        .clk_i,
+        .rst_ni,
+        .data_i        ( in_data              ),
+        .ext_id_bits_i ( op_is_div            ),
+        .valid_i       ( in_gated_valid       ),
+        .ready_o       ( in_gated_ready       ),
+        .data_o        ( retry2dmr_data       ),
+        .id_o          ( retry2dmr_opid       ),
+        .valid_o       ( retry2dmr_valid      ),
+        .ready_i       ( retry2dmr_ready      ),
+        .retry         ( retry_connection     )
+    );
 
     DTR_start #(
         .DataType           ( tmr_in_stacked_t ),
@@ -290,10 +261,6 @@ module fpnew_top #(
     assign in_redundant_valid = in_gated_valid;
     assign in_gated_ready = in_redundant_ready;
     assign in_redundant_opid = 0;
-
-    assign dmr_next_id = fpnew_pkg::DONT_CARE;
-    assign retry_ready = fpnew_pkg::DONT_CARE;
-    assign retry_replacement_id = fpnew_pkg::DONT_CARE;
   end
 
   // Handshake signals for the blocks
@@ -493,43 +460,24 @@ module fpnew_top #(
         .fault_detected_o ( fault_detected_o        )
     );
 
-    if (RedundancyFeatures.RedundancyType == fpnew_pkg::DTR) begin: gen_out_oo_retry
-      retry_end #(
-          .DataType ( tmr_out_stacked_t ),
-          .IDSize   ( ID_SIZE           )
-      ) i_retry_end (
-          .clk_i,
-          .rst_ni,
-          .data_i        ( dmr2retry_data        ),
-          .id_i          ( dmr2retry_opid        ),
-          .needs_retry_i ( dmr2retry_needs_retry ),
-          .valid_i       ( dmr2retry_valid       ),
-          .ready_o       ( dmr2retry_ready       ),
-          .data_o        ( out_data              ),
-          .valid_o       ( out_valid_o           ),
-          .ready_i       ( out_ready_i           ),
-          .retry         ( retry_connection      )
-      );
-      assign retry_lock = fpnew_pkg::DONT_CARE;
+    retry_end #(
+        .DataType ( tmr_out_stacked_t ),
+        .IDSize   ( ID_SIZE           )
+    ) i_retry_end (
+        .clk_i,
+        .rst_ni,
+        .data_i        ( dmr2retry_data        ),
+        .id_i          ( dmr2retry_opid        ),
+        .needs_retry_i ( dmr2retry_needs_retry ),
+        .valid_i       ( dmr2retry_valid       ),
+        .ready_o       ( dmr2retry_ready       ),
+        .data_o        ( out_data              ),
+        .valid_o       ( out_valid_o           ),
+        .ready_i       ( out_ready_i           ),
+        .retry         ( retry_connection      )
+    );
+    assign retry_lock = fpnew_pkg::DONT_CARE;
 
-    end else begin: gen_out_io_retry
-      retry_inorder_end #(
-          .DataType ( tmr_out_stacked_t ),
-          .IDSize   ( ID_SIZE           )
-      ) i_retry_inorder_end (
-          .clk_i,
-          .rst_ni,
-          .data_i        ( dmr2retry_data        ),
-          .id_i          ( dmr2retry_opid        ),
-          .needs_retry_i ( dmr2retry_needs_retry ),
-          .valid_i       ( dmr2retry_valid       ),
-          .ready_o       ( dmr2retry_ready       ),
-          .data_o        ( out_data              ),
-          .valid_o       ( out_valid_o           ),
-          .ready_i       ( out_ready_i           ),
-          .retry         ( retry_connection      )
-      );
-    end
   end else begin : gen_out_no_redundancy
     assign out_data = out_redundant_data_noid;
     assign out_valid_o = out_redundant_valid;
