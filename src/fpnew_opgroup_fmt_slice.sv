@@ -74,6 +74,7 @@ module fpnew_opgroup_fmt_slice #(
   TagType                [NUM_LANES-1:0] lane_tags; // only the first one is actually used
   logic                  [NUM_LANES-1:0] lane_masks;
   logic                  [NUM_LANES-1:0] lane_vectorial, lane_busy, lane_is_class; // dito
+  logic    [NUM_LANES-1:0][AUX_BITS-1:0] lane_aux; // dito
   logic                  [NUM_LANES-1:0] lane_early_out_valid;
 
   logic result_is_vector, result_is_class, result_is_cmp;
