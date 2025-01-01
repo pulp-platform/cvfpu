@@ -410,6 +410,7 @@ or on 16b inputs producing 32b outputs");
             .tag_i,
             .mask_i          ( simd_mask_i[lane]   ),
             .aux_i           ( aux_data            ),
+            .vectorial_op_i   ( vectorial_op        ), // synchronize only vectorial operations            
             .in_valid_i      ( in_valid            ),
             .in_ready_o      ( lane_in_ready[lane] ),
             .divsqrt_done_o   ( divsqrt_done[lane] ),
