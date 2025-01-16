@@ -416,17 +416,12 @@ module fpnew_noncomp #(
   assign busy_o          = (| {inp_pipe_valid_q, out_pipe_valid_q});
 
   // Early valid_o signal. This is used for dispatching instructions for dual-issue processor.
-//   if (NUM_OUT_REGS > 0) begin
-//     assign early_out_valid_o = out_pipe_valid_q[NUM_OUT_REGS-1];
-//   end else if (NUM_INP_REGS < 2) begin
-//     assign early_out_valid_o = in_valid_i;
-//   end else begin
-//     assign early_out_valid_o = out_valid_o;
-//   end
   if (NUM_OUT_REGS > 0) begin
-    assign early_out_valid_o = out_pipe_valid_q[NUM_OUT_REGS-1];
+    assign early_out_valid_o = |{out_pipe_valid_q[NUM_OUT_REGS] & ~out_pipe_ready[NUM_OUT_REGS],
+                                 out_pipe_valid_q[NUM_OUT_REGS-1]};
   end else if (NUM_INP_REGS > 0) begin
-    assign early_out_valid_o = inp_pipe_valid_q[NUM_INP_REGS-1];
+    assign early_out_valid_o = |{inp_pipe_valid_q[NUM_INP_REGS] & ~inp_pipe_ready[NUM_INP_REGS],
+                                 inp_pipe_valid_q[NUM_INP_REGS-1]};
   end else begin
     assign early_out_valid_o = 1'b0;
   end
