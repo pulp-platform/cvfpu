@@ -286,7 +286,8 @@ or on 16b inputs producing 32b outputs");
           .aux_o           ( lane_aux[lane]      ),
           .out_valid_o     ( out_valid           ),
           .out_ready_i     ( out_ready           ),
-          .busy_o          ( lane_busy[lane]     )
+          .busy_o          ( lane_busy[lane]     ),
+          .early_out_valid_o ( lane_early_out_valid[lane] )
         );
       end else if (OpGroup == fpnew_pkg::DOTP) begin : lane_instance
         fpnew_sdotp_multi_wrapper #(
