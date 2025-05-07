@@ -16,6 +16,7 @@
 module fpnew_classifier #(
   parameter fpnew_pkg::fp_format_e   FpFormat = fpnew_pkg::fp_format_e'(0),
   parameter int unsigned             NumOperands = 1,
+  parameter int unsigned             MX = 1,
   // Do not change
   localparam int unsigned WIDTH = fpnew_pkg::fp_width(FpFormat)
 ) (
@@ -51,13 +52,22 @@ module fpnew_classifier #(
     // Classify Input
     // ---------------
     always_comb begin : classify_input
-      value         = operands_i[op];
-      is_boxed      = is_boxed_i[op];
-      is_normal     = is_boxed && (value.exponent != '0) && (value.exponent != '1);
+      value    = operands_i[op];
+      is_boxed = is_boxed_i[op];
+
+      if (MX == 1 && FpFormat == fpnew_pkg::fp_format_e'(fpnew_pkg::FP8ALT)) begin
+        // No inf in E4M3
+        is_inf    = 1'b0;
+        is_nan    = !is_boxed || ((value.exponent == '1) && (value.mantissa == '1));
+        is_normal = is_boxed && (value.exponent != '0) && !is_nan;
+      end else begin
+        is_inf    = is_boxed && ((value.exponent == '1) && (value.mantissa == '0));
+        is_nan    = !is_boxed || ((value.exponent == '1) && (value.mantissa != '0));
+        is_normal = is_boxed && (value.exponent != '0) && (value.exponent != '1);
+      end
+
       is_zero       = is_boxed && (value.exponent == '0) && (value.mantissa == '0);
       is_subnormal  = is_boxed && (value.exponent == '0) && !is_zero;
-      is_inf        = is_boxed && ((value.exponent == '1) && (value.mantissa == '0));
-      is_nan        = !is_boxed || ((value.exponent == '1) && (value.mantissa != '0));
       is_signalling = is_boxed && is_nan && (value.mantissa[MAN_BITS-1] == 1'b0);
       is_quiet      = is_nan && !is_signalling;
       // Assign output for current input

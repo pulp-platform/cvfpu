@@ -87,6 +87,7 @@ or on 16b inputs producing 32b outputs");
   localparam int unsigned NUM_LANES = fpnew_pkg::max_num_lanes(Width, FpFmtConfig, 1'b1);
   localparam int unsigned NUM_DIVSQRT_LANES = fpnew_pkg::num_divsqrt_lanes(Width, FpFmtConfig, 1'b1, DivSqrtSel);
   localparam int unsigned NUM_DOTP_LANES = fpnew_pkg::num_dotp_lanes(Width, FpFmtConfig);
+  localparam int unsigned NUM_MX_LANES = 1; // only one lane for MXDOTP
   localparam int unsigned NUM_INT_FORMATS = fpnew_pkg::NUM_INT_FORMATS;
   // We will send the format information along with the data
   localparam int unsigned FMT_BITS =
@@ -206,7 +207,9 @@ or on 16b inputs producing 32b outputs");
 
     // Generate instances only if needed, lane 0 always generated
     if ((lane == 0) || (EnableVectors & (!(OpGroup == fpnew_pkg::DOTP && (lane >= NUM_DOTP_LANES))
-                                        && !(OpGroup == fpnew_pkg::DIVSQRT && (lane >= NUM_DIVSQRT_LANES))))) begin : active_lane
+                                        && !(OpGroup == fpnew_pkg::DIVSQRT && (lane >= NUM_DIVSQRT_LANES))
+                                        && !(OpGroup == fpnew_pkg::MXDOTP && (lane >= NUM_MX_LANES))
+                                        ))) begin : active_lane
       logic in_valid, out_valid, out_ready; // lane-local handshake
 
       logic [NUM_OPERANDS-1:0][LANE_WIDTH-1:0] local_operands;  // lane-local oprands
@@ -446,6 +449,38 @@ or on 16b inputs producing 32b outputs");
           .src_fmt_i,
           .dst_fmt_i,
           .int_fmt_i,
+          .tag_i,
+          .mask_i          ( simd_mask_i[lane]   ),
+          .aux_i           ( aux_data            ),
+          .in_valid_i      ( in_valid            ),
+          .in_ready_o      ( lane_in_ready[lane] ),
+          .flush_i,
+          .result_o        ( op_result           ),
+          .status_o        ( op_status           ),
+          .extension_bit_o ( lane_ext_bit[lane]  ),
+          .tag_o           ( lane_tags[lane]     ),
+          .mask_o          ( lane_masks[lane]    ),
+          .aux_o           ( lane_aux[lane]      ),
+          .out_valid_o     ( out_valid           ),
+          .out_ready_i     ( out_ready           ),
+          .busy_o          ( lane_busy[lane]     )
+        );
+      end else if (OpGroup == fpnew_pkg::MXDOTP) begin : lane_instance
+        fpnew_mxdotp_multi_wrapper #(
+          .NumPipeRegs(NumPipeRegs),
+          .PipeConfig(PipeConfig),
+          .TagType(TagType),
+          .AuxType(logic [AUX_BITS-1:0])
+          ) i_fpnew_mxdotp_multi_wrapper (
+          .clk_i,
+          .rst_ni,
+          .operands_i      ( local_operands[2:0]  ),
+          .is_boxed_i,
+          .rnd_mode_i,
+          .op_i,
+          .op_mod_i,
+          .src_fmt_i,
+          .dst_fmt_i,
           .tag_i,
           .mask_i          ( simd_mask_i[lane]   ),
           .aux_i           ( aux_data            ),

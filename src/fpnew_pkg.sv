@@ -113,11 +113,11 @@ package fpnew_pkg;
   // --------------
   // FP OPERATIONS
   // --------------
-  localparam int unsigned NUM_OPGROUPS = 5;
+  localparam int unsigned NUM_OPGROUPS = 6;
 
   // Each FP operation belongs to an operation group
   typedef enum logic [2:0] {
-    ADDMUL, DIVSQRT, NONCOMP, CONV, DOTP
+    ADDMUL, DIVSQRT, NONCOMP, CONV, DOTP, MXDOTP
   } opgroup_e;
 
   localparam int unsigned OP_BITS = 5;
@@ -127,7 +127,8 @@ package fpnew_pkg;
     DIV, SQRT,                   // DIVSQRT operation group
     SGNJ, MINMAX, CMP, CLASSIFY, // NONCOMP operation group
     F2F, F2I, I2F, CPKAB, CPKCD, // CONV operation group
-    SDOTP, EXVSUM, VSUM          // DOTP operation group
+    SDOTP, EXVSUM, VSUM,         // DOTP operation group
+    MXSDOTP                      // MXDOTP operation group
   } operation_e;
 
   // -------------
@@ -292,7 +293,8 @@ package fpnew_pkg;
                   '{default: MERGED},   // DIVSQRT
                   '{default: PARALLEL}, // NONCOMP
                   '{default: MERGED},   // CONV
-                  '{default: DISABLED}},  // DOTP
+                  '{default: DISABLED},  // DOTP
+                  '{default: DISABLED}},  // MXDOTP
     PipeConfig: BEFORE
   };
 
@@ -302,7 +304,8 @@ package fpnew_pkg;
                   '{default: DISABLED}, // DIVSQRT
                   '{default: PARALLEL}, // NONCOMP
                   '{default: MERGED},   // CONV
-                  '{default: MERGED}},  // DOTP
+                  '{default: MERGED},  // DOTP
+                  '{default: MERGED}},  // MXDOTP
     PipeConfig: BEFORE
   };
 
@@ -425,6 +428,7 @@ package fpnew_pkg;
       SGNJ, MINMAX, CMP, CLASSIFY: return NONCOMP;
       F2F, F2I, I2F, CPKAB, CPKCD: return CONV;
       SDOTP, EXVSUM, VSUM:         return DOTP;
+      MXSDOTP:                     return MXDOTP;
       default:                     return NONCOMP;
     endcase
   endfunction
@@ -437,6 +441,7 @@ package fpnew_pkg;
       NONCOMP: return 2;
       CONV:    return 3; // vectorial casts use 3 operands
       DOTP:    return 3; // splitting into 5 operands done in wrapper
+      MXDOTP:  return 3; // splitting into 4 operands done in wrapper
       default: return 0;
     endcase
   endfunction
