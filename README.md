@@ -11,6 +11,11 @@ The FPU is a parametric design that allows generating FP hardware units for vari
 Even though mainly designed for use in RISC-V processors, the FPU or its sub-blocks can easily be utilized in other environments.
 Our design aims to be compliant with IEEE 754-2008 and provides the following features:
 
+
+### Upcoming Feature
+
+Support for **PACE** (Piecewise Polynomial Approximation Compute Engine) is coming soon. 
+
 ### Formats
 Any IEEE 754-2008 style binary floating-point format can be supported, including single-, double-, quad- and half-precision (`binary32`, `binary64`, `binary128`, `binary16`).
 Formats can be defined with arbitrary number of exponent and mantissa bits through parameters and are always symmetrically biased.
