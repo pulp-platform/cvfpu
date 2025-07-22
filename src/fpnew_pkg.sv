@@ -113,11 +113,11 @@ package fpnew_pkg;
   // --------------
   // FP OPERATIONS
   // --------------
-  localparam int unsigned NUM_OPGROUPS = 5;
+  localparam int unsigned NUM_OPGROUPS = 6;
 
   // Each FP operation belongs to an operation group
   typedef enum logic [2:0] {
-    ADDMUL, DIVSQRT, NONCOMP, CONV, DOTP
+    ADDMUL, DIVSQRT, NONCOMP, CONV, DOTP, POLYNOMIAL
   } opgroup_e;
 
   localparam int unsigned OP_BITS = 5;
@@ -127,7 +127,8 @@ package fpnew_pkg;
     DIV, SQRT,                   // DIVSQRT operation group
     SGNJ, MINMAX, CMP, CLASSIFY, // NONCOMP operation group
     F2F, F2I, I2F, CPKAB, CPKCD, // CONV operation group
-    SDOTP, EXVSUM, VSUM          // DOTP operation group
+    SDOTP, EXVSUM, VSUM,         // DOTP operation group
+    POLY_OP                      // Piecewise Polynomial operation group
   } operation_e;
 
   // -------------
@@ -292,7 +293,8 @@ package fpnew_pkg;
                   '{default: MERGED},   // DIVSQRT
                   '{default: PARALLEL}, // NONCOMP
                   '{default: MERGED},   // CONV
-                  '{default: DISABLED}},  // DOTP
+                  '{default: DISABLED},// DOTP
+                  '{default: MERGED}},  // PACE Currently SIMD is handled inside PACE
     PipeConfig: BEFORE
   };
 
@@ -302,7 +304,8 @@ package fpnew_pkg;
                   '{default: DISABLED}, // DIVSQRT
                   '{default: PARALLEL}, // NONCOMP
                   '{default: MERGED},   // CONV
-                  '{default: MERGED}},  // DOTP
+                  '{default: MERGED},  // DOTP
+                  '{default: MERGED}},  // PACE
     PipeConfig: BEFORE
   };
 
@@ -425,6 +428,7 @@ package fpnew_pkg;
       SGNJ, MINMAX, CMP, CLASSIFY: return NONCOMP;
       F2F, F2I, I2F, CPKAB, CPKCD: return CONV;
       SDOTP, EXVSUM, VSUM:         return DOTP;
+      POLY_OP:                     return POLYNOMIAL;
       default:                     return NONCOMP;
     endcase
   endfunction
@@ -432,11 +436,12 @@ package fpnew_pkg;
   // Returns the number of operands by operation group
   function automatic int unsigned num_operands(opgroup_e grp);
     unique case (grp)
-      ADDMUL:  return 3;
-      DIVSQRT: return 2;
-      NONCOMP: return 2;
-      CONV:    return 3; // vectorial casts use 3 operands
-      DOTP:    return 3; // splitting into 5 operands done in wrapper
+      ADDMUL:      return 3;
+      DIVSQRT:     return 2;
+      NONCOMP:     return 2;
+      CONV:        return 3; // vectorial casts use 3 operands
+      DOTP:        return 3; // splitting into 5 operands done in wrapper
+      POLYNOMIAL:  return 3; 
       default: return 0;
     endcase
   endfunction
@@ -588,5 +593,18 @@ package fpnew_pkg;
     end
     return res;
   endfunction
+
+  localparam PACEDegreeWidth     = $clog2(pace_package::MaxSupportedDegree);
+  localparam PACEPartitionWidth  = $clog2(pace_package::MaxSupportedPartitions);
+
+
+  typedef struct packed {
+    logic start;
+    logic part_exceed;
+    logic degree_exceed;
+    pace_package::pace_fp_mode_t                    fp_mode;
+    logic [pace_package::msb(PACEDegreeWidth):0]    degree;
+    logic [pace_package::msb(PACEPartitionWidth):0] partition;
+  } pace_cfg_t;
 
 endpackage

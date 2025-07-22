@@ -41,6 +41,7 @@ module fpnew_top #(
   input fpnew_pkg::fp_format_e              src_fmt_i,
   input fpnew_pkg::fp_format_e              dst_fmt_i,
   input fpnew_pkg::int_format_e             int_fmt_i,
+  input fpnew_pkg::pace_cfg_t               pace_cfg_i,
   input logic                               vectorial_op_i,
   input TagType                             tag_i,
   input MaskType                            simd_mask_i,
@@ -80,7 +81,9 @@ module fpnew_top #(
   // -----------
   // Input Side
   // -----------
-  assign in_ready_o = in_valid_i & opgrp_in_ready[fpnew_pkg::get_opgroup(op_i)];
+  fpnew_pkg::operation_e              pace_op; // Using CSR to replace existing instruction
+  assign pace_op = ((op_i == fpnew_pkg::MUL) && pace_cfg_i.start)? fpnew_pkg::POLY_OP : op_i;
+  assign in_ready_o = in_valid_i & opgrp_in_ready[fpnew_pkg::get_opgroup(pace_op)];
 
   // NaN-boxing check
   for (genvar fmt = 0; fmt < int'(NUM_FORMATS); fmt++) begin : gen_nanbox_check
@@ -110,7 +113,7 @@ module fpnew_top #(
     logic in_valid;
     logic [NUM_FORMATS-1:0][NUM_OPS-1:0] input_boxed;
 
-    assign in_valid = in_valid_i & (fpnew_pkg::get_opgroup(op_i) == fpnew_pkg::opgroup_e'(opgrp));
+    assign in_valid = in_valid_i & (fpnew_pkg::get_opgroup(pace_op) == fpnew_pkg::opgroup_e'(opgrp));
 
     // slice out input boxing
     always_comb begin : slice_inputs
@@ -139,6 +142,7 @@ module fpnew_top #(
       .operands_i      ( operands_i[NUM_OPS-1:0] ),
       .is_boxed_i      ( input_boxed             ),
       .rnd_mode_i,
+      .pace_cfg_i,
       .op_i,
       .op_mod_i,
       .src_fmt_i,

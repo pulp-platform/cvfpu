@@ -10,7 +10,25 @@ dependencies:
   fpu_div_sqrt_mvp: {git: "https://github.com/pulp-platform/fpu_div_sqrt_mvp.git", version: 1.0.4}
 
 sources:
+  - src/pace/pace_pkg.sv
   - src/fpnew_pkg.sv
+  - src/pace/pace_fifo_v3.sv
+  - src/pace/pace_stream_fifo.sv
+  - src/pace/partition_detector/cmp_greater_than_multi_fp16.sv
+  - src/pace/partition_detector/cmp_greater_than_multi_fp32.sv
+  - src/pace/partition_detector/cmp_greater_than.sv
+  - src/pace/partition_detector/spill_register_pipeline.sv
+  - src/pace/partition_detector/partition_detector.sv
+  - src/pace/partition_detector/breakpoint_memory/register_file.sv
+  - src/pace/partition_detector/breakpoint_memory/breakpoint_memory.sv
+  - src/pace/partition_detector/partition_detector_multi.sv
+  - src/pace/fma_engine/fma_cascaded.sv
+  - src/pace/fma_engine/fma_cascaded_vectorial.sv
+  - src/pace/coefficient_memory/regfile.sv
+  - src/pace/coefficient_memory/coeff_memory.sv
+  - src/pace/coefficient_memory/coeff_memory_wrap.sv
+  - src/pace/coeff_addr_generator.sv
+  - src/pace/pace_dataflow.sv
   - src/fpnew_cast_multi.sv
   - src/fpnew_classifier.sv
   - vendor/opene906/E906_RTL_FACTORY/gen_rtl/clk/rtl/gated_clk_cell.v

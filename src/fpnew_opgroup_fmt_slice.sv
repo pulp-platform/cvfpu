@@ -35,6 +35,7 @@ module fpnew_opgroup_fmt_slice #(
   input logic [NUM_OPERANDS-1:0][Width-1:0] operands_i,
   input logic [NUM_OPERANDS-1:0]            is_boxed_i,
   input fpnew_pkg::roundmode_e              rnd_mode_i,
+  input fpnew_pkg::pace_cfg_t               pace_cfg_i,
   input fpnew_pkg::operation_e              op_i,
   input logic                               op_mod_i,
   input logic                               vectorial_op_i,

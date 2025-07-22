@@ -45,6 +45,7 @@ module fpnew_opgroup_multifmt_slice #(
   input fpnew_pkg::fp_format_e                    src_fmt_i,
   input fpnew_pkg::fp_format_e                    dst_fmt_i,
   input fpnew_pkg::int_format_e                   int_fmt_i,
+  input fpnew_pkg::pace_cfg_t                     pace_cfg_i,
   input logic                                     vectorial_op_i,
   input TagType                                   tag_i,
   input MaskType                                  simd_mask_i,
@@ -462,8 +463,46 @@ or on 16b inputs producing 32b outputs");
           .out_ready_i     ( out_ready           ),
           .busy_o          ( lane_busy[lane]     )
         );
-      end // ADD OTHER OPTIONS HERE
+      end else if (OpGroup == fpnew_pkg::POLYNOMIAL) begin : lane_instance
+        if (lane == 0) begin
+          pace_dataflow #(
+            .TagType ( TagType )
+          ) i_pace (
+            .clk_i     ( clk_i                ),
+            .rst_ni    ( rst_ni               ),
+        `ifdef SUPPORT_MORE_PARTITIONS
+            .data_i    ( local_operands[1:0]  ),
+        `else
+          `ifdef SUPPORT_MORE_DEGREES
+            .data_i    ( local_operands[1:0]  ),
+          `else
+            .data_i    ( local_operands[0]    ),
+          `endif
+        `endif
+        `ifdef FPNEW_INTEGRATION
+            .tag_i     ( tag_i                ),
+            .tag_o     ( lane_tags[lane]      ),
+        `endif
+            .valid_i   ( in_valid             ),
+            .ready_o   ( lane_in_ready[lane]  ),
+            .data_o    ( op_result            ),
+            .valid_o   ( out_valid            ),
+            .ready_i   ( out_ready            ),
+            .busy_o    ( lane_busy[lane]      ),
+            .config_i  ( pace_cfg_i           )
+          );
 
+          assign lane_aux[lane] = '0;
+          assign op_status = '0;
+        end else begin 
+          assign lane_aux[lane] = '0;
+          assign lane_busy[lane] = lane_busy[0];
+          assign lane_in_ready[lane] = lane_in_ready[0];
+          // assign lane_tags[lane] = lane_tags[0];
+          assign op_status = '0;
+        end 
+      end 
+    
       // Handshakes are only done if the lane is actually used
       assign out_ready            = out_ready_i & ((lane == 0) | result_is_vector);
       assign lane_out_valid[lane] = out_valid & ((lane == 0) | result_is_vector);
@@ -471,6 +510,7 @@ or on 16b inputs producing 32b outputs");
       // Properly NaN-box or sign-extend the slice result if not in use
       assign local_result      = lane_out_valid[lane] ? op_result : {(LANE_WIDTH){lane_ext_bit[0]}};
       assign lane_status[lane] = lane_out_valid[lane] ? op_status : '0;
+
 
     // Otherwise generate constant sign-extension
     end else begin : inactive_lane
