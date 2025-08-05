@@ -2,8 +2,9 @@
 
 Parametric floating-point unit with support for standard RISC-V formats and operations as well as transprecision formats, written in SystemVerilog.
 
-Maintainer: Luca Bertaccini <lbertaccini@iis.ee.ethz.ch><br>
-Principal Author: Stefan Mach <smach@iis.ee.ethz.ch>
+Current Maintainer: Gamze İslamoğlu <gislamoglu@iis.ee.ethz.ch><br>
+Past Maintainer: Luca Bertaccini <lbertaccini@iis.ee.ethz.ch><br>
+Main Author: Stefan Mach <smach@iis.ee.ethz.ch>
 
 ## Features
 
