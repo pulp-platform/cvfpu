@@ -22,8 +22,6 @@ module fpnew_sdotp_multi_wrapper #(
   parameter fpnew_pkg::fmt_logic_t   FpFmtConfig = '1,
   parameter int unsigned             NumPipeRegs = 0,
   parameter fpnew_pkg::pipe_config_t PipeConfig  = fpnew_pkg::BEFORE,
-  parameter type                     TagType     = logic,
-  parameter type                     AuxType     = logic,
   parameter fpnew_pkg::rsr_impl_t    StochasticRndImplementation = fpnew_pkg::DEFAULT_NO_RSR,
   // Do not change
   localparam fpnew_pkg::fmt_logic_t FpSrcFmtConfig = FpFmtConfig[0] ? (FpFmtConfig & 6'b001111) : (FpFmtConfig & 6'b000101),
@@ -44,25 +42,14 @@ module fpnew_sdotp_multi_wrapper #(
   input logic                          op_mod_i,
   input fpnew_pkg::fp_format_e         src_fmt_i,
   input fpnew_pkg::fp_format_e         dst_fmt_i,
-  input TagType                        tag_i,
   input logic                          mask_i,
-  input AuxType                        aux_i,
-  // Input Handshake
-  input  logic                         in_valid_i,
-  output logic                         in_ready_o,
-  input  logic                         flush_i,
   // Output signals
   output logic [OPERAND_WIDTH-1:0]     result_o,
   output fpnew_pkg::status_t           status_o,
   output logic                         extension_bit_o,
-  output TagType                       tag_o,
   output logic                         mask_o,
-  output AuxType                       aux_o,
-  // Output handshake
-  output logic                         out_valid_o,
-  input  logic                         out_ready_i,
-  // Indication of valid data in flight
-  output logic                         busy_o
+  // External Register Control
+  input logic[NumPipeRegs-1:0]         reg_enable_i
 );
 
   // ----------
@@ -147,8 +134,6 @@ module fpnew_sdotp_multi_wrapper #(
     .DstDotpFpFmtConfig ( FpDstFmtConfig ), // FP32, FP16, FP16ALT
     .NumPipeRegs        ( NumPipeRegs    ),
     .PipeConfig         ( PipeConfig     ),
-    .TagType            ( TagType        ),
-    .AuxType            ( AuxType        ),
     .StochasticRndImplementation ( StochasticRndImplementation )
   ) i_fpnew_sdotp_multi (
     .clk_i,
@@ -165,21 +150,12 @@ module fpnew_sdotp_multi_wrapper #(
     .op_mod_i,
     .src_fmt_i, // format of the multiplicands
     .dst_fmt_i, // format of the addend and result
-    .tag_i,
     .mask_i,
-    .aux_i,
-    .in_valid_i,
-    .in_ready_o ,
-    .flush_i,
     .result_o        ( local_result[DST_WIDTH-1:0] ),
     .status_o,
     .extension_bit_o,
-    .tag_o,
     .mask_o,
-    .aux_o,
-    .out_valid_o,
-    .out_ready_i,
-    .busy_o
+    .reg_enable_i
   );
 
   if(OPERAND_WIDTH > DST_WIDTH) begin
