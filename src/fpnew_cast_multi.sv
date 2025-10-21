@@ -510,14 +510,16 @@ module fpnew_cast_multi #(
   logic [NUM_FORMATS-1:0]            fmt_of_after_round;
   logic [NUM_FORMATS-1:0]            fmt_uf_after_round;
 
-  logic [NUM_INT_FORMATS-1:0][WIDTH-1:0] ifmt_pre_round_abs; // per format
+  logic [NUM_INT_FORMATS-1:0][WIDTH-1:0] ifmt_pre_round_abs;      // per format
+  logic [NUM_INT_FORMATS-1:0][WIDTH-1:0] ifmt_rounded_signed_res; // per format
   logic [NUM_INT_FORMATS-1:0]            ifmt_of_after_round;
 
   logic             rounded_sign;
   logic [WIDTH-1:0] rounded_abs; // absolute value of result after rounding
   logic             result_true_zero;
 
-  logic [WIDTH-1:0] rounded_int_res; // after possible inversion
+  logic [WIDTH-1:0] rounded_uint_res;     // after possible inversion
+  logic [WIDTH-1:0] rounded_int_res;      // sign-extended, after possible inversion
   logic             rounded_int_res_zero; // after rounding
 
 
@@ -536,15 +538,15 @@ module fpnew_cast_multi #(
     end
   end
 
-  // Sign-extend integer result
-  for (genvar ifmt = 0; ifmt < int'(NUM_INT_FORMATS); ifmt++) begin : gen_int_res_sign_ext
+  // Zero-extend integer result
+  for (genvar ifmt = 0; ifmt < int'(NUM_INT_FORMATS); ifmt++) begin : gen_int_res_zero_ext
     // Set up some constants
     localparam int unsigned INT_WIDTH = fpnew_pkg::int_width(fpnew_pkg::int_format_e'(ifmt));
 
     if (IntFmtConfig[ifmt]) begin : active_format
       always_comb begin : assemble_result
-        // sign-extend reusult
-        ifmt_pre_round_abs[ifmt]                = '{default: final_int[INT_WIDTH-1]};
+        // zero-extend absolute value result
+        ifmt_pre_round_abs[ifmt]                = '0;
         ifmt_pre_round_abs[ifmt][INT_WIDTH-1:0] = final_int[INT_WIDTH-1:0];
       end
     end else begin : inactive_format
@@ -597,7 +599,25 @@ module fpnew_cast_multi #(
   end
 
   // Negative integer result needs to be brought into two's complement
-  assign rounded_int_res      = rounded_sign ? unsigned'(-rounded_abs) : rounded_abs;
+  assign rounded_uint_res      = rounded_sign ? unsigned'(-rounded_abs) : rounded_abs;
+
+    // Sign-extend integer result
+  for (genvar ifmt = 0; ifmt < int'(NUM_INT_FORMATS); ifmt++) begin : gen_int_res_sign_ext
+    // Set up some constants
+    localparam int unsigned INT_WIDTH = fpnew_pkg::int_width(fpnew_pkg::int_format_e'(ifmt));
+
+    if (IntFmtConfig[ifmt]) begin : active_format
+      always_comb begin : assemble_result
+        // zero-extend absolute value result
+        ifmt_rounded_signed_res[ifmt]                = '{default: rounded_uint_res[INT_WIDTH-1]};
+        ifmt_rounded_signed_res[ifmt][INT_WIDTH-1:0] = rounded_uint_res[INT_WIDTH-1:0];
+      end
+    end else begin : inactive_format
+      assign ifmt_rounded_signed_res[ifmt] = '{default: fpnew_pkg::DONT_CARE};
+    end
+  end
+  
+  assign rounded_int_res = ifmt_rounded_signed_res[int_fmt_q2];
   assign rounded_int_res_zero = (rounded_int_res == '0);
 
   // Detect integer overflows after rounding (only positives)
