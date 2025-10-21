@@ -59,7 +59,8 @@ module fpnew_opgroup_block #(
   output logic                                    out_valid_o,
   input  logic                                    out_ready_i,
   // Indication of valid data in flight
-  output logic                                    busy_o
+  output logic                                    busy_o,
+  output logic                                    early_valid_o
 );
 
   // ----------------
@@ -74,6 +75,7 @@ module fpnew_opgroup_block #(
 
   // Handshake signals for the slices
   logic [NUM_FORMATS-1:0] fmt_in_ready, fmt_out_valid, fmt_out_ready, fmt_busy;
+  logic [NUM_FORMATS-1:0] early_valid;
   output_t [NUM_FORMATS-1:0] fmt_outputs;
 
   // -----------
@@ -115,25 +117,26 @@ module fpnew_opgroup_block #(
       ) i_fmt_slice (
         .clk_i,
         .rst_ni,
-        .operands_i     ( operands_i               ),
-        .is_boxed_i     ( is_boxed_i[fmt]          ),
+        .operands_i       ( operands_i               ),
+        .is_boxed_i       ( is_boxed_i[fmt]          ),
         .rnd_mode_i,
         .op_i,
         .op_mod_i,
         .vectorial_op_i,
         .tag_i,
-        .simd_mask_i    ( mask_slice               ),
-        .in_valid_i     ( in_valid                 ),
-        .in_ready_o     ( fmt_in_ready[fmt]        ),
+        .simd_mask_i      ( mask_slice               ),
+        .in_valid_i       ( in_valid                 ),
+        .in_ready_o       ( fmt_in_ready[fmt]        ),
         .flush_i,
-        .result_o       ( fmt_outputs[fmt].result  ),
-        .status_o       ( fmt_outputs[fmt].status  ),
-        .extension_bit_o( fmt_outputs[fmt].ext_bit ),
-        .tag_o          ( fmt_outputs[fmt].tag     ),
-        .out_valid_o    ( fmt_out_valid[fmt]       ),
-        .out_ready_i    ( fmt_out_ready[fmt]       ),
-        .busy_o         ( fmt_busy[fmt]            ),
-        .reg_ena_i      ( '0                       )
+        .result_o         ( fmt_outputs[fmt].result  ),
+        .status_o         ( fmt_outputs[fmt].status  ),
+        .extension_bit_o  ( fmt_outputs[fmt].ext_bit ),
+        .tag_o            ( fmt_outputs[fmt].tag     ),
+        .out_valid_o      ( fmt_out_valid[fmt]       ),
+        .out_ready_i      ( fmt_out_ready[fmt]       ),
+        .busy_o           ( fmt_busy[fmt]            ),
+        .reg_ena_i        ( '0                       ),
+        .early_out_valid_o( early_valid[fmt]         )
       );
     // If the format wants to use merged ops, tie off the dangling ones not used here
     end else if (FpFmtMask[fmt] && ANY_MERGED && !IS_FIRST_MERGED) begin : merged_unused
@@ -149,7 +152,7 @@ module fpnew_opgroup_block #(
       assign fmt_outputs[fmt].status  = '{default: fpnew_pkg::DONT_CARE};
       assign fmt_outputs[fmt].ext_bit = fpnew_pkg::DONT_CARE;
       assign fmt_outputs[fmt].tag     = TagType'(fpnew_pkg::DONT_CARE);
-
+      assign early_valid[fmt] = 1'b0;
     // Tie off disabled formats
     end else if (!FpFmtMask[fmt] || (FmtUnitTypes[fmt] == fpnew_pkg::DISABLED)) begin : disable_fmt
       assign fmt_in_ready[fmt]  = 1'b0; // don't accept operations
@@ -160,6 +163,7 @@ module fpnew_opgroup_block #(
       assign fmt_outputs[fmt].status  = '{default: fpnew_pkg::DONT_CARE};
       assign fmt_outputs[fmt].ext_bit = fpnew_pkg::DONT_CARE;
       assign fmt_outputs[fmt].tag     = TagType'(fpnew_pkg::DONT_CARE);
+      assign early_valid[fmt] = 1'b0;
     end
   end
 
@@ -198,18 +202,19 @@ module fpnew_opgroup_block #(
       .int_fmt_i,
       .vectorial_op_i,
       .tag_i,
-      .simd_mask_i     ( simd_mask_i              ),
-      .in_valid_i      ( in_valid                 ),
-      .in_ready_o      ( fmt_in_ready[FMT]        ),
+      .simd_mask_i      ( simd_mask_i              ),
+      .in_valid_i       ( in_valid                 ),
+      .in_ready_o       ( fmt_in_ready[FMT]        ),
       .flush_i,
-      .result_o        ( fmt_outputs[FMT].result  ),
-      .status_o        ( fmt_outputs[FMT].status  ),
-      .extension_bit_o ( fmt_outputs[FMT].ext_bit ),
-      .tag_o           ( fmt_outputs[FMT].tag     ),
-      .out_valid_o     ( fmt_out_valid[FMT]       ),
-      .out_ready_i     ( fmt_out_ready[FMT]       ),
-      .busy_o          ( fmt_busy[FMT]            ),
-      .reg_ena_i       ( '0                       )
+      .result_o         ( fmt_outputs[FMT].result  ),
+      .status_o         ( fmt_outputs[FMT].status  ),
+      .extension_bit_o  ( fmt_outputs[FMT].ext_bit ),
+      .tag_o            ( fmt_outputs[FMT].tag     ),
+      .out_valid_o      ( fmt_out_valid[FMT]       ),
+      .out_ready_i      ( fmt_out_ready[FMT]       ),
+      .busy_o           ( fmt_busy[FMT]            ),
+      .reg_ena_i        ( '0                       ),
+      .early_out_valid_o( early_valid[FMT]         )
     );
 
   end
@@ -243,6 +248,8 @@ module fpnew_opgroup_block #(
   assign status_o        = arbiter_output.status;
   assign extension_bit_o = arbiter_output.ext_bit;
   assign tag_o           = arbiter_output.tag;
+
+  assign early_valid_o   = |early_valid;
 
   assign busy_o = (| fmt_busy);
 

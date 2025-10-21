@@ -57,7 +57,9 @@ module fpnew_fma_multi #(
   // Indication of valid data in flight
   output logic                        busy_o,
   // External register enable override
-  input  logic [ExtRegEnaWidth-1:0]   reg_ena_i
+  input  logic [ExtRegEnaWidth-1:0]   reg_ena_i,
+  // Early valid for external structural hazard generation
+  output logic                        early_out_valid_o
 );
 
   // ----------
@@ -796,9 +798,9 @@ module fpnew_fma_multi #(
 
     if (FpFmtConfig[fmt]) begin : active_format
       always_comb begin : post_process
-        // detect of / uf        
+        // detect of / uf
         fmt_uf_after_round[fmt] = (rounded_abs[EXP_BITS+MAN_BITS-1:MAN_BITS] == '0) // denormal
-        || ((pre_round_abs[EXP_BITS+MAN_BITS-1:MAN_BITS] == '0) && (rounded_abs[EXP_BITS+MAN_BITS-1:MAN_BITS] == 1) && 
+        || ((pre_round_abs[EXP_BITS+MAN_BITS-1:MAN_BITS] == '0) && (rounded_abs[EXP_BITS+MAN_BITS-1:MAN_BITS] == 1) &&
               ((round_sticky_bits != 2'b11) || (!sum_sticky_bits[MAN_BITS*2 + 4] && ((rnd_mode_q == fpnew_pkg::RNE) || (rnd_mode_q == fpnew_pkg::RMM)))));
         fmt_of_after_round[fmt] = rounded_abs[EXP_BITS+MAN_BITS-1:MAN_BITS] == '1; // inf exp.
 
@@ -892,4 +894,19 @@ module fpnew_fma_multi #(
   assign aux_o           = out_pipe_aux_q[NUM_OUT_REGS];
   assign out_valid_o     = out_pipe_valid_q[NUM_OUT_REGS];
   assign busy_o          = (| {inp_pipe_valid_q, mid_pipe_valid_q, out_pipe_valid_q});
+
+  // Early valid_o signal. This is used for dispatching instructions for dual-issue processor.
+  if (NUM_OUT_REGS > 0) begin
+    assign early_out_valid_o = |{out_pipe_valid_q[NUM_OUT_REGS] & ~out_pipe_ready[NUM_OUT_REGS],
+                                 out_pipe_valid_q[NUM_OUT_REGS-1]};
+  end else if (NUM_MID_REGS > 0) begin
+    assign early_out_valid_o = |{mid_pipe_valid_q[NUM_MID_REGS] & ~mid_pipe_ready[NUM_OUT_REGS],
+                                 mid_pipe_valid_q[NUM_MID_REGS-1]};
+  end else if (NUM_INP_REGS > 0) begin
+    assign early_out_valid_o = |{inp_pipe_valid_q[NUM_INP_REGS] & ~inp_pipe_ready[NUM_INP_REGS],
+                                 inp_pipe_valid_q[NUM_INP_REGS-1]};
+  end else begin
+    assign early_out_valid_o = 1'b0;
+  end
+
 endmodule

@@ -70,6 +70,7 @@ As the width of some input/output signals is defined by the configuration, it is
 | `out_valid_o`    | out       | `logic`              | Output data valid (see [Handshake](#handshake-interface))      |
 | `out_ready_i`    | in        | `logic`              | Output interface ready (see [Handshake](#handshake-interface)) |
 | `busy_o`         | out       | `logic`              | FPU operation in flight                                        |
+| `early_valid_o`  | out       | `logic`              | Output data valid in the next cycle                            |
 
 #### Data Types
 
