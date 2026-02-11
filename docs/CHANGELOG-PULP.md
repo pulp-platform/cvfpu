@@ -7,6 +7,24 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 In this sense, we interpret the "Public API" of a hardware module as its port/parameter list.
 Versions of the IP in the same major relase are "pin-compatible" with each other. Minor relases are permitted to add new parameters as long as their default bindings ensure backwards compatibility.
 
+## [Unreleased]
+
+### Added
+- Add FP6(E3M2), FP6ALT(E2M3), and FP4(E2M1) floating-point formats
+- Add MXDOTP Microscaling dot product multi-format operation group
+  - Supports source formats: FP8, FP8ALT, FP6, FP6ALT, FP4, INT8
+  - Supports destination formats: FP32, FP16ALT
+  - Scaled dot-product and accumulation support with two 8-bit exponent scale factors
+
+### Changed
+- Extend classifier to support MX-specific special cases for FP6, FP6ALT, FP4 formats
+- Increase number of supported FP formats from 6 to 9
+- Increase number of opgroups from 5 to 6
+
+### Notes
+- MXDOTP implementation tested with all element formats enabled, but not yet exhaustively tested with all possible combinations of enabled formats.
+- Known limitations documented in TODO comments (see source files for details)
+
 ## [pulp-v0.2.3] - 2024-09-27
 
 ### Fix
