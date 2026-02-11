@@ -26,6 +26,9 @@ package fpnew_pkg;
   // | FP8        | binary8          |  8 bit | 5        | 2
   // | FP16ALT    | binary16alt      | 16 bit | 8        | 7
   // | FP8ALT     | binary8alt       |  8 bit | 4        | 3
+  // | FP6        | binary6          |  6 bit | 3        | 2
+  // | FP6ALT     | binary6alt       |  6 bit | 2        | 3
+  // | FP4        | binary4          |  4 bit | 2        | 1
   // *NOTE:* Add new formats only at the end of the enumeration for backwards compatibilty!
 
   // Encoding for a format
@@ -34,7 +37,7 @@ package fpnew_pkg;
     int unsigned man_bits;
   } fp_encoding_t;
 
-  localparam int unsigned NUM_FP_FORMATS = 6; // change me to add formats
+  localparam int unsigned NUM_FP_FORMATS = 9; // change me to add formats
   localparam int unsigned FP_FORMAT_BITS = $clog2(NUM_FP_FORMATS);
 
   // FP formats
@@ -44,7 +47,10 @@ package fpnew_pkg;
     FP16    = 'd2,
     FP8     = 'd3,
     FP16ALT = 'd4,
-    FP8ALT  = 'd5
+    FP8ALT  = 'd5,
+    FP6     = 'd6,
+    FP6ALT  = 'd7,
+    FP4     = 'd8
     // add new formats here
   } fp_format_e;
 
@@ -55,17 +61,20 @@ package fpnew_pkg;
     '{5,  10}, // IEEE binary16 (half)
     '{5,  2},  // custom binary8
     '{8,  7},  // custom binary16alt
-    '{4,  3}   // custom binary8alt
+    '{4,  3},  // custom binary8alt
+    '{3,  2},  // custom binary6
+    '{2,  3},  // custom binary6alt
+    '{2,  1}   // custom binary4
     // add new formats here
   };
 
   typedef logic [0:NUM_FP_FORMATS-1]       fmt_logic_t;    // Logic indexed by FP format (for masks)
   typedef logic [0:NUM_FP_FORMATS-1][31:0] fmt_unsigned_t; // Unsigned indexed by FP format
 
-  localparam fmt_logic_t CPK_FORMATS  = 6'b110000; // FP32 and FP64 can provide CPK only
+  localparam fmt_logic_t CPK_FORMATS  = 9'b110000000; // FP32 and FP64 can provide CPK only
   // FP32, FP64 cannot be provided for DOTP
   // Small hack: FP32 only enabled for wide enough wrapper input widths for vsum.s instruction
-  localparam fmt_logic_t DOTP_FORMATS = 6'b101111;
+  localparam fmt_logic_t DOTP_FORMATS = 9'b101111000;
 
   // ---------
   // INT TYPES
@@ -113,11 +122,11 @@ package fpnew_pkg;
   // --------------
   // FP OPERATIONS
   // --------------
-  localparam int unsigned NUM_OPGROUPS = 5;
+  localparam int unsigned NUM_OPGROUPS = 6;
 
   // Each FP operation belongs to an operation group
   typedef enum logic [2:0] {
-    ADDMUL, DIVSQRT, NONCOMP, CONV, DOTP
+    ADDMUL, DIVSQRT, NONCOMP, CONV, DOTP, MXDOTP
   } opgroup_e;
 
   localparam int unsigned OP_BITS = 5;
@@ -127,7 +136,8 @@ package fpnew_pkg;
     DIV, SQRT,                   // DIVSQRT operation group
     SGNJ, MINMAX, CMP, CLASSIFY, // NONCOMP operation group
     F2F, F2I, I2F, CPKAB, CPKCD, // CONV operation group
-    SDOTP, EXVSUM, VSUM          // DOTP operation group
+    SDOTP, EXVSUM, VSUM,         // DOTP operation group
+    MXDOTPF, MXDOTPI             // MXDOTP operation group
   } operation_e;
 
   // -------------
@@ -234,7 +244,7 @@ package fpnew_pkg;
     Width:         64,
     EnableVectors: 1'b0,
     EnableNanBox:  1'b1,
-    FpFmtMask:     6'b110000,
+    FpFmtMask:     9'b110000000,
     IntFmtMask:    4'b0011
   };
 
@@ -242,7 +252,7 @@ package fpnew_pkg;
     Width:         64,
     EnableVectors: 1'b1,
     EnableNanBox:  1'b1,
-    FpFmtMask:     6'b110000,
+    FpFmtMask:     9'b110000000,
     IntFmtMask:    4'b0010
   };
 
@@ -250,7 +260,7 @@ package fpnew_pkg;
     Width:         32,
     EnableVectors: 1'b0,
     EnableNanBox:  1'b1,
-    FpFmtMask:     6'b100000,
+    FpFmtMask:     9'b100000000,
     IntFmtMask:    4'b0010
   };
 
@@ -258,7 +268,7 @@ package fpnew_pkg;
     Width:         64,
     EnableVectors: 1'b1,
     EnableNanBox:  1'b1,
-    FpFmtMask:     6'b111111,
+    FpFmtMask:     9'b111111000,
     IntFmtMask:    4'b1111
   };
 
@@ -266,7 +276,7 @@ package fpnew_pkg;
     Width:         32,
     EnableVectors: 1'b1,
     EnableNanBox:  1'b1,
-    FpFmtMask:     6'b101111,
+    FpFmtMask:     9'b101111000,
     IntFmtMask:    4'b1110
   };
 
@@ -274,7 +284,7 @@ package fpnew_pkg;
     Width:         32,
     EnableVectors: 1'b1,
     EnableNanBox:  1'b1,
-    FpFmtMask:     6'b100010,
+    FpFmtMask:     9'b100010000,
     IntFmtMask:    4'b0110
   };
 
@@ -292,7 +302,8 @@ package fpnew_pkg;
                   '{default: MERGED},   // DIVSQRT
                   '{default: PARALLEL}, // NONCOMP
                   '{default: MERGED},   // CONV
-                  '{default: DISABLED}},  // DOTP
+                  '{default: DISABLED},  // DOTP
+                  '{default: DISABLED}}, // MXDOTP
     PipeConfig: BEFORE
   };
 
@@ -302,7 +313,8 @@ package fpnew_pkg;
                   '{default: DISABLED}, // DIVSQRT
                   '{default: PARALLEL}, // NONCOMP
                   '{default: MERGED},   // CONV
-                  '{default: MERGED}},  // DOTP
+                  '{default: MERGED},   // DOTP
+                  '{default: MERGED}},  // MXDOTP
     PipeConfig: BEFORE
   };
 
@@ -425,6 +437,7 @@ package fpnew_pkg;
       SGNJ, MINMAX, CMP, CLASSIFY: return NONCOMP;
       F2F, F2I, I2F, CPKAB, CPKCD: return CONV;
       SDOTP, EXVSUM, VSUM:         return DOTP;
+      MXDOTPF, MXDOTPI:            return MXDOTP;
       default:                     return NONCOMP;
     endcase
   endfunction
@@ -437,6 +450,7 @@ package fpnew_pkg;
       NONCOMP: return 2;
       CONV:    return 3; // vectorial casts use 3 operands
       DOTP:    return 3; // splitting into 5 operands done in wrapper
+      MXDOTP:  return 3; // splitting into 4 operands done in wrapper
       default: return 0;
     endcase
   endfunction
@@ -454,7 +468,7 @@ package fpnew_pkg;
     // Returns the maximum number of lanes in the FPU according to width, format config and vectors
   function automatic int unsigned num_divsqrt_lanes(int unsigned width, fmt_logic_t cfg, logic vec, divsqrt_unit_t DivSqrtSel);
     automatic fmt_logic_t cfg_tmp;
-    cfg_tmp = (DivSqrtSel == THMULTI) ? cfg & 6'b111010 : cfg;
+    cfg_tmp = (DivSqrtSel == THMULTI) ? cfg & 9'b111010000 : cfg;
     return vec ? width / min_fp_width(cfg_tmp) : 1; // if no vectors, only one lane
   endfunction
 
@@ -514,9 +528,9 @@ package fpnew_pkg;
     automatic fmt_logic_t mask;
     int unsigned nr_16to32bit_lanes = (cfg[FP32]) ? (width / 32) : 0;
     if (lane_no < nr_16to32bit_lanes)
-      mask = 6'b101111;  //lane should be 16-bit -> 32-bit
+      mask = 9'b101111000;  //lane should be 16-bit -> 32-bit
     else
-      mask = 6'b001111;  //lane should be  8-bit -> 16-bit
+      mask = 9'b001111000;  //lane should be  8-bit -> 16-bit
     res = cfg & mask;
     return res;
   endfunction
@@ -529,7 +543,10 @@ package fpnew_pkg;
             cfg[FP16] && (src_cfg[FP8] || src_cfg[FP8ALT]),
             cfg[FP8],                                           // FP8 supported as dstFmt for VSUM
             cfg[FP16ALT] && (src_cfg[FP8] || src_cfg[FP8ALT]),
-            cfg[FP8ALT]                                         // FP8ALT supported as dstFmt for VSUM
+            cfg[FP8ALT],                                        // FP8ALT supported as dstFmt for VSUM
+            1'b0,                                               // FP6 not supported as dstFmt
+            1'b0,                                               // FP6ALT not supported as dstFmt
+            1'b0                                                // FP4 not supported as dstFmt
     };
     return res;
   endfunction
