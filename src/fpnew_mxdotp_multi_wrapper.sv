@@ -16,12 +16,14 @@
 module fpnew_mxdotp_multi_wrapper
   import fpnew_mxdotp_multi_pkg::*;
 #(
-  parameter int unsigned             LaneWidth   = 64,
-  parameter int unsigned             Unroll      = 8, // Unroll factor for FP6 extended operands, possible values: 1, 2, 4, 8
-  parameter int unsigned             NumPipeRegs = 4,
-  parameter fpnew_pkg::pipe_config_t PipeConfig  = fpnew_pkg::BEFORE,
-  parameter type                     TagType     = logic,
-  parameter type                     AuxType     = logic,
+  parameter int unsigned             LaneWidth    = 64,
+  parameter fpnew_pkg::fmt_logic_t   FpFmtConfig  = '1,
+  parameter fpnew_pkg::ifmt_logic_t  IntFmtConfig = '1,
+  parameter int unsigned             Unroll       = 8, // Unroll factor for FP6 extended operands, possible values: 1, 2, 4, 8
+  parameter int unsigned             NumPipeRegs  = 4,
+  parameter fpnew_pkg::pipe_config_t PipeConfig   = fpnew_pkg::BEFORE,
+  parameter type                     TagType      = logic,
+  parameter type                     AuxType      = logic,
   parameter fpnew_pkg::rsr_impl_t    StochasticRndImplementation = fpnew_pkg::DEFAULT_NO_RSR,
   // Do not change
   localparam int                     OPERAND_WIDTH  = LaneWidth,
