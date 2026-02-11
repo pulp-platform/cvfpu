@@ -14,16 +14,15 @@
 // Author: Gamze Islamoglu <gislamoglu@iis.ee.ethz.ch>
 
 package fpnew_mxdotp_multi_pkg;
-  // Default configuration - can be overridden in wrapper module
+  // Configuration
   // One-hot config string: | FP32 | FP64 | FP16 | FP8 | FP16ALT | FP8ALT | FP6 | FP6ALT | FP4
+
+  // Format configuration - FIXED (tested configuration only)
+  // TODO: Make configurable after testing other format combinations
   localparam fpnew_pkg::fmt_logic_t   SrcDotpFpFmtConfig  = 9'b000101111; // FP8, FP8ALT, FP6, FP6ALT, FP4
   localparam fpnew_pkg::ifmt_logic_t  SrcDotpIntFmtConfig = 4'b1000;      // INT8
   localparam fpnew_pkg::fmt_logic_t   DstDotpFpFmtConfig  = 9'b100010000; // FP32, FP16ALT
   localparam int unsigned             VectorSize          = 8;
-  localparam int unsigned             NumPipeRegs         = 4;
-  localparam fpnew_pkg::pipe_config_t PipeConfig          = fpnew_pkg::BEFORE;
-  localparam type                     TagType             = logic;
-  localparam type                     AuxType             = logic;
 
   // Do not change
   localparam int unsigned SRC_WIDTH    = fpnew_pkg::max_fp_width(SrcDotpFpFmtConfig);
@@ -100,23 +99,6 @@ package fpnew_mxdotp_multi_pkg;
   localparam int unsigned DST_EXP_WIDTH      = SUPER_DST_EXP_BITS + 2; // +2 for overflow handling
   // Shift amount width: $clog2(DST_BIAS - ANCHOR + (scale_a+scale_b) + FIXED_SUM_WIDTH - 1)
   localparam int unsigned SHIFT_AMOUNT_WIDTH = $clog2(fpnew_pkg::bias(fpnew_pkg::FP32) - ANCHOR + 2**(SCALE_WIDTH) - 1 + FIXED_SUM_WIDTH - 1);
-
-  // Pipelines
-  localparam NUM_INP_REGS = PipeConfig == fpnew_pkg::BEFORE
-                            ? NumPipeRegs
-                            : (PipeConfig == fpnew_pkg::DISTRIBUTED
-                               ? ((NumPipeRegs + 1) / 3) // Second to get distributed regs
-                               : 0); // no regs here otherwise
-  localparam NUM_MID_REGS = PipeConfig == fpnew_pkg::INSIDE
-                          ? NumPipeRegs
-                          : (PipeConfig == fpnew_pkg::DISTRIBUTED
-                             ? ((NumPipeRegs + 2) / 3) // First to get distributed regs
-                             : 0); // no regs here otherwise
-  localparam NUM_OUT_REGS = PipeConfig == fpnew_pkg::AFTER
-                            ? NumPipeRegs
-                            : (PipeConfig == fpnew_pkg::DISTRIBUTED
-                               ? (NumPipeRegs / 3) // Last to get distributed regs
-                               : 0); // no regs here otherwise
 
   // ----------------
   // Type definition

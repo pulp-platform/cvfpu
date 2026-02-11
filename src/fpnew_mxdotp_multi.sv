@@ -18,8 +18,10 @@
 module fpnew_mxdotp_multi
   import fpnew_mxdotp_multi_pkg::*;
 #(
-  parameter type TagType = logic,
-  parameter type AuxType = logic
+  parameter int unsigned             NumPipeRegs = 4,
+  parameter fpnew_pkg::pipe_config_t PipeConfig  = fpnew_pkg::BEFORE,
+  parameter type                     TagType     = logic,
+  parameter type                     AuxType     = logic
 ) (
   input  logic                        clk_i,
   input  logic                        rst_ni,
@@ -57,6 +59,25 @@ module fpnew_mxdotp_multi
   // Indication of valid data in flight
   output logic                        busy_o
 );
+
+  // ----------------
+  // Pipeline stages
+  // ----------------
+  localparam int unsigned NUM_INP_REGS = PipeConfig == fpnew_pkg::BEFORE
+                                         ? NumPipeRegs
+                                         : (PipeConfig == fpnew_pkg::DISTRIBUTED
+                                            ? ((NumPipeRegs + 1) / 3)
+                                            : 0);
+  localparam int unsigned NUM_MID_REGS = PipeConfig == fpnew_pkg::INSIDE
+                                         ? NumPipeRegs
+                                         : (PipeConfig == fpnew_pkg::DISTRIBUTED
+                                            ? ((NumPipeRegs + 2) / 3)
+                                            : 0);
+  localparam int unsigned NUM_OUT_REGS = PipeConfig == fpnew_pkg::AFTER
+                                         ? NumPipeRegs
+                                         : (PipeConfig == fpnew_pkg::DISTRIBUTED
+                                            ? (NumPipeRegs / 3)
+                                            : 0);
 
   // ---------------
   // Input pipeline
