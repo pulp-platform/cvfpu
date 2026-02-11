@@ -16,16 +16,18 @@
 `include "common_cells/registers.svh"
 
 module fpnew_opgroup_multifmt_slice #(
-  parameter fpnew_pkg::opgroup_e      OpGroup       = fpnew_pkg::CONV,
-  parameter int unsigned              Width         = 64,
+  parameter fpnew_pkg::opgroup_e      OpGroup        = fpnew_pkg::CONV,
+  parameter int unsigned              Width          = 64,
   // FPU configuration
-  parameter fpnew_pkg::fmt_logic_t    FpFmtConfig   = '1,
-  parameter fpnew_pkg::ifmt_logic_t   IntFmtConfig  = '1,
-  parameter logic                     EnableVectors = 1'b1,
-  parameter fpnew_pkg::divsqrt_unit_t DivSqrtSel    = fpnew_pkg::THMULTI,
-  parameter int unsigned              NumPipeRegs   = 0,
-  parameter fpnew_pkg::pipe_config_t  PipeConfig    = fpnew_pkg::BEFORE,
-  parameter type                      TagType       = logic,
+  parameter fpnew_pkg::fmt_logic_t    FpFmtConfig    = '1,
+  parameter fpnew_pkg::ifmt_logic_t   IntFmtConfig   = '1,
+  parameter fpnew_pkg::fmt_logic_t    MxFpFmtConfig  = '0,  // MX-specific FP formats
+  parameter fpnew_pkg::ifmt_logic_t   MxIntFmtConfig = '0,  // MX-specific INT formats
+  parameter logic                     EnableVectors  = 1'b1,
+  parameter fpnew_pkg::divsqrt_unit_t DivSqrtSel     = fpnew_pkg::THMULTI,
+  parameter int unsigned              NumPipeRegs    = 0,
+  parameter fpnew_pkg::pipe_config_t  PipeConfig     = fpnew_pkg::BEFORE,
+  parameter type                      TagType        = logic,
   parameter fpnew_pkg::rsr_impl_t     StochasticRndImplementation = fpnew_pkg::DEFAULT_NO_RSR,
   // Do not change
   localparam int unsigned NUM_OPERANDS = fpnew_pkg::num_operands(OpGroup),
@@ -82,11 +84,31 @@ The SDOTP operations compute on 8b inputs producing 16b outputs \
 or on 16b inputs producing 32b outputs");
   end
 
+  if (OpGroup == fpnew_pkg::MXDOTP) begin
+    if (Width != 64) begin
+      $fatal(1, "MXDOTP only supported on 64b CVFPU instances, got Width=%0d", Width);
+    end else if (!FpFmtConfig[fpnew_pkg::FP32]) begin
+      $fatal(1, "MXDOTP requires FP32 to be enabled as a destination format in FpFmtConfig");
+    end else begin
+      // Check if FP8, FP8ALT, and INT8 are all enabled (required formats)
+      if (!MxFpFmtConfig[fpnew_pkg::FP8] || !MxFpFmtConfig[fpnew_pkg::FP8ALT] || !MxIntFmtConfig[fpnew_pkg::INT8]) begin
+        $fatal(1, "MXDOTP requires FP8, FP8ALT, and INT8 to be enabled. Current config: FP8=%0b, FP8ALT=%0b, INT8=%0b",
+               MxFpFmtConfig[fpnew_pkg::FP8], MxFpFmtConfig[fpnew_pkg::FP8ALT], MxIntFmtConfig[fpnew_pkg::INT8]);
+      end
+      // Check if all MX formats are enabled (FP8, FP8ALT, FP6, FP6ALT, FP4, INT8)
+      if (MxFpFmtConfig != fpnew_pkg::MXDOTP_FORMATS_MASK.src_fp_formats ||
+          MxIntFmtConfig != fpnew_pkg::MXDOTP_FORMATS_MASK.src_int_formats) begin
+        $warning("MXDOTP is not configured with all supported MX formats. This is an unverified configuration. Supported formats: FP8, FP8ALT, FP6, FP6ALT, FP4, INT8");
+      end
+    end
+  end
+
   localparam int unsigned MAX_FP_WIDTH   = fpnew_pkg::max_fp_width(FpFmtConfig);
   localparam int unsigned MAX_INT_WIDTH  = fpnew_pkg::max_int_width(IntFmtConfig);
   localparam int unsigned NUM_LANES = fpnew_pkg::max_num_lanes(Width, FpFmtConfig, 1'b1);
   localparam int unsigned NUM_DIVSQRT_LANES = fpnew_pkg::num_divsqrt_lanes(Width, FpFmtConfig, 1'b1, DivSqrtSel);
   localparam int unsigned NUM_DOTP_LANES = fpnew_pkg::num_dotp_lanes(Width, FpFmtConfig);
+  localparam int unsigned NUM_MX_LANES = fpnew_pkg::num_mxdotp_lanes(Width, MxFpFmtConfig, MxIntFmtConfig);
   localparam int unsigned NUM_INT_FORMATS = fpnew_pkg::NUM_INT_FORMATS;
   // We will send the format information along with the data
   localparam int unsigned FMT_BITS =
@@ -195,6 +217,16 @@ or on 16b inputs producing 32b outputs");
     localparam int unsigned DOTP_MAX_FMT_WIDTH = fpnew_pkg::max_fp_width(DOTP_FORMATS);
     localparam int unsigned DOTP_WIDTH = fpnew_pkg::minimum(2*DOTP_MAX_FMT_WIDTH, Width);
 
+    // MXDOTP-specific parameters
+    localparam fpnew_pkg::lane_formats_t MXDOTP_FORMATS =
+        fpnew_pkg::get_mxdotp_formats(Width, FpFmtConfig, MxFpFmtConfig, MxIntFmtConfig, LANE);
+    localparam fpnew_pkg::fmt_logic_t MXDOTP_FP_FORMATS =
+        MXDOTP_FORMATS.src_fp_formats;
+    localparam fpnew_pkg::ifmt_logic_t MXDOTP_INT_FORMATS =
+        MXDOTP_FORMATS.src_int_formats;
+    localparam fpnew_pkg::fmt_logic_t MXDOTP_DST_FORMATS =
+        MXDOTP_FORMATS.dst_fp_formats;
+
     // Lane parameters from Opgroup
     localparam fpnew_pkg::fmt_logic_t LANE_FORMATS = (OpGroup == fpnew_pkg::CONV) ? CONV_FORMATS :
                                                      (OpGroup == fpnew_pkg::DOTP) ? DOTP_FORMATS :
@@ -206,7 +238,9 @@ or on 16b inputs producing 32b outputs");
 
     // Generate instances only if needed, lane 0 always generated
     if ((lane == 0) || (EnableVectors & (!(OpGroup == fpnew_pkg::DOTP && (lane >= NUM_DOTP_LANES))
-                                        && !(OpGroup == fpnew_pkg::DIVSQRT && (lane >= NUM_DIVSQRT_LANES))))) begin : active_lane
+                                        && !(OpGroup == fpnew_pkg::DIVSQRT && (lane >= NUM_DIVSQRT_LANES))
+                                        && !(OpGroup == fpnew_pkg::MXDOTP && (lane >= NUM_MX_LANES))
+                                        ))) begin : active_lane
       logic in_valid, out_valid, out_ready; // lane-local handshake
 
       logic [NUM_OPERANDS-1:0][LANE_WIDTH-1:0] local_operands;  // lane-local oprands
@@ -446,6 +480,42 @@ or on 16b inputs producing 32b outputs");
           .src_fmt_i,
           .dst_fmt_i,
           .int_fmt_i,
+          .tag_i,
+          .mask_i          ( simd_mask_i[lane]   ),
+          .aux_i           ( aux_data            ),
+          .in_valid_i      ( in_valid            ),
+          .in_ready_o      ( lane_in_ready[lane] ),
+          .flush_i,
+          .result_o        ( op_result           ),
+          .status_o        ( op_status           ),
+          .extension_bit_o ( lane_ext_bit[lane]  ),
+          .tag_o           ( lane_tags[lane]     ),
+          .mask_o          ( lane_masks[lane]    ),
+          .aux_o           ( lane_aux[lane]      ),
+          .out_valid_o     ( out_valid           ),
+          .out_ready_i     ( out_ready           ),
+          .busy_o          ( lane_busy[lane]     )
+        );
+      end else if (OpGroup == fpnew_pkg::MXDOTP) begin : lane_instance
+        fpnew_mxdotp_multi_wrapper #(
+          .FpSrcFmtConfig ( MXDOTP_FP_FORMATS    ),
+          .IntFmtConfig   ( MXDOTP_INT_FORMATS   ),
+          .FpDstFmtConfig ( MXDOTP_DST_FORMATS   ),
+          .NumPipeRegs    ( NumPipeRegs          ),
+          .PipeConfig     ( PipeConfig           ),
+          .TagType        ( TagType              ),
+          .AuxType        ( logic [AUX_BITS-1:0] )
+        ) i_fpnew_mxdotp_multi_wrapper (
+          .clk_i,
+          .rst_ni,
+          .operands_i      ( local_operands[2:0]  ),
+          .is_boxed_i,
+          .rnd_mode_i,
+          .op_i,
+          .op_mod_i,
+          .src_fmt_i,
+          .int_fmt_i,
+          .dst_fmt_i,
           .tag_i,
           .mask_i          ( simd_mask_i[lane]   ),
           .aux_i           ( aux_data            ),

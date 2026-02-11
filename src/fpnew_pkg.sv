@@ -119,6 +119,20 @@ package fpnew_pkg;
 
   typedef logic [0:NUM_INT_FORMATS-1] ifmt_logic_t; // Logic indexed by INT format (for masks)
 
+  // Combined format struct for operations that need FP, INT, and destination formats
+  typedef struct packed {
+    fmt_logic_t  src_fp_formats;
+    ifmt_logic_t src_int_formats;
+    fmt_logic_t  dst_fp_formats;
+  } lane_formats_t;
+
+  // MXDOTP format masks
+  localparam lane_formats_t MXDOTP_FORMATS_MASK = '{
+    src_fp_formats:  9'b000101111,  // FP8, FP8ALT, FP6, FP6ALT, FP4
+    src_int_formats: 4'b1000,       // INT8
+    dst_fp_formats:  9'b100010000   // FP32, FP16ALT
+  };
+
   // --------------
   // FP OPERATIONS
   // --------------
@@ -236,8 +250,10 @@ package fpnew_pkg;
     int unsigned Width;
     logic        EnableVectors;
     logic        EnableNanBox;
-    fmt_logic_t  FpFmtMask;
-    ifmt_logic_t IntFmtMask;
+    fmt_logic_t  FpFmtMask;    // Standard FP formats for all opgroups
+    ifmt_logic_t IntFmtMask;   // Standard INT formats for all opgroups
+    fmt_logic_t  MxFpFmtMask;  // MX-specific FP formats (FP6, FP6ALT, FP4, plus FP8/FP8ALT)
+    ifmt_logic_t MxIntFmtMask; // MX-specific INT formats (INT8)
   } fpu_features_t;
 
   localparam fpu_features_t RV64D = '{
@@ -245,7 +261,9 @@ package fpnew_pkg;
     EnableVectors: 1'b0,
     EnableNanBox:  1'b1,
     FpFmtMask:     9'b110000000,
-    IntFmtMask:    4'b0011
+    IntFmtMask:    4'b0011,
+    MxFpFmtMask:   9'b0,         // No MX support
+    MxIntFmtMask:  4'b0
   };
 
   localparam fpu_features_t RV32D = '{
@@ -253,7 +271,9 @@ package fpnew_pkg;
     EnableVectors: 1'b1,
     EnableNanBox:  1'b1,
     FpFmtMask:     9'b110000000,
-    IntFmtMask:    4'b0010
+    IntFmtMask:    4'b0010,
+    MxFpFmtMask:   9'b0,         // No MX support
+    MxIntFmtMask:  4'b0
   };
 
   localparam fpu_features_t RV32F = '{
@@ -261,15 +281,19 @@ package fpnew_pkg;
     EnableVectors: 1'b0,
     EnableNanBox:  1'b1,
     FpFmtMask:     9'b100000000,
-    IntFmtMask:    4'b0010
+    IntFmtMask:    4'b0010,
+    MxFpFmtMask:   9'b0,         // No MX support
+    MxIntFmtMask:  4'b0
   };
 
   localparam fpu_features_t RV64D_Xsflt = '{
     Width:         64,
     EnableVectors: 1'b1,
     EnableNanBox:  1'b1,
-    FpFmtMask:     9'b111111000,
-    IntFmtMask:    4'b1111
+    FpFmtMask:     9'b111111000,  // Standard formats (not including FP6, FP6ALT, FP4)
+    IntFmtMask:    4'b1111,
+    MxFpFmtMask:   9'b000101111,  // MX formats: FP8, FP8ALT, FP6, FP6ALT, FP4
+    MxIntFmtMask:  4'b1000        // INT8 for MX operations
   };
 
   localparam fpu_features_t RV32F_Xsflt = '{
@@ -277,7 +301,9 @@ package fpnew_pkg;
     EnableVectors: 1'b1,
     EnableNanBox:  1'b1,
     FpFmtMask:     9'b101111000,
-    IntFmtMask:    4'b1110
+    IntFmtMask:    4'b1110,
+    MxFpFmtMask:   9'b0,         // No MX support (32-bit width insufficient)
+    MxIntFmtMask:  4'b0
   };
 
   localparam fpu_features_t RV32F_Xf16alt_Xfvec = '{
@@ -285,7 +311,9 @@ package fpnew_pkg;
     EnableVectors: 1'b1,
     EnableNanBox:  1'b1,
     FpFmtMask:     9'b100010000,
-    IntFmtMask:    4'b0110
+    IntFmtMask:    4'b0110,
+    MxFpFmtMask:   9'b0,         // No MX support
+    MxIntFmtMask:  4'b0
   };
 
 
@@ -532,6 +560,36 @@ package fpnew_pkg;
     else
       mask = 9'b001111000;  //lane should be  8-bit -> 16-bit
     res = cfg & mask;
+    return res;
+  endfunction
+
+  // Returns how many MXDOTP lanes should be generated
+  function automatic int num_mxdotp_lanes(int unsigned width,
+                                          fmt_logic_t mx_fp_cfg,
+                                          ifmt_logic_t mx_int_cfg);
+    // MXDOTP is single-lane, non-vectorial
+    // Check if any MX source format is enabled (FP8, FP8ALT, FP6, FP6ALT, FP4) or INT8
+    return (width == 64 && (|(mx_fp_cfg & MXDOTP_FORMATS_MASK.src_fp_formats) ||
+                            |(mx_int_cfg & MXDOTP_FORMATS_MASK.src_int_formats))) ? 1 : 0;
+  endfunction
+
+  // Returns all format masks for MXDOTP operations
+  // Note: Assumes width == 64 (validated at instantiation)
+  function automatic lane_formats_t get_mxdotp_formats(int unsigned width,
+                                                       fmt_logic_t fp_cfg,
+                                                       fmt_logic_t mx_fp_cfg,
+                                                       ifmt_logic_t mx_int_cfg,
+                                                       int unsigned lane_no);
+    automatic lane_formats_t res;
+
+    // Source FP formats from MX config: FP8, FP8ALT, FP6, FP6ALT, FP4
+    res.src_fp_formats = mx_fp_cfg & MXDOTP_FORMATS_MASK.src_fp_formats;
+
+    // Source INT formats from MX config: INT8 only
+    res.src_int_formats = mx_int_cfg & MXDOTP_FORMATS_MASK.src_int_formats;
+
+    // Destination formats from standard FP config: FP32 and FP16ALT
+    res.dst_fp_formats = fp_cfg & MXDOTP_FORMATS_MASK.dst_fp_formats;
     return res;
   endfunction
 
