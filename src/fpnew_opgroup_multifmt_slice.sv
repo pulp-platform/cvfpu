@@ -498,13 +498,13 @@ or on 16b inputs producing 32b outputs");
         );
       end else if (OpGroup == fpnew_pkg::MXDOTP) begin : lane_instance
         fpnew_mxdotp_multi_wrapper #(
-          .FpSrcFmtConfig ( MXDOTP_FP_FORMATS    ),
-          .IntFmtConfig   ( MXDOTP_INT_FORMATS   ),
-          .FpDstFmtConfig ( MXDOTP_DST_FORMATS   ),
-          .NumPipeRegs    ( NumPipeRegs          ),
-          .PipeConfig     ( PipeConfig           ),
-          .TagType        ( TagType              ),
-          .AuxType        ( logic [AUX_BITS-1:0] )
+          .FpSrcFmtConfig  ( MXDOTP_FP_FORMATS    ),
+          .IntSrcFmtConfig ( MXDOTP_INT_FORMATS   ),
+          .FpDstFmtConfig  ( MXDOTP_DST_FORMATS   ),
+          .NumPipeRegs     ( NumPipeRegs          ),
+          .PipeConfig      ( PipeConfig           ),
+          .TagType         ( TagType              ),
+          .AuxType         ( logic [AUX_BITS-1:0] )
         ) i_fpnew_mxdotp_multi_wrapper (
           .clk_i,
           .rst_ni,

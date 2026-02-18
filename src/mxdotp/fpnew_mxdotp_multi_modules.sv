@@ -18,34 +18,38 @@
 module fpnew_mxdotp_classifier
   import fpnew_mxdotp_multi_pkg::*;
 #(
-  parameter int unsigned NUM_INP_REGS = 0
+  parameter fpnew_pkg::fmt_logic_t FpSrcFmtConfig = MxdotpSrcFpFmtConfig,
+  parameter fpnew_pkg::fmt_logic_t FpDstFmtConfig = MxdotpDstFpFmtConfig,
+  parameter int unsigned           FP6VectorSize  = 3,
+  parameter int unsigned           FP4VectorSize  = 5,
+  parameter int unsigned           NumInpRegs     = 0
 ) (
   // Input signals
   input logic [2*VectorSize-1:0][SRC_WIDTH-1:0] operands_post_inp_pipe,
-  input logic [2*FP6_VECTOR_SIZE-1:0][SRC_WIDTH-1:0] fp6_operands_post_inp_pipe,
-  input logic [2*FP4_VECTOR_SIZE-1:0][SRC_WIDTH-1:0] fp4_operands_post_inp_pipe,
+  input logic [2*FP6VectorSize-1:0][SRC_WIDTH-1:0] fp6_operands_post_inp_pipe,
+  input logic [2*FP4VectorSize-1:0][SRC_WIDTH-1:0] fp4_operands_post_inp_pipe,
   input logic signed [1:0][SCALE_WIDTH-1:0] operands_c_q,
   input logic [DST_WIDTH-1:0] operand_d_q,
-  input logic [0:NUM_INP_REGS][NUM_FORMATS-1:0][NUM_OPERANDS-1:0] inp_pipe_is_boxed_q,
+  input logic [0:NumInpRegs][NUM_FORMATS-1:0][NUM_OPERANDS-1:0] inp_pipe_is_boxed_q,
   input fpnew_pkg::fp_format_e src_fmt_q,
   input logic src_is_int,
   input fpnew_pkg::fp_format_e dst_fmt_q,
-  input logic [0:NUM_INP_REGS] inp_pipe_op_mod_q,
+  input logic [0:NumInpRegs] inp_pipe_op_mod_q,
   // Output signals
   output fpnew_pkg::fp_info_t [VectorSize-1:0] info_a,
-  output fpnew_pkg::fp_info_t [FP6_VECTOR_SIZE-1:0] fp6_info_a,
-  output fpnew_pkg::fp_info_t [FP4_VECTOR_SIZE-1:0] fp4_info_a,
+  output fpnew_pkg::fp_info_t [FP6VectorSize-1:0] fp6_info_a,
+  output fpnew_pkg::fp_info_t [FP4VectorSize-1:0] fp4_info_a,
   output fpnew_pkg::fp_info_t [VectorSize-1:0] info_b,
-  output fpnew_pkg::fp_info_t [FP6_VECTOR_SIZE-1:0] fp6_info_b,
-  output fpnew_pkg::fp_info_t [FP4_VECTOR_SIZE-1:0] fp4_info_b,
+  output fpnew_pkg::fp_info_t [FP6VectorSize-1:0] fp6_info_b,
+  output fpnew_pkg::fp_info_t [FP4VectorSize-1:0] fp4_info_b,
   output fpnew_pkg::fp_info_t [1:0] info_c,
   output fpnew_pkg::fp_info_t info_d,
   output fp_src_t [VectorSize-1:0] operands_a,
-  output fp6_src_t [FP6_VECTOR_SIZE-1:0] fp6_operands_a,
-  output fp4_src_t [FP4_VECTOR_SIZE-1:0] fp4_operands_a,
+  output fp6_src_t [FP6VectorSize-1:0] fp6_operands_a,
+  output fp4_src_t [FP4VectorSize-1:0] fp4_operands_a,
   output fp_src_t [VectorSize-1:0] operands_b,
-  output fp6_src_t [FP6_VECTOR_SIZE-1:0] fp6_operands_b,
-  output fp4_src_t [FP4_VECTOR_SIZE-1:0] fp4_operands_b,
+  output fp6_src_t [FP6VectorSize-1:0] fp6_operands_b,
+  output fp4_src_t [FP4VectorSize-1:0] fp4_operands_b,
   output logic signed [1:0][SCALE_WIDTH-1:0] operands_c,
   output fp_dst_t operand_d
 );
@@ -60,18 +64,18 @@ module fpnew_mxdotp_classifier
   fpnew_pkg::fp_info_t [NUM_FORMATS-1:0][NUM_OPERANDS-1:0] info_q;
 
   // FP6
-  logic        [NUM_FORMATS-1:0][2*FP6_VECTOR_SIZE-1:0]                   fp6_fmt_sign;
-  logic signed [NUM_FORMATS-1:0][2*FP6_VECTOR_SIZE-1:0][FP6_EXP_BITS-1:0] fp6_fmt_exponent;
-  logic        [NUM_FORMATS-1:0][2*FP6_VECTOR_SIZE-1:0][FP6_MAN_BITS-1:0] fp6_fmt_mantissa;
+  logic        [NUM_FORMATS-1:0][2*FP6VectorSize-1:0]                   fp6_fmt_sign;
+  logic signed [NUM_FORMATS-1:0][2*FP6VectorSize-1:0][FP6_EXP_BITS-1:0] fp6_fmt_exponent;
+  logic        [NUM_FORMATS-1:0][2*FP6VectorSize-1:0][FP6_MAN_BITS-1:0] fp6_fmt_mantissa;
 
-  fpnew_pkg::fp_info_t [NUM_FORMATS-1:0][2*FP6_VECTOR_SIZE-1:0] fp6_info_q;
+  fpnew_pkg::fp_info_t [NUM_FORMATS-1:0][2*FP6VectorSize-1:0] fp6_info_q;
 
   // FP4
-  logic        [2*FP4_VECTOR_SIZE-1:0]                   fp4_fmt_sign;
-  logic signed [2*FP4_VECTOR_SIZE-1:0][FP4_EXP_BITS-1:0] fp4_fmt_exponent;
-  logic        [2*FP4_VECTOR_SIZE-1:0][FP4_MAN_BITS-1:0] fp4_fmt_mantissa;
+  logic        [2*FP4VectorSize-1:0]                   fp4_fmt_sign;
+  logic signed [2*FP4VectorSize-1:0][FP4_EXP_BITS-1:0] fp4_fmt_exponent;
+  logic        [2*FP4VectorSize-1:0][FP4_MAN_BITS-1:0] fp4_fmt_mantissa;
 
-  fpnew_pkg::fp_info_t [2*FP4_VECTOR_SIZE-1:0] fp4_info_q;
+  fpnew_pkg::fp_info_t [2*FP4VectorSize-1:0] fp4_info_q;
 
   // FP Input initialization (Src)
   for (genvar fmt = 0; fmt < int'(NUM_FORMATS); fmt++) begin : fmt_src_init_inputs
@@ -80,7 +84,7 @@ module fpnew_mxdotp_classifier
     localparam int unsigned EXP_BITS = fpnew_pkg::exp_bits(fpnew_pkg::fp_format_e'(fmt));
     localparam int unsigned MAN_BITS = fpnew_pkg::man_bits(fpnew_pkg::fp_format_e'(fmt));
 
-    if (SrcDotpFpFmtConfig[fmt]) begin : active_src_format
+    if (FpSrcFmtConfig[fmt]) begin : active_src_format
       logic [2*VectorSize-1:0][FP_WIDTH-1:0] trimmed_ops;
 
       // Classify input
@@ -89,9 +93,9 @@ module fpnew_mxdotp_classifier
         .NumOperands ( 2*VectorSize                 ),
         .MX          ( 1                            )
       ) i_fpnew_classifier (
-        .operands_i  ( trimmed_ops                                 ),
-        .is_boxed_i  ( inp_pipe_is_boxed_q[NUM_INP_REGS][fmt][2*VectorSize-1:0] ),
-        .info_o      ( info_q[fmt][2*VectorSize-1:0]                            )
+        .operands_i  ( trimmed_ops                                            ),
+        .is_boxed_i  ( inp_pipe_is_boxed_q[NumInpRegs][fmt][2*VectorSize-1:0] ),
+        .info_o      ( info_q[fmt][2*VectorSize-1:0]                          )
       );
       for (genvar op = 0; op < 2*VectorSize; op++) begin : gen_operands
         assign trimmed_ops[op]       = operands_post_inp_pipe[op][FP_WIDTH-1:0];
@@ -108,27 +112,27 @@ module fpnew_mxdotp_classifier
     end
   end
 
-  if (FP6_VECTOR_SIZE != 0) begin : fp6_classifier
+  if (FP6VectorSize != 0) begin : fp6_classifier
     for (genvar fmt = 0; fmt < int'(NUM_FORMATS); fmt++) begin : fp6_fmt_src_init_inputs
       // Set up some constants
       localparam int unsigned FP_WIDTH = fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(fmt));
       localparam int unsigned EXP_BITS = fpnew_pkg::exp_bits(fpnew_pkg::fp_format_e'(fmt));
       localparam int unsigned MAN_BITS = fpnew_pkg::man_bits(fpnew_pkg::fp_format_e'(fmt));
 
-      if (SrcDotpFpFmtConfig[fmt]) begin : active_src_format
-        logic [2*FP6_VECTOR_SIZE-1:0][FP_WIDTH-1:0] trimmed_ops;
+      if (FpSrcFmtConfig[fmt]) begin : active_src_format
+        logic [2*FP6VectorSize-1:0][FP_WIDTH-1:0] trimmed_ops;
 
         // Classify input
         fpnew_classifier #(
           .FpFormat    ( fpnew_pkg::fp_format_e'(fmt) ),
-          .NumOperands ( 2*FP6_VECTOR_SIZE            ),
+          .NumOperands ( 2*FP6VectorSize              ),
           .MX          ( 1                            )
         ) i_fpnew_classifier (
-          .operands_i  ( trimmed_ops                                                   ),
-          .is_boxed_i  ( inp_pipe_is_boxed_q[NUM_INP_REGS][fmt][2*FP6_VECTOR_SIZE-1:0] ),
-          .info_o      ( fp6_info_q[fmt][2*FP6_VECTOR_SIZE-1:0]                        )
+          .operands_i  ( trimmed_ops                                               ),
+          .is_boxed_i  ( inp_pipe_is_boxed_q[NumInpRegs][fmt][2*FP6VectorSize-1:0] ),
+          .info_o      ( fp6_info_q[fmt][2*FP6VectorSize-1:0]                      )
         );
-        for (genvar op = 0; op < 2*FP6_VECTOR_SIZE; op++) begin : gen_operands
+        for (genvar op = 0; op < 2*FP6VectorSize; op++) begin : gen_operands
           assign trimmed_ops[op]           = fp6_operands_post_inp_pipe[op][FP_WIDTH-1:0];
           assign fp6_fmt_sign[fmt][op]     = fp6_operands_post_inp_pipe[op][FP_WIDTH-1];
           assign fp6_fmt_exponent[fmt][op] = fp6_operands_post_inp_pipe[op][MAN_BITS+:EXP_BITS];
@@ -136,44 +140,46 @@ module fpnew_mxdotp_classifier
                                         (SUPER_MAN_BITS - MAN_BITS); // move to left of mantissa
         end
       end else begin : inactive_src_format
-        assign fp6_info_q[fmt][2*FP6_VECTOR_SIZE-1:0] = '{default: fpnew_pkg::DONT_CARE}; // format disabled
-        assign fp6_fmt_sign[fmt]                      = fpnew_pkg::DONT_CARE;             // format disabled
-        assign fp6_fmt_exponent[fmt]                  = '{default: fpnew_pkg::DONT_CARE}; // format disabled
-        assign fp6_fmt_mantissa[fmt]                  = '{default: fpnew_pkg::DONT_CARE}; // format disabled
+        assign fp6_info_q[fmt][2*FP6VectorSize-1:0] = '{default: fpnew_pkg::DONT_CARE}; // format disabled
+        assign fp6_fmt_sign[fmt]                    = fpnew_pkg::DONT_CARE;             // format disabled
+        assign fp6_fmt_exponent[fmt]                = '{default: fpnew_pkg::DONT_CARE}; // format disabled
+        assign fp6_fmt_mantissa[fmt]                = '{default: fpnew_pkg::DONT_CARE}; // format disabled
       end
     end
   end
 
-  for (genvar fmt = 8; fmt < int'(NUM_FORMATS); fmt++) begin : fp4_fmt_src_init_inputs
-    // Set up some constants
-    localparam int unsigned FP_WIDTH = fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(fmt));
-    localparam int unsigned EXP_BITS = fpnew_pkg::exp_bits(fpnew_pkg::fp_format_e'(fmt));
-    localparam int unsigned MAN_BITS = fpnew_pkg::man_bits(fpnew_pkg::fp_format_e'(fmt));
+  if (FP4VectorSize != 0) begin : fp4_classifier
+    for (genvar fmt = 8; fmt < int'(NUM_FORMATS); fmt++) begin : fp4_fmt_src_init_inputs
+      // Set up some constants
+      localparam int unsigned FP_WIDTH = fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(fmt));
+      localparam int unsigned EXP_BITS = fpnew_pkg::exp_bits(fpnew_pkg::fp_format_e'(fmt));
+      localparam int unsigned MAN_BITS = fpnew_pkg::man_bits(fpnew_pkg::fp_format_e'(fmt));
 
-    if (SrcDotpFpFmtConfig[fmt]) begin : active_src_format
-      logic [2*FP4_VECTOR_SIZE-1:0][FP_WIDTH-1:0] trimmed_ops;
+      if (FpSrcFmtConfig[fmt]) begin : active_src_format
+        logic [2*FP4VectorSize-1:0][FP_WIDTH-1:0] trimmed_ops;
 
-      // Classify input
-      fpnew_classifier #(
-        .FpFormat    ( fpnew_pkg::fp_format_e'(fmt) ),
-        .NumOperands ( 2*FP4_VECTOR_SIZE            ),
-        .MX          ( 1                            )
-      ) i_fpnew_classifier (
-        .operands_i  ( trimmed_ops                                                   ),
-        .is_boxed_i  ( inp_pipe_is_boxed_q[NUM_INP_REGS][fmt][2*FP4_VECTOR_SIZE-1:0] ),
-        .info_o      ( fp4_info_q[2*FP4_VECTOR_SIZE-1:0]                             )
-      );
-      for (genvar op = 0; op < 2*FP4_VECTOR_SIZE; op++) begin : gen_operands
-        assign trimmed_ops[op]      = fp4_operands_post_inp_pipe[op][FP_WIDTH-1:0];
-        assign fp4_fmt_sign[op]     = fp4_operands_post_inp_pipe[op][FP_WIDTH-1];
-        assign fp4_fmt_exponent[op] = fp4_operands_post_inp_pipe[op][MAN_BITS+:EXP_BITS];
-        assign fp4_fmt_mantissa[op] = fp4_operands_post_inp_pipe[op][MAN_BITS-1:0];
+        // Classify input
+        fpnew_classifier #(
+          .FpFormat    ( fpnew_pkg::fp_format_e'(fmt) ),
+          .NumOperands ( 2*FP4VectorSize              ),
+          .MX          ( 1                            )
+        ) i_fpnew_classifier (
+          .operands_i  ( trimmed_ops                                               ),
+          .is_boxed_i  ( inp_pipe_is_boxed_q[NumInpRegs][fmt][2*FP4VectorSize-1:0] ),
+          .info_o      ( fp4_info_q[2*FP4VectorSize-1:0]                           )
+        );
+        for (genvar op = 0; op < 2*FP4VectorSize; op++) begin : gen_operands
+          assign trimmed_ops[op]      = fp4_operands_post_inp_pipe[op][FP_WIDTH-1:0];
+          assign fp4_fmt_sign[op]     = fp4_operands_post_inp_pipe[op][FP_WIDTH-1];
+          assign fp4_fmt_exponent[op] = fp4_operands_post_inp_pipe[op][MAN_BITS+:EXP_BITS];
+          assign fp4_fmt_mantissa[op] = fp4_operands_post_inp_pipe[op][MAN_BITS-1:0];
+        end
+      end else begin : inactive_src_format
+        assign fp4_info_q[2*FP4VectorSize-1:0]  = '{default: fpnew_pkg::DONT_CARE}; // format disabled
+        assign fp4_fmt_sign                     = fpnew_pkg::DONT_CARE;             // format disabled
+        assign fp4_fmt_exponent                 = '{default: fpnew_pkg::DONT_CARE}; // format disabled
+        assign fp4_fmt_mantissa                 = '{default: fpnew_pkg::DONT_CARE}; // format disabled
       end
-    end else begin : inactive_src_format
-      assign fp4_info_q[2*FP4_VECTOR_SIZE-1:0]  = '{default: fpnew_pkg::DONT_CARE}; // format disabled
-      assign fp4_fmt_sign                       = fpnew_pkg::DONT_CARE;             // format disabled
-      assign fp4_fmt_exponent                   = '{default: fpnew_pkg::DONT_CARE}; // format disabled
-      assign fp4_fmt_mantissa                   = '{default: fpnew_pkg::DONT_CARE}; // format disabled
     end
   end
 
@@ -191,11 +197,11 @@ module fpnew_mxdotp_classifier
     localparam int unsigned EXP_BITS = fpnew_pkg::exp_bits(fpnew_pkg::fp_format_e'(fmt));
     localparam int unsigned MAN_BITS = fpnew_pkg::man_bits(fpnew_pkg::fp_format_e'(fmt));
 
-    if (DstDotpFpFmtConfig[fmt]) begin : active_dst_format
+    if (FpDstFmtConfig[fmt]) begin : active_dst_format
       logic [FP_WIDTH-1:0] trimmed_dst_ops;
       logic                dst_ops_is_boxed;
 
-      assign dst_ops_is_boxed = inp_pipe_is_boxed_q[NUM_INP_REGS][fmt][NUM_OPERANDS-1];
+      assign dst_ops_is_boxed = inp_pipe_is_boxed_q[NumInpRegs][fmt][NUM_OPERANDS-1];
 
       // Classify input
       fpnew_classifier #(
@@ -234,18 +240,18 @@ module fpnew_mxdotp_classifier
         info_a[i]     = fpnew_pkg::fp_info_t'(0);
         info_b[i]     = fpnew_pkg::fp_info_t'(0);
       end
-      for (int i = 0; i < FP6_VECTOR_SIZE; i++) begin : gen_default_assignments_fp6_int
+      for (int i = 0; i < FP6VectorSize; i++) begin : gen_default_assignments_fp6_int
         // FP6
         fp6_operands_a[i] = fp6_operands_post_inp_pipe[i];
-        fp6_operands_b[i] = fp6_operands_post_inp_pipe[i+FP6_VECTOR_SIZE];
+        fp6_operands_b[i] = fp6_operands_post_inp_pipe[i+FP6VectorSize];
         // set to zero
         fp6_info_a[i]     = fpnew_pkg::fp_info_t'(0);
         fp6_info_b[i]     = fpnew_pkg::fp_info_t'(0);
       end
-      for (int i = 0; i < FP4_VECTOR_SIZE; i++) begin : gen_default_assignments_fp4_int
+      for (int i = 0; i < FP4VectorSize; i++) begin : gen_default_assignments_fp4_int
         // FP4
         fp4_operands_a[i] = fp4_operands_post_inp_pipe[i];
-        fp4_operands_b[i] = fp4_operands_post_inp_pipe[i+FP4_VECTOR_SIZE];
+        fp4_operands_b[i] = fp4_operands_post_inp_pipe[i+FP4VectorSize];
         // set to zero
         fp4_info_a[i]     = fpnew_pkg::fp_info_t'(0);
         fp4_info_b[i]     = fpnew_pkg::fp_info_t'(0);
@@ -258,19 +264,19 @@ module fpnew_mxdotp_classifier
         info_a[i]     = info_q[src_fmt_q][i];
         info_b[i]     = info_q[src_fmt_q][i+VectorSize];
       end
-      for (int i = 0; i < FP6_VECTOR_SIZE; i++) begin : gen_default_assignments_fp6
+      for (int i = 0; i < FP6VectorSize; i++) begin : gen_default_assignments_fp6
         // FP6
         fp6_operands_a[i] = {fp6_fmt_sign[src_fmt_q][i], fp6_fmt_exponent[src_fmt_q][i], fp6_fmt_mantissa[src_fmt_q][i]};
-        fp6_operands_b[i] = {fp6_fmt_sign[src_fmt_q][i+FP6_VECTOR_SIZE], fp6_fmt_exponent[src_fmt_q][i+FP6_VECTOR_SIZE], fp6_fmt_mantissa[src_fmt_q][i+FP6_VECTOR_SIZE]};
+        fp6_operands_b[i] = {fp6_fmt_sign[src_fmt_q][i+FP6VectorSize], fp6_fmt_exponent[src_fmt_q][i+FP6VectorSize], fp6_fmt_mantissa[src_fmt_q][i+FP6VectorSize]};
         fp6_info_a[i]     = fp6_info_q[src_fmt_q][i];
-        fp6_info_b[i]     = fp6_info_q[src_fmt_q][i+FP6_VECTOR_SIZE];
+        fp6_info_b[i]     = fp6_info_q[src_fmt_q][i+FP6VectorSize];
       end
-      for (int i = 0; i < FP4_VECTOR_SIZE; i++) begin : gen_default_assignments_fp4
+      for (int i = 0; i < FP4VectorSize; i++) begin : gen_default_assignments_fp4
         // FP4
         fp4_operands_a[i] = {fp4_fmt_sign[i], fp4_fmt_exponent[i], fp4_fmt_mantissa[i]};
-        fp4_operands_b[i] = {fp4_fmt_sign[i+FP4_VECTOR_SIZE], fp4_fmt_exponent[i+FP4_VECTOR_SIZE], fp4_fmt_mantissa[i+FP4_VECTOR_SIZE]};
+        fp4_operands_b[i] = {fp4_fmt_sign[i+FP4VectorSize], fp4_fmt_exponent[i+FP4VectorSize], fp4_fmt_mantissa[i+FP4VectorSize]};
         fp4_info_a[i]     = fp4_info_q[i];
-        fp4_info_b[i]     = fp4_info_q[i+FP4_VECTOR_SIZE];
+        fp4_info_b[i]     = fp4_info_q[i+FP4VectorSize];
       end
     end
     for (int i = 0; i < 2; i++) begin : gen_default_assignments_c
@@ -286,7 +292,9 @@ endmodule
 // Only FP8 sources can have inf/nan; FP6 and FP4 have limited exponent ranges.
 module fpnew_mxdotp_special_cases
   import fpnew_mxdotp_multi_pkg::*;
-(
+#(
+  parameter fpnew_pkg::fmt_logic_t FpDstFmtConfig = MxdotpDstFpFmtConfig
+) (
   // Input signals
   input  fp_src_t [VectorSize-1:0]             operands_a,
   input  fp_src_t [VectorSize-1:0]             operands_b,
@@ -326,21 +334,21 @@ module fpnew_mxdotp_special_cases
     for (genvar i = 0; i < VectorSize; i = i + 1) begin : gen_conditions
       // Check if any operand is infinite
       assign operand_inf_conditions[i] = info_a[i].is_inf || info_b[i].is_inf;
-      
+
       // Check if any operand is NaN
       assign operand_nan_conditions[i] = info_a[i].is_nan || info_b[i].is_nan;
-      
+
       // Check for signalling NaN
       assign signalling_nan_conditions[i] = info_a[i].is_signalling || info_b[i].is_signalling;
-      
+
       // Check for produced NaN (0 * inf or inf * 0)
-      assign nan_conditions[i] = (info_a[i].is_inf && info_b[i].is_zero) || 
+      assign nan_conditions[i] = (info_a[i].is_inf && info_b[i].is_zero) ||
                                   (info_b[i].is_inf && info_a[i].is_zero);
-      
+
       // Check for positive infinity (inf with same sign)
       assign pos_inf_conditions[i] = (info_a[i].is_inf && ~(operands_a[i].sign ^ operands_b[i].sign)) ||
                                       (info_b[i].is_inf && ~(operands_a[i].sign ^ operands_b[i].sign));
-      
+
       // Check for negative infinity (inf with opposite sign)
       assign neg_inf_conditions[i] = (info_a[i].is_inf && (operands_a[i].sign ^ operands_b[i].sign)) ||
                                       (info_b[i].is_inf && (operands_a[i].sign ^ operands_b[i].sign));
@@ -372,7 +380,7 @@ module fpnew_mxdotp_special_cases
     localparam logic [MAN_BITS-1:0] QNAN_MANTISSA = 2**(MAN_BITS-1);
     localparam logic [MAN_BITS-1:0] ZERO_MANTISSA = '0;
 
-    if (DstDotpFpFmtConfig[fmt]) begin : active_format
+    if (FpDstFmtConfig[fmt]) begin : active_format
       always_comb begin : special_cases
         logic [FP_WIDTH-1:0] special_res;
 
@@ -446,25 +454,25 @@ endmodule
 module fpnew_mxdotp_vector_multiplier
   import fpnew_mxdotp_multi_pkg::*;
 #(
-  parameter type         SrcType       = logic,
-  parameter int unsigned VectorSize    = 8,
-  parameter int unsigned PrecisionBits = 4
+  parameter type         SrcType         = logic,
+  parameter int unsigned LocalVectorSize = 8,
+  parameter int unsigned PrecisionBits   = 4
 ) (
   // Input signals
-  input  SrcType [VectorSize-1:0] operands_a,
-  input  SrcType [VectorSize-1:0] operands_b,
-  input  fpnew_pkg::fp_info_t [VectorSize-1:0] info_a,
-  input  fpnew_pkg::fp_info_t [VectorSize-1:0] info_b,
-  output logic signed [VectorSize-1:0][2*PrecisionBits :0] product_signed
+  input  SrcType [LocalVectorSize-1:0] operands_a,
+  input  SrcType [LocalVectorSize-1:0] operands_b,
+  input  fpnew_pkg::fp_info_t [LocalVectorSize-1:0] info_a,
+  input  fpnew_pkg::fp_info_t [LocalVectorSize-1:0] info_b,
+  output logic signed [LocalVectorSize-1:0][2*PrecisionBits :0] product_signed
 );
   // ------------------
   // Product data path
   // ------------------
-  logic [VectorSize-1:0][  PrecisionBits-1:0] mantissa_a, mantissa_b;
-  logic [VectorSize-1:0][2*PrecisionBits-1:0] product;  // the p*p product is 2p-bit wide
+  logic [LocalVectorSize-1:0][  PrecisionBits-1:0] mantissa_a, mantissa_b;
+  logic [LocalVectorSize-1:0][2*PrecisionBits-1:0] product;  // the p*p product is 2p-bit wide
 
   // Add implicit bits to mantissae
-  for (genvar i = 0; i < VectorSize; i++) begin : gen_mantissa
+  for (genvar i = 0; i < LocalVectorSize; i++) begin : gen_mantissa
     assign mantissa_a[i] = {info_a[i].is_normal, operands_a[i].mantissa};
     assign mantissa_b[i] = {info_b[i].is_normal, operands_b[i].mantissa};
     assign product[i]    = mantissa_a[i] * mantissa_b[i];
@@ -477,26 +485,26 @@ endmodule
 module fpnew_mxdotp_signed_vector_multiplier
   import fpnew_mxdotp_multi_pkg::*;
 #(
-  parameter type         SrcType       = logic,
-  parameter int unsigned VectorSize    = 8,
-  parameter int unsigned PrecisionBits = 8
+  parameter type         SrcType         = logic,
+  parameter int unsigned LocalVectorSize = 8,
+  parameter int unsigned PrecisionBits   = 8
 ) (
   // Input signals
-  input  SrcType [VectorSize-1:0] operands_a,
-  input  SrcType [VectorSize-1:0] operands_b,
+  input  SrcType [LocalVectorSize-1:0] operands_a,
+  input  SrcType [LocalVectorSize-1:0] operands_b,
   input  fpnew_pkg::fp_format_e  src_fmt_q,
   input  fpnew_pkg::int_format_e int_fmt_q,
   input  logic src_is_int,
-  input  fpnew_pkg::fp_info_t [VectorSize-1:0] info_a,
-  input  fpnew_pkg::fp_info_t [VectorSize-1:0] info_b,
-  output logic signed [VectorSize-1:0][2*PrecisionBits-1:0] product_signed
+  input  fpnew_pkg::fp_info_t [LocalVectorSize-1:0] info_a,
+  input  fpnew_pkg::fp_info_t [LocalVectorSize-1:0] info_b,
+  output logic signed [LocalVectorSize-1:0][2*PrecisionBits-1:0] product_signed
 );
   // ------------------
   // Product data path
   // ------------------
-  logic signed [VectorSize-1:0][  PrecisionBits-1:0] mantissa_a, mantissa_b;
+  logic signed [LocalVectorSize-1:0][  PrecisionBits-1:0] mantissa_a, mantissa_b;
 
-  for (genvar i = 0; i < VectorSize; i++) begin : gen_mantissa_fp8
+  for (genvar i = 0; i < LocalVectorSize; i++) begin : gen_mantissa_fp8
     always_comb begin
       if (src_is_int && int_fmt_q == fpnew_pkg::INT8) begin : int8
         // For INT8, we use the full 8-bit mantissa
@@ -514,7 +522,7 @@ module fpnew_mxdotp_signed_vector_multiplier
     end
   end
 
-  for (genvar i = 0; i < VectorSize; i++) begin : gen_mantissa
+  for (genvar i = 0; i < LocalVectorSize; i++) begin : gen_mantissa
     assign product_signed[i] = signed'(mantissa_a[i]) * signed'(mantissa_b[i]);
   end
 endmodule
@@ -524,33 +532,33 @@ endmodule
 module fpnew_mxdotp_product_shifter
   import fpnew_mxdotp_multi_pkg::*;
 #(
-  parameter type         SrcType           = logic,
-  parameter int unsigned VectorSize        = 8,
-  parameter fpnew_pkg::fp_format_e SrcFmt  = fpnew_pkg::FP8,
-  parameter int unsigned ProductBits       = 4,
-  parameter int unsigned ExpWidth          = 8,
-  parameter int unsigned OutputWidth       = 70
+  parameter type         SrcType          = logic,
+  parameter int unsigned LocalVectorSize  = 8,
+  parameter fpnew_pkg::fp_format_e SrcFmt = fpnew_pkg::FP8,
+  parameter int unsigned ProductBits      = 4,
+  parameter int unsigned ExpWidth         = 8,
+  parameter int unsigned OutputWidth      = 70
 ) (
   // Input signals
-  input  SrcType [VectorSize-1:0] operands_a,
-  input  SrcType [VectorSize-1:0] operands_b,
-  input  logic [VectorSize-1:0][ProductBits-1:0] product_signed,
-  input  fpnew_pkg::fp_info_t [VectorSize-1:0] info_a,
-  input  fpnew_pkg::fp_info_t [VectorSize-1:0] info_b,
+  input  SrcType [LocalVectorSize-1:0] operands_a,
+  input  SrcType [LocalVectorSize-1:0] operands_b,
+  input  logic [LocalVectorSize-1:0][ProductBits-1:0] product_signed,
+  input  fpnew_pkg::fp_info_t [LocalVectorSize-1:0] info_a,
+  input  fpnew_pkg::fp_info_t [LocalVectorSize-1:0] info_b,
   input  fpnew_pkg::fp_format_e src_fmt_q,
   input  fpnew_pkg::int_format_e int_fmt_q,
   input  logic src_is_int,
-  output logic signed [VectorSize-1:0][OutputWidth-1:0] shifted_product
+  output logic signed [LocalVectorSize-1:0][OutputWidth-1:0] shifted_product
 );
   // ------------------
   // Shift data path
   // ------------------
-  logic signed [VectorSize-1:0][ExpWidth-1:0] exponent_product;
+  logic signed [LocalVectorSize-1:0][ExpWidth-1:0] exponent_product;
 
   // Calculate the non-biased exponent of the product
-  for (genvar i = 0; i < VectorSize; i++) begin : gen_exponent_adjustment
+  for (genvar i = 0; i < LocalVectorSize; i++) begin : gen_exponent_adjustment
     assign exponent_product[i] = operands_a[i].exponent + info_a[i].is_subnormal
-                                + operands_b[i].exponent + info_b[i].is_subnormal 
+                                + operands_b[i].exponent + info_b[i].is_subnormal
                                 - 2*signed'(bias_constant(src_fmt_q));
     if (SrcFmt == fpnew_pkg::FP8) begin
       always_comb begin // TODO: Generate only for INT8 vs FP8
@@ -580,12 +588,12 @@ endmodule
 module fpnew_mxdotp_adder_tree
   import fpnew_mxdotp_multi_pkg::*;
 #(
-  parameter int unsigned VectorSize  = 8,
-  parameter int unsigned InputWidth  = 4,
-  parameter int unsigned OutputWidth = 70
+  parameter int unsigned LocalVectorSize = 8,
+  parameter int unsigned InputWidth      = 4,
+  parameter int unsigned OutputWidth     = 70
 ) (
   // Input signals
-  input  logic signed [VectorSize-1:0][InputWidth-1:0] shifted_product,
+  input  logic signed [LocalVectorSize-1:0][InputWidth-1:0] shifted_product,
   output logic signed [OutputWidth-1:0] sum_product
 );
   // ------------------
@@ -594,7 +602,7 @@ module fpnew_mxdotp_adder_tree
   // Sum the products
   always_comb begin : sum_products
     sum_product = '0;
-    for (int i = 0; i < VectorSize; i++) begin : gen_sum_products
+    for (int i = 0; i < LocalVectorSize; i++) begin : gen_sum_products
       sum_product += signed'(shifted_product[i]);
     end
   end
@@ -604,10 +612,13 @@ endmodule
 // When FP6 is disabled, sum_product_fp6 is zero and optimized away by synthesis.
 module fpnew_mxdotp_format_adder
   import fpnew_mxdotp_multi_pkg::*;
-(
+#(
+  parameter int unsigned Fp6SumWidth = FP6_PROD_SHIFT_WIDTH,
+  parameter int unsigned Fp4SumWidth = FP4_PROD_SHIFT_WIDTH
+) (
   input  logic signed [SOP_FIXED_WIDTH-1:0] sum_product_fp8,
-  input  logic signed [FP6_SUM_WIDTH-1:0]   sum_product_fp6,
-  input  logic signed [FP4_SUM_WIDTH-1:0]   sum_product_fp4,
+  input  logic signed [Fp6SumWidth-1:0]     sum_product_fp6,
+  input  logic signed [Fp4SumWidth-1:0]     sum_product_fp4,
   output logic signed [FIXED_SUM_WIDTH-1:0] sum_product
 );
   // ------------------
@@ -640,7 +651,7 @@ module fpnew_mxdotp_accumulator_shift
   output logic signed [DST_PRECISION_BITS :0] signed_mantissa_d,
   output logic signed [FIXED_SUM_WIDTH-1:0] accumulator_shifted
 );
-  
+
   // -----------------------------
   // Accumulator shift data path
   // -----------------------------
@@ -746,7 +757,7 @@ module fpnew_mxdotp_norm_shift
   // Normalization shift
   // ------------------
 
-    // Shift the sum to normalize it
+  // Shift the sum to normalize it
   assign sum_shifted = sum_magnitude << norm_shamt;
 endmodule
 
@@ -846,7 +857,9 @@ endmodule
 // Detects overflow/underflow before and after rounding, generates round/sticky bits.
 module fpnew_mxdotp_rounder
   import fpnew_mxdotp_multi_pkg::*;
-(
+#(
+  parameter fpnew_pkg::fmt_logic_t FpDstFmtConfig = MxdotpDstFpFmtConfig
+) (
   // Input signals
   input  logic clk_i,
   input  logic rst_ni,
@@ -894,7 +907,7 @@ module fpnew_mxdotp_rounder
     logic [EXP_BITS-1:0] pre_round_exponent;
     logic [MAN_BITS-1:0] pre_round_mantissa;
 
-    if (DstDotpFpFmtConfig[fmt]) begin : active_dst_format
+    if (FpDstFmtConfig[fmt]) begin : active_dst_format
 
       assign pre_round_exponent = (of_before_round) ? 2**EXP_BITS-2 : final_exponent[EXP_BITS-1:0];
       assign pre_round_mantissa = (of_before_round) ? '1 : final_mantissa[SUPER_DST_MAN_BITS-:MAN_BITS];
@@ -951,7 +964,7 @@ module fpnew_mxdotp_rounder
     localparam int unsigned EXP_BITS = fpnew_pkg::exp_bits(fpnew_pkg::fp_format_e'(fmt));
     localparam int unsigned MAN_BITS = fpnew_pkg::man_bits(fpnew_pkg::fp_format_e'(fmt));
 
-    if (DstDotpFpFmtConfig[fmt]) begin : active_dst_format
+    if (FpDstFmtConfig[fmt]) begin : active_dst_format
       always_comb begin : post_process
         // detect of / uf
         fmt_uf_after_round[fmt] = rounded_abs[EXP_BITS+MAN_BITS-1:MAN_BITS] == '0; // denormal

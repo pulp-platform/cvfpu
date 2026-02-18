@@ -18,6 +18,10 @@
 module fpnew_mxdotp_multi
   import fpnew_mxdotp_multi_pkg::*;
 #(
+  // By default, all MX formats are enabled for the source and FP32 and FP16ALT are enabled for the destination.
+  parameter fpnew_pkg::fmt_logic_t   FpSrcFmtConfig  = MxdotpSrcFpFmtConfig,
+  parameter fpnew_pkg::ifmt_logic_t  IntSrcFmtConfig = MxdotpSrcIntFmtConfig,
+  parameter fpnew_pkg::fmt_logic_t   FpDstFmtConfig  = MxdotpDstFpFmtConfig,
   parameter int unsigned             NumPipeRegs = 4,
   parameter fpnew_pkg::pipe_config_t PipeConfig  = fpnew_pkg::BEFORE,
   parameter type                     TagType     = logic,
@@ -78,6 +82,21 @@ module fpnew_mxdotp_multi
                                          : (PipeConfig == fpnew_pkg::DISTRIBUTED
                                             ? (NumPipeRegs / 3)
                                             : 0);
+
+  // -----------------------------------------
+  // Config-dependent derived localparams
+  // -----------------------------------------
+  // Computed from module parameters instead of package constants
+  localparam int unsigned FP6_VECTOR_SIZE = (FpSrcFmtConfig[fpnew_pkg::FP6] == 1) ?
+                                            ((FpSrcFmtConfig[fpnew_pkg::FP8] == 1) ? 3 : 11) : 0;
+  localparam int unsigned FP4_VECTOR_SIZE = (FpSrcFmtConfig[fpnew_pkg::FP4] == 1) ?
+                                            ((FpSrcFmtConfig[fpnew_pkg::FP8] == 1) ?
+                                            ((FpSrcFmtConfig[fpnew_pkg::FP6] == 1) ? 5 : 8) : 16) : 0;
+
+  localparam int unsigned INT_SUPER_BITS = fpnew_pkg::max_int_width(IntSrcFmtConfig);
+
+  localparam int unsigned FP6_SUM_WIDTH = $clog2(FP6_VECTOR_SIZE) + FP6_PROD_SHIFT_WIDTH;
+  localparam int unsigned FP4_SUM_WIDTH = $clog2(FP4_VECTOR_SIZE) + FP4_PROD_SHIFT_WIDTH;
 
   // ---------------
   // Input pipeline
@@ -236,7 +255,11 @@ module fpnew_mxdotp_multi
   fpnew_pkg::fp_info_t [FP4_VECTOR_SIZE-1:0] fp4_info_a, fp4_info_b;
 
   fpnew_mxdotp_classifier #(
-    .NUM_INP_REGS ( NUM_INP_REGS )
+    .FpSrcFmtConfig ( FpSrcFmtConfig ),
+    .FpDstFmtConfig ( FpDstFmtConfig ),
+    .FP6VectorSize  ( FP6_VECTOR_SIZE ),
+    .FP4VectorSize  ( FP4_VECTOR_SIZE ),
+    .NumInpRegs     ( NUM_INP_REGS )
   ) i_classifier (
     .operands_post_inp_pipe(operands_post_inp_pipe),
     .fp6_operands_post_inp_pipe(fp6_operands_post_inp_pipe),
@@ -275,8 +298,9 @@ module fpnew_mxdotp_multi
   logic                 result_is_special;
 
   // Inf and NaN do not exists in FP6 and FP4 formats
-  if (SrcDotpFpFmtConfig[fpnew_pkg::FP8] || SrcDotpFpFmtConfig[fpnew_pkg::FP8ALT]) begin : special_case_handling
+  if (FpSrcFmtConfig[fpnew_pkg::FP8] || FpSrcFmtConfig[fpnew_pkg::FP8ALT]) begin : special_case_handling
     fpnew_mxdotp_special_cases #(
+      .FpDstFmtConfig ( FpDstFmtConfig )
     ) i_special_cases (
       .operands_a(operands_a),
       .operands_b(operands_b),
@@ -315,7 +339,7 @@ module fpnew_mxdotp_multi
   logic signed [FP6_VECTOR_SIZE-1:0][2*FP6_PREC_BITS:0] fp6_product_signed;  // two's complement product, +1 for sign bit
   logic signed [FP4_VECTOR_SIZE-1:0][2*FP4_PREC_BITS:0] fp4_product_signed;  // two's complement product, +1 for sign bit
 
-  if (SrcDotpIntFmtConfig[fpnew_pkg::INT8]) begin : int8_multiplier
+  if (IntSrcFmtConfig[fpnew_pkg::INT8]) begin : int8_multiplier
     fpnew_mxdotp_signed_vector_multiplier #(
       .SrcType(fp_src_t),
       .VectorSize(VectorSize),
@@ -330,7 +354,7 @@ module fpnew_mxdotp_multi
       .info_b(info_b),
       .product_signed(product_signed)
     );
-  end else if (SrcDotpFpFmtConfig[fpnew_pkg::FP8] || SrcDotpFpFmtConfig[fpnew_pkg::FP8ALT]) begin : fp8_multiplier
+  end else if (FpSrcFmtConfig[fpnew_pkg::FP8] || FpSrcFmtConfig[fpnew_pkg::FP8ALT]) begin : fp8_multiplier
     fpnew_mxdotp_vector_multiplier #(
       .SrcType(fp_src_t),
       .VectorSize(VectorSize),
@@ -346,7 +370,7 @@ module fpnew_mxdotp_multi
     assign product_signed = '0;
   end
 
-  if (SrcDotpFpFmtConfig[fpnew_pkg::FP6] || SrcDotpFpFmtConfig[fpnew_pkg::FP6ALT]) begin : fp6_multiplier
+  if (FpSrcFmtConfig[fpnew_pkg::FP6] || FpSrcFmtConfig[fpnew_pkg::FP6ALT]) begin : fp6_multiplier
     fpnew_mxdotp_vector_multiplier #(
       .SrcType(fp6_src_t),
       .VectorSize(FP6_VECTOR_SIZE),
@@ -361,7 +385,7 @@ module fpnew_mxdotp_multi
   end else begin : no_fp6_multiplier
     assign fp6_product_signed = '0;
   end
-  if (SrcDotpFpFmtConfig[fpnew_pkg::FP4]) begin : fp4_multiplier
+  if (FpSrcFmtConfig[fpnew_pkg::FP4]) begin : fp4_multiplier
     fpnew_mxdotp_vector_multiplier #(
       .SrcType(fp4_src_t),
       .VectorSize(FP4_VECTOR_SIZE),
@@ -384,7 +408,7 @@ module fpnew_mxdotp_multi
   logic signed [FP6_VECTOR_SIZE-1:0][FP6_PROD_SHIFT_WIDTH-1:0] fp6_shifted_product;
   logic signed [FP4_VECTOR_SIZE-1:0][FP4_PROD_SHIFT_WIDTH-1:0] fp4_shifted_product;
 
-  if (SrcDotpFpFmtConfig[fpnew_pkg::FP8] || SrcDotpFpFmtConfig[fpnew_pkg::FP8ALT]) begin : fp8_product_shifter
+  if (FpSrcFmtConfig[fpnew_pkg::FP8] || FpSrcFmtConfig[fpnew_pkg::FP8ALT]) begin : fp8_product_shifter
     fpnew_mxdotp_product_shifter #(
       .SrcType(fp_src_t),
       .VectorSize(VectorSize),
@@ -407,7 +431,7 @@ module fpnew_mxdotp_multi
     assign shifted_product = '0;
   end
 
-  if (SrcDotpFpFmtConfig[fpnew_pkg::FP6] || SrcDotpFpFmtConfig[fpnew_pkg::FP6ALT]) begin : fp6_product_shifter
+  if (FpSrcFmtConfig[fpnew_pkg::FP6] || FpSrcFmtConfig[fpnew_pkg::FP6ALT]) begin : fp6_product_shifter
     fpnew_mxdotp_product_shifter #(
       .SrcType(fp6_src_t),
       .VectorSize(FP6_VECTOR_SIZE),
@@ -429,7 +453,7 @@ module fpnew_mxdotp_multi
   end else begin : no_fp6_product_shifter
     assign fp6_shifted_product = '0;
   end
-  if (SrcDotpFpFmtConfig[fpnew_pkg::FP4]) begin : fp4_product_shifter
+  if (FpSrcFmtConfig[fpnew_pkg::FP4]) begin : fp4_product_shifter
     fpnew_mxdotp_product_shifter #(
       .SrcType(fp4_src_t),
       .VectorSize(FP4_VECTOR_SIZE),
@@ -469,7 +493,7 @@ module fpnew_mxdotp_multi
     .sum_product(sum_product_fp8)
   );
 
-  if (SrcDotpFpFmtConfig[fpnew_pkg::FP6]) begin : fp6_adder_tree
+  if (FpSrcFmtConfig[fpnew_pkg::FP6]) begin : fp6_adder_tree
     fpnew_mxdotp_adder_tree #(
       .VectorSize(FP6_VECTOR_SIZE),
       .InputWidth(FP6_PROD_SHIFT_WIDTH),
@@ -481,7 +505,7 @@ module fpnew_mxdotp_multi
   end else begin : no_fp6_adder_tree
     assign sum_product_fp6 = '0;
   end
-  if (SrcDotpFpFmtConfig[fpnew_pkg::FP4]) begin : fp4_adder_tree
+  if (FpSrcFmtConfig[fpnew_pkg::FP4]) begin : fp4_adder_tree
     fpnew_mxdotp_adder_tree #(
       .VectorSize(FP4_VECTOR_SIZE),
       .InputWidth(FP4_PROD_SHIFT_WIDTH),
@@ -495,7 +519,10 @@ module fpnew_mxdotp_multi
   end
 
   // Unified format adder: handles FP8 + FP6 + FP4 (FP6/FP4 are zero when disabled)
-  fpnew_mxdotp_format_adder i_format_adder (
+  fpnew_mxdotp_format_adder #(
+    .Fp6SumWidth ( FP6_SUM_WIDTH ),
+    .Fp4SumWidth ( FP4_SUM_WIDTH )
+  ) i_format_adder (
     .sum_product_fp8(sum_product_fp8),
     .sum_product_fp6(sum_product_fp6),
     .sum_product_fp4(sum_product_fp4),
@@ -663,6 +690,7 @@ module fpnew_mxdotp_multi
   logic uf_after_round; // underflow
 
   fpnew_mxdotp_rounder #(
+    .FpDstFmtConfig ( FpDstFmtConfig )
   ) i_rounder (
     .clk_i(clk_i),
     .rst_ni(rst_ni),

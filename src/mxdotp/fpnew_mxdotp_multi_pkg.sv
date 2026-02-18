@@ -17,16 +17,16 @@ package fpnew_mxdotp_multi_pkg;
   // Configuration
   // One-hot config string: | FP32 | FP64 | FP16 | FP8 | FP16ALT | FP8ALT | FP6 | FP6ALT | FP4
 
-  // Format configuration - FIXED (tested configuration only)
-  // TODO: Make configurable after testing other format combinations
-  localparam fpnew_pkg::fmt_logic_t   SrcDotpFpFmtConfig  = 9'b000101111; // FP8, FP8ALT, FP6, FP6ALT, FP4
-  localparam fpnew_pkg::ifmt_logic_t  SrcDotpIntFmtConfig = 4'b1000;      // INT8
-  localparam fpnew_pkg::fmt_logic_t   DstDotpFpFmtConfig  = 9'b100010000; // FP32, FP16ALT
-  localparam int unsigned             VectorSize          = 8;
+  // Default format configuration (all MX formats enabled)
+  // These define the maximum-width types and serve as defaults when not overridden by module parameters.
+  localparam fpnew_pkg::fmt_logic_t   MxdotpSrcFpFmtConfig  = 9'b000101111; // FP8, FP8ALT, FP6, FP6ALT, FP4
+  localparam fpnew_pkg::ifmt_logic_t  MxdotpSrcIntFmtConfig = 4'b1000;      // INT8
+  localparam fpnew_pkg::fmt_logic_t   MxdotpDstFpFmtConfig  = 9'b100010000; // FP32, FP16ALT
+  localparam int unsigned             VectorSize            = 8;
 
   // Do not change
-  localparam int unsigned SRC_WIDTH    = fpnew_pkg::max_fp_width(SrcDotpFpFmtConfig);
-  localparam int unsigned DST_WIDTH    = fpnew_pkg::max_fp_width(DstDotpFpFmtConfig);
+  localparam int unsigned SRC_WIDTH    = fpnew_pkg::max_fp_width(MxdotpSrcFpFmtConfig);
+  localparam int unsigned DST_WIDTH    = fpnew_pkg::max_fp_width(MxdotpDstFpFmtConfig);
   localparam int unsigned SCALE_WIDTH  = 8;
   localparam int unsigned NUM_OPERANDS = 2*VectorSize+1; // Two input vectors + accumulator (scale handled separately)
   localparam int unsigned NUM_FORMATS  = fpnew_pkg::NUM_FP_FORMATS;
@@ -34,22 +34,13 @@ package fpnew_mxdotp_multi_pkg;
   // Constants
   // ----------
   // The super-format that can hold all formats
-  localparam fpnew_pkg::fp_encoding_t SUPER_FORMAT     = fpnew_pkg::super_format(SrcDotpFpFmtConfig);
-  localparam fpnew_pkg::fp_encoding_t SUPER_DST_FORMAT = fpnew_pkg::super_format(DstDotpFpFmtConfig);
+  localparam fpnew_pkg::fp_encoding_t SUPER_FORMAT     = fpnew_pkg::super_format(MxdotpSrcFpFmtConfig);
+  localparam fpnew_pkg::fp_encoding_t SUPER_DST_FORMAT = fpnew_pkg::super_format(MxdotpDstFpFmtConfig);
 
   localparam int unsigned SUPER_EXP_BITS     = SUPER_FORMAT.exp_bits;
   localparam int unsigned SUPER_MAN_BITS     = SUPER_FORMAT.man_bits;
   localparam int unsigned SUPER_DST_EXP_BITS = SUPER_DST_FORMAT.exp_bits;
   localparam int unsigned SUPER_DST_MAN_BITS = SUPER_DST_FORMAT.man_bits;
-
-  // Selected source formats
-  // TODO: FP4 and FP6 does not work without FP8 yet
-  // TODO: Only for 64-bit FPUs, need to adjust for 32-bit FPU
-  localparam int unsigned FP6_VECTOR_SIZE = (SrcDotpFpFmtConfig[fpnew_pkg::FP6] == 1) ?
-                                            ((SrcDotpFpFmtConfig[fpnew_pkg::FP8] == 1) ? 3 : 11) : 0;
-  localparam int unsigned FP4_VECTOR_SIZE = (SrcDotpFpFmtConfig[fpnew_pkg::FP4] == 1) ?
-                                            ((SrcDotpFpFmtConfig[fpnew_pkg::FP8] == 1) ?
-                                            ((SrcDotpFpFmtConfig[fpnew_pkg::FP6] == 1) ? 5 : 8) : 16) : 0;
 
   // FP6 super format specific
   localparam fpnew_pkg::fp_encoding_t FP6_SUPER_FORMAT = fpnew_pkg::super_format(9'b000000110); // FP6 & FP6ALT
@@ -61,9 +52,6 @@ package fpnew_mxdotp_multi_pkg;
   localparam int unsigned FP4_EXP_BITS  = fpnew_pkg::exp_bits(fpnew_pkg::FP4);
   localparam int unsigned FP4_MAN_BITS  = fpnew_pkg::man_bits(fpnew_pkg::FP4);
   localparam int unsigned FP4_PREC_BITS = FP4_MAN_BITS + 1;
-
-  // INT
-  localparam int unsigned INT_SUPER_BITS = fpnew_pkg::max_int_width(SrcDotpIntFmtConfig);
 
   // Precision bits 'p' include the implicit bit
   localparam int unsigned PRECISION_BITS = SUPER_MAN_BITS + 1;
@@ -85,14 +73,12 @@ package fpnew_mxdotp_multi_pkg;
   // FP6 specific
   localparam int unsigned FP6_PROD_WIDTH       = 2*FP6_PREC_BITS + 1; // 2p+1 for the product
   localparam int unsigned FP6_PROD_SHIFT_WIDTH = 2*(2**FP6_EXP_BITS-1-fpnew_pkg::bias(fpnew_pkg::FP6)) + FP6_PROD_WIDTH + 4; // 2*(2^e-1-bias) + 2p+1 + 4, (2^e-1-bias): max shift amount; +4 is due to the minimum value of the sum of exponents for FP6 (-4)
-  localparam int unsigned FP6_SUM_WIDTH        = $clog2(FP6_VECTOR_SIZE) + FP6_PROD_SHIFT_WIDTH; // log2(k) + 2*(2^e-1-bias) + 2p+1
 
   // FP4 specific
   localparam int unsigned FP4_PROD_WIDTH       = 2*FP4_PREC_BITS + 1; // 2p+1 for the product
   localparam int unsigned FP4_PROD_SHIFT_WIDTH = 2*(2**FP4_EXP_BITS-1-fpnew_pkg::bias(fpnew_pkg::FP4)) + FP4_PROD_WIDTH; // 2*(2^e-1-bias) + 2p+1, (2^e-1-bias): max shift amount
-  localparam int unsigned FP4_SUM_WIDTH        = $clog2(FP4_VECTOR_SIZE) + FP4_PROD_SHIFT_WIDTH; // log2(k) + 2*(2^e-1-bias) + 2p+1
 
-  // Internal exponent width of FMA must accomodate all meaningful exponent values in order to avoid
+  // Internal exponent width of FMA must accommodate all meaningful exponent values in order to avoid
   // datapath leakage. This is either given by the exponent bits or the width of the LZC result.
   // In most reasonable FP formats the internal exponent will be wider than the LZC result.
   localparam int unsigned EXP_WIDTH          = SUPER_EXP_BITS + 1;
