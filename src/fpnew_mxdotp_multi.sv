@@ -87,13 +87,16 @@ module fpnew_mxdotp_multi
   // Config-dependent derived localparams
   // -----------------------------------------
   // Computed from module parameters instead of package constants
-  localparam int unsigned FP6_VECTOR_SIZE = (FpSrcFmtConfig[fpnew_pkg::FP6] == 1) ?
-                                            ((FpSrcFmtConfig[fpnew_pkg::FP8] == 1) ? 3 : 11) : 0;
+  localparam int unsigned FP6_VECTOR_SIZE = ((FpSrcFmtConfig[fpnew_pkg::FP6] || FpSrcFmtConfig[fpnew_pkg::FP6ALT]) == 1) ?
+                                            (((FpSrcFmtConfig[fpnew_pkg::FP8] || FpSrcFmtConfig[fpnew_pkg::FP8ALT]) == 1) ? 3 : 11) : 0;
   localparam int unsigned FP4_VECTOR_SIZE = (FpSrcFmtConfig[fpnew_pkg::FP4] == 1) ?
-                                            ((FpSrcFmtConfig[fpnew_pkg::FP8] == 1) ?
-                                            ((FpSrcFmtConfig[fpnew_pkg::FP6] == 1) ? 5 : 8) : 16) : 0;
+                                            (((FpSrcFmtConfig[fpnew_pkg::FP8] || FpSrcFmtConfig[fpnew_pkg::FP8ALT]) == 1) ?
+                                            (((FpSrcFmtConfig[fpnew_pkg::FP6] || FpSrcFmtConfig[fpnew_pkg::FP6ALT]) == 1) ? 5 : 8) : 16) : 0;
 
   localparam int unsigned INT_SUPER_BITS = fpnew_pkg::max_int_width(IntSrcFmtConfig);
+
+  // FP8/INT8 Lane configuration
+  localparam int unsigned PROD_BITS = fpnew_pkg::maximum(2*INT_SUPER_BITS, 2*PRECISION_BITS+1); // +1 for the sign bit in FP8 product
 
   localparam int unsigned FP6_SUM_WIDTH = $clog2(FP6_VECTOR_SIZE) + FP6_PROD_SHIFT_WIDTH;
   localparam int unsigned FP4_SUM_WIDTH = $clog2(FP4_VECTOR_SIZE) + FP4_PROD_SHIFT_WIDTH;
@@ -151,7 +154,7 @@ module fpnew_mxdotp_multi
   assign inp_pipe_mask_q[0]         = mask_i;
   assign inp_pipe_aux_q[0]          = aux_i;
   assign inp_pipe_valid_q[0]        = in_valid_i;
-  // Input stage: Propagate pipeline ready signal to updtream circuitry
+  // Input stage: Propagate pipeline ready signal to upstream circuitry
   assign in_ready_o = inp_pipe_ready[0];
   // Generate the register stages
   for (genvar i = 0; i < NUM_INP_REGS; i++) begin : gen_input_pipeline
@@ -163,7 +166,7 @@ module fpnew_mxdotp_multi
     assign inp_pipe_ready[i] = inp_pipe_ready[i+1] | ~inp_pipe_valid_q[i+1];
     // Valid: enabled by ready signal, synchronous clear with the flush signal
     `FFLARNC(inp_pipe_valid_q[i+1], inp_pipe_valid_q[i], inp_pipe_ready[i], flush_i, 1'b0, clk_i, rst_ni)
-    // Enable register if pipleine ready and a valid data item is present
+    // Enable register if pipeline ready and a valid data item is present
     assign reg_ena = inp_pipe_ready[i] & inp_pipe_valid_q[i];
     // Generate the pipeline registers within the stages, use enable-registers
     `FFL(inp_pipe_operands_a_q[i+1],   inp_pipe_operands_a_q[i],   reg_ena, '0)
@@ -335,14 +338,14 @@ module fpnew_mxdotp_multi
   // ------------------
   // Product data path
   // ------------------
-  logic signed [VectorSize-1:0][2*INT_SUPER_BITS-1:0] product_signed;  // two's complement product, already signed
+  logic signed [VectorSize-1:0][PROD_BITS-1:0] product_signed;  // two's complement product, already signed
   logic signed [FP6_VECTOR_SIZE-1:0][2*FP6_PREC_BITS:0] fp6_product_signed;  // two's complement product, +1 for sign bit
   logic signed [FP4_VECTOR_SIZE-1:0][2*FP4_PREC_BITS:0] fp4_product_signed;  // two's complement product, +1 for sign bit
 
   if (IntSrcFmtConfig[fpnew_pkg::INT8]) begin : int8_multiplier
     fpnew_mxdotp_signed_vector_multiplier #(
       .SrcType(fp_src_t),
-      .VectorSize(VectorSize),
+      .LocalVectorSize(VectorSize),
       .PrecisionBits(INT_SUPER_BITS)
     ) i_vector_multiplier_int8 (
       .operands_a(operands_a),
@@ -357,7 +360,7 @@ module fpnew_mxdotp_multi
   end else if (FpSrcFmtConfig[fpnew_pkg::FP8] || FpSrcFmtConfig[fpnew_pkg::FP8ALT]) begin : fp8_multiplier
     fpnew_mxdotp_vector_multiplier #(
       .SrcType(fp_src_t),
-      .VectorSize(VectorSize),
+      .LocalVectorSize(VectorSize),
       .PrecisionBits(PRECISION_BITS)
     ) i_vector_multiplier_fp8 (
       .operands_a(operands_a),
@@ -373,7 +376,7 @@ module fpnew_mxdotp_multi
   if (FpSrcFmtConfig[fpnew_pkg::FP6] || FpSrcFmtConfig[fpnew_pkg::FP6ALT]) begin : fp6_multiplier
     fpnew_mxdotp_vector_multiplier #(
       .SrcType(fp6_src_t),
-      .VectorSize(FP6_VECTOR_SIZE),
+      .LocalVectorSize(FP6_VECTOR_SIZE),
       .PrecisionBits(FP6_PREC_BITS)
     ) i_vector_multiplier_fp6 (
       .operands_a(fp6_operands_a),
@@ -388,7 +391,7 @@ module fpnew_mxdotp_multi
   if (FpSrcFmtConfig[fpnew_pkg::FP4]) begin : fp4_multiplier
     fpnew_mxdotp_vector_multiplier #(
       .SrcType(fp4_src_t),
-      .VectorSize(FP4_VECTOR_SIZE),
+      .LocalVectorSize(FP4_VECTOR_SIZE),
       .PrecisionBits(FP4_PREC_BITS)
     ) i_vector_multiplier_fp4 (
       .operands_a(fp4_operands_a),
@@ -411,9 +414,9 @@ module fpnew_mxdotp_multi
   if (FpSrcFmtConfig[fpnew_pkg::FP8] || FpSrcFmtConfig[fpnew_pkg::FP8ALT]) begin : fp8_product_shifter
     fpnew_mxdotp_product_shifter #(
       .SrcType(fp_src_t),
-      .VectorSize(VectorSize),
+      .LocalVectorSize(VectorSize),
       .SrcFmt(fpnew_pkg::FP8), // TODO: For now, we assume that FP8 and FP8ALT are always enabled together
-      .ProductBits(2*INT_SUPER_BITS),
+      .ProductBits(PROD_BITS),
       .ExpWidth(EXP_WIDTH),
       .OutputWidth(PROD_SHIFT_WIDTH)
     ) i_product_shifter_fp8 (
@@ -434,7 +437,7 @@ module fpnew_mxdotp_multi
   if (FpSrcFmtConfig[fpnew_pkg::FP6] || FpSrcFmtConfig[fpnew_pkg::FP6ALT]) begin : fp6_product_shifter
     fpnew_mxdotp_product_shifter #(
       .SrcType(fp6_src_t),
-      .VectorSize(FP6_VECTOR_SIZE),
+      .LocalVectorSize(FP6_VECTOR_SIZE),
       .SrcFmt(fpnew_pkg::FP6), // TODO: For now, we assume that FP6 and FP6ALT are always enabled together
       .ProductBits(2*FP6_PREC_BITS+1),
       .ExpWidth(5),
@@ -456,7 +459,7 @@ module fpnew_mxdotp_multi
   if (FpSrcFmtConfig[fpnew_pkg::FP4]) begin : fp4_product_shifter
     fpnew_mxdotp_product_shifter #(
       .SrcType(fp4_src_t),
-      .VectorSize(FP4_VECTOR_SIZE),
+      .LocalVectorSize(FP4_VECTOR_SIZE),
       .SrcFmt(fpnew_pkg::FP4),
       .ProductBits(2*FP4_PREC_BITS+1),
       .ExpWidth(3),
@@ -484,18 +487,22 @@ module fpnew_mxdotp_multi
   logic signed [FP4_SUM_WIDTH-1:0]   sum_product_fp4;
   logic signed [FIXED_SUM_WIDTH-1:0] sum_product;
 
-  fpnew_mxdotp_adder_tree #(
-    .VectorSize(VectorSize),
-    .InputWidth(PROD_SHIFT_WIDTH),
-    .OutputWidth(SOP_FIXED_WIDTH)
-  ) i_adder_tree_fp8 (
-    .shifted_product(shifted_product),
-    .sum_product(sum_product_fp8)
-  );
-
-  if (FpSrcFmtConfig[fpnew_pkg::FP6]) begin : fp6_adder_tree
+  if (FpSrcFmtConfig[fpnew_pkg::FP8] || FpSrcFmtConfig[fpnew_pkg::FP8ALT] || IntSrcFmtConfig[fpnew_pkg::INT8]) begin : fp8_adder_tree
     fpnew_mxdotp_adder_tree #(
-      .VectorSize(FP6_VECTOR_SIZE),
+      .LocalVectorSize(VectorSize),
+      .InputWidth(PROD_SHIFT_WIDTH),
+      .OutputWidth(SOP_FIXED_WIDTH)
+    ) i_adder_tree_fp8 (
+      .shifted_product(shifted_product),
+      .sum_product(sum_product_fp8)
+    );
+  end else begin : no_fp8_adder_tree
+    assign sum_product_fp8 = '0;
+  end
+
+  if (FpSrcFmtConfig[fpnew_pkg::FP6] || FpSrcFmtConfig[fpnew_pkg::FP6ALT]) begin : fp6_adder_tree
+    fpnew_mxdotp_adder_tree #(
+      .LocalVectorSize(FP6_VECTOR_SIZE),
       .InputWidth(FP6_PROD_SHIFT_WIDTH),
       .OutputWidth(FP6_SUM_WIDTH)
     ) i_adder_tree_fp6 (
@@ -507,7 +514,7 @@ module fpnew_mxdotp_multi
   end
   if (FpSrcFmtConfig[fpnew_pkg::FP4]) begin : fp4_adder_tree
     fpnew_mxdotp_adder_tree #(
-      .VectorSize(FP4_VECTOR_SIZE),
+      .LocalVectorSize(FP4_VECTOR_SIZE),
       .InputWidth(FP4_PROD_SHIFT_WIDTH),
       .OutputWidth(FP4_SUM_WIDTH)
     ) i_adder_tree_fp4 (
@@ -586,7 +593,7 @@ module fpnew_mxdotp_multi
     assign mid_pipe_ready[i] = mid_pipe_ready[i+1] | ~mid_pipe_valid_q[i+1];
     // Valid: enabled by ready signal, synchronous clear with the flush signal
     `FFLARNC(mid_pipe_valid_q[i+1], mid_pipe_valid_q[i], mid_pipe_ready[i], flush_i, 1'b0, clk_i, rst_ni)
-    // Enable register if pipleine ready and a valid data item is present
+    // Enable register if pipeline ready and a valid data item is present
     assign reg_ena = mid_pipe_ready[i] & mid_pipe_valid_q[i];
     // Generate the pipeline registers within the stages, use enable-registers
     `FFL(mid_pipe_sum_product_q[i+1], mid_pipe_sum_product_q[i], reg_ena, '0)
@@ -774,7 +781,7 @@ module fpnew_mxdotp_multi
     assign out_pipe_ready[i] = out_pipe_ready[i+1] | ~out_pipe_valid_q[i+1];
     // Valid: enabled by ready signal, synchronous clear with the flush signal
     `FFLARNC(out_pipe_valid_q[i+1], out_pipe_valid_q[i], out_pipe_ready[i], flush_i, 1'b0, clk_i, rst_ni)
-    // Enable register if pipleine ready and a valid data item is present
+    // Enable register if pipeline ready and a valid data item is present
     assign reg_ena = out_pipe_ready[i] & out_pipe_valid_q[i];
     // Generate the pipeline registers within the stages, use enable-registers
     `FFL(out_pipe_result_q[i+1], out_pipe_result_q[i], reg_ena, '0)

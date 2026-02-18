@@ -90,10 +90,9 @@ or on 16b inputs producing 32b outputs");
     end else if (!FpFmtConfig[fpnew_pkg::FP32]) begin
       $fatal(1, "MXDOTP requires FP32 to be enabled as a destination format in FpFmtConfig");
     end else begin
-      // Check if FP8, FP8ALT, and INT8 are all enabled (required formats)
-      if (!MxFpFmtConfig[fpnew_pkg::FP8] || !MxFpFmtConfig[fpnew_pkg::FP8ALT] || !MxIntFmtConfig[fpnew_pkg::INT8]) begin
-        $fatal(1, "MXDOTP requires FP8, FP8ALT, and INT8 to be enabled. Current config: FP8=%0b, FP8ALT=%0b, INT8=%0b",
-               MxFpFmtConfig[fpnew_pkg::FP8], MxFpFmtConfig[fpnew_pkg::FP8ALT], MxIntFmtConfig[fpnew_pkg::INT8]);
+      // Check if FP8 is enabled (required base format)
+      if (!MxFpFmtConfig[fpnew_pkg::FP8]) begin
+        $fatal(1, "MXDOTP requires FP8 to be enabled. Please enable FP8 in MxFpFmtConfig.");
       end
       // Check if all MX formats are enabled (FP8, FP8ALT, FP6, FP6ALT, FP4, INT8)
       if (MxFpFmtConfig != fpnew_pkg::MXDOTP_FORMATS_MASK.src_fp_formats ||
@@ -249,7 +248,8 @@ or on 16b inputs producing 32b outputs");
 
       logic lane_is_used;
       assign lane_is_used = (LANE_FORMATS[src_fmt_i] & ~is_up_cast) |
-                            (LANE_FORMATS[dst_fmt_i] &  is_up_cast) | (OpGroup == fpnew_pkg::DIVSQRT);
+                            (LANE_FORMATS[dst_fmt_i] &  is_up_cast) | 
+                            (OpGroup == fpnew_pkg::DIVSQRT) | (OpGroup == fpnew_pkg::MXDOTP);
       assign in_valid = in_valid_i & ((lane == 0) | vectorial_op) & lane_is_used; // upper lanes only for vectors
 
       // Slice out the operands for this lane, upper bits are ignored in the unit
