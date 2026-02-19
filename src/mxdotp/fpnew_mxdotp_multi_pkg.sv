@@ -133,12 +133,15 @@ package fpnew_mxdotp_multi_pkg;
 
   function automatic int unsigned bias_constant(fpnew_pkg::fp_format_e fmt);
     unique case (fmt)
-      fpnew_pkg::FP8:    return 15; // 2^(5-1) - 1
-      fpnew_pkg::FP8ALT: return 7;  // 2^(4-1) - 1
-      fpnew_pkg::FP6:    return 3;  // 2^(3-1) - 1
-      fpnew_pkg::FP6ALT: return 1;  // 2^(2-1) - 1
-      fpnew_pkg::FP4:    return 1;  // 2^(2-1) - 1
-      default:           return fpnew_pkg::bias(fmt);
+      fpnew_pkg::FP32:    return 127; // 2^(8-1) - 1
+      fpnew_pkg::FP16:    return 15;  // 2^(5-1) - 1
+      fpnew_pkg::FP16ALT: return 127; // 2^(8-1) - 1,
+      fpnew_pkg::FP8:     return 15;  // 2^(5-1) - 1
+      fpnew_pkg::FP8ALT:  return 7;   // 2^(4-1) - 1
+      fpnew_pkg::FP6:     return 3;   // 2^(3-1) - 1
+      fpnew_pkg::FP6ALT:  return 1;   // 2^(2-1) - 1
+      fpnew_pkg::FP4:     return 1;   // 2^(2-1) - 1
+      default:            return fpnew_pkg::bias(fmt);
     endcase
   endfunction
 

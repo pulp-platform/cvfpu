@@ -667,7 +667,7 @@ module fpnew_mxdotp_accumulator_shift
   // Calculate the shift amount for the accumulator, range=[-370,394-9b -> signed 10b]
   assign accumulator_shift_amount = signed'(ANCHOR - SUPER_DST_MAN_BITS) - signed'(scale_q2)
                                      + signed'(exponent_d + info_d_q.is_subnormal)
-                                     - 127; // signed'(fpnew_pkg::bias(dst_fmt_q2))
+                                     - signed'(bias_constant(dst_fmt_q2));
 
   always_comb begin : accumulator_shift
     result_is_accumulator = 1'b0;
