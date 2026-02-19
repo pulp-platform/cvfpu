@@ -71,11 +71,11 @@ module fpnew_mxdotp_classifier
   fpnew_pkg::fp_info_t [NUM_FORMATS-1:0][2*FP6VectorSize-1:0] fp6_info_q;
 
   // FP4
-  logic        [2*FP4VectorSize-1:0]                   fp4_fmt_sign;
-  logic signed [2*FP4VectorSize-1:0][FP4_EXP_BITS-1:0] fp4_fmt_exponent;
-  logic        [2*FP4VectorSize-1:0][FP4_MAN_BITS-1:0] fp4_fmt_mantissa;
+  logic        [NUM_FORMATS-1:0][2*FP4VectorSize-1:0]                   fp4_fmt_sign;
+  logic signed [NUM_FORMATS-1:0][2*FP4VectorSize-1:0][FP4_EXP_BITS-1:0] fp4_fmt_exponent;
+  logic        [NUM_FORMATS-1:0][2*FP4VectorSize-1:0][FP4_MAN_BITS-1:0] fp4_fmt_mantissa;
 
-  fpnew_pkg::fp_info_t [2*FP4VectorSize-1:0] fp4_info_q;
+  fpnew_pkg::fp_info_t [NUM_FORMATS-1:0][2*FP4VectorSize-1:0] fp4_info_q;
 
   // FP Input initialization (Src)
   for (genvar fmt = 0; fmt < int'(NUM_FORMATS); fmt++) begin : fmt_src_init_inputs
@@ -149,7 +149,7 @@ module fpnew_mxdotp_classifier
   end
 
   if (FP4VectorSize != 0) begin : fp4_classifier
-    for (genvar fmt = 8; fmt < int'(NUM_FORMATS); fmt++) begin : fp4_fmt_src_init_inputs
+    for (genvar fmt = 0; fmt < int'(NUM_FORMATS); fmt++) begin : fp4_fmt_src_init_inputs
       // Set up some constants
       localparam int unsigned FP_WIDTH = fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(fmt));
       localparam int unsigned EXP_BITS = fpnew_pkg::exp_bits(fpnew_pkg::fp_format_e'(fmt));
@@ -166,19 +166,19 @@ module fpnew_mxdotp_classifier
         ) i_fpnew_classifier (
           .operands_i  ( trimmed_ops                                               ),
           .is_boxed_i  ( inp_pipe_is_boxed_q[NumInpRegs][fmt][2*FP4VectorSize-1:0] ),
-          .info_o      ( fp4_info_q[2*FP4VectorSize-1:0]                           )
+          .info_o      ( fp4_info_q[fmt][2*FP4VectorSize-1:0]                           )
         );
         for (genvar op = 0; op < 2*FP4VectorSize; op++) begin : gen_operands
-          assign trimmed_ops[op]      = fp4_operands_post_inp_pipe[op][FP_WIDTH-1:0];
-          assign fp4_fmt_sign[op]     = fp4_operands_post_inp_pipe[op][FP_WIDTH-1];
-          assign fp4_fmt_exponent[op] = fp4_operands_post_inp_pipe[op][MAN_BITS+:EXP_BITS];
-          assign fp4_fmt_mantissa[op] = fp4_operands_post_inp_pipe[op][MAN_BITS-1:0];
+          assign trimmed_ops[op]           = fp4_operands_post_inp_pipe[op][FP_WIDTH-1:0];
+          assign fp4_fmt_sign[fmt][op]     = fp4_operands_post_inp_pipe[op][FP_WIDTH-1];
+          assign fp4_fmt_exponent[fmt][op] = fp4_operands_post_inp_pipe[op][MAN_BITS+:EXP_BITS];
+          assign fp4_fmt_mantissa[fmt][op] = fp4_operands_post_inp_pipe[op][MAN_BITS-1:0];
         end
       end else begin : inactive_src_format
-        assign fp4_info_q[2*FP4VectorSize-1:0]  = '{default: fpnew_pkg::DONT_CARE}; // format disabled
-        assign fp4_fmt_sign                     = fpnew_pkg::DONT_CARE;             // format disabled
-        assign fp4_fmt_exponent                 = '{default: fpnew_pkg::DONT_CARE}; // format disabled
-        assign fp4_fmt_mantissa                 = '{default: fpnew_pkg::DONT_CARE}; // format disabled
+        assign fp4_info_q[fmt][2*FP4VectorSize-1:0] = '{default: fpnew_pkg::DONT_CARE}; // format disabled
+        assign fp4_fmt_sign[fmt]                    = fpnew_pkg::DONT_CARE;             // format disabled
+        assign fp4_fmt_exponent[fmt]                = '{default: fpnew_pkg::DONT_CARE}; // format disabled
+        assign fp4_fmt_mantissa[fmt]                = '{default: fpnew_pkg::DONT_CARE}; // format disabled
       end
     end
   end
@@ -273,10 +273,10 @@ module fpnew_mxdotp_classifier
       end
       for (int i = 0; i < FP4VectorSize; i++) begin : gen_default_assignments_fp4
         // FP4
-        fp4_operands_a[i] = {fp4_fmt_sign[i], fp4_fmt_exponent[i], fp4_fmt_mantissa[i]};
-        fp4_operands_b[i] = {fp4_fmt_sign[i+FP4VectorSize], fp4_fmt_exponent[i+FP4VectorSize], fp4_fmt_mantissa[i+FP4VectorSize]};
-        fp4_info_a[i]     = fp4_info_q[i];
-        fp4_info_b[i]     = fp4_info_q[i+FP4VectorSize];
+        fp4_operands_a[i] = {fp4_fmt_sign[src_fmt_q][i], fp4_fmt_exponent[src_fmt_q][i], fp4_fmt_mantissa[src_fmt_q][i]};
+        fp4_operands_b[i] = {fp4_fmt_sign[src_fmt_q][i+FP4VectorSize], fp4_fmt_exponent[src_fmt_q][i+FP4VectorSize], fp4_fmt_mantissa[src_fmt_q][i+FP4VectorSize]};
+        fp4_info_a[i]     = fp4_info_q[src_fmt_q][i];
+        fp4_info_b[i]     = fp4_info_q[src_fmt_q][i+FP4VectorSize];
       end
     end
     for (int i = 0; i < 2; i++) begin : gen_default_assignments_c
