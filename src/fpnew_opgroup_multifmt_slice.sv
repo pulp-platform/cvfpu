@@ -88,17 +88,9 @@ or on 16b inputs producing 32b outputs");
     if (Width != 64) begin
       $fatal(1, "MXDOTP only supported on 64b CVFPU instances, got Width=%0d", Width);
     end else if (!FpFmtConfig[fpnew_pkg::FP32]) begin
-      $fatal(1, "MXDOTP requires FP32 to be enabled as a destination format in FpFmtConfig");
-    end else begin
-      // Check if FP8 is enabled (required base format)
-      if (!MxFpFmtConfig[fpnew_pkg::FP8]) begin
-        $fatal(1, "MXDOTP requires FP8 to be enabled. Please enable FP8 in MxFpFmtConfig.");
-      end
-      // Check if all MX formats are enabled (FP8, FP8ALT, FP6, FP6ALT, FP4, INT8)
-      if (MxFpFmtConfig != fpnew_pkg::MXDOTP_FORMATS_MASK.src_fp_formats ||
-          MxIntFmtConfig != fpnew_pkg::MXDOTP_FORMATS_MASK.src_int_formats) begin
-        $warning("MXDOTP is not configured with all supported MX formats. This is an unverified configuration. Supported formats: FP8, FP8ALT, FP6, FP6ALT, FP4, INT8");
-      end
+      $fatal(1, "MXDOTP requires FP32 to be enabled as a destination format. Please enable FP32 in FpFmtConfig");
+    end else if (!MxFpFmtConfig[fpnew_pkg::FP8]) begin
+      $fatal(1, "MXDOTP requires FP8 to be enabled as a source format. Please enable FP8 in MxFpFmtConfig.");
     end
   end
 
