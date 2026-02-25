@@ -109,8 +109,10 @@ Unless noted otherwise, the first operand `op[0]` is used for the operation.
 | `ADD`      | `0`      | Addition (`op[1] + op[2]`) *note the operand indices*                                                                                                                                                            |
 | `ADD`      | `1`      | Subtraction (`op[1] - op[2]`) *note the operand indices*                                                                                                                                                         |
 | `MUL`      | `0`      | Multiplication (`op[0] * op[1]`)                                                                                                                                                                                 |
-| `SDOTP`    | `0`      | Sum of dot product )                                                                                                                                                                                 |
-| `VSUM`     | `0`      | Vector Inner Sum )                                                                                                                                                                                 |
+| `SDOTP`    | `0`      | Sum of dot product                                                                                                                                                                                               |
+| `VSUM`     | `0`      | Vector Inner Sum                                                                                                                                                                                                 |
+| `MXDOTPF`  | `0`      | Microscaling FP scaled dot product and accumulate                                                                                                                                                 |
+| `MXDOTPI`  | `0`      | Microscaling INT scaled dot product and accumulate |
 | `DIV`      | `0`      | Division (`op[0] / op[1]`)                                                                                                                                                                                       |
 | `SQRT`     | `0`      | Square root                                                                                                                                                                                                      |
 | `SGNJ`     | `0`      | Sign injection, operation encoded in rounding mode<br>`RNE`: `op[0]` with `sign(op[1])`<br>`RTZ`: `op[0]` with `~sign(op[1])`<br>`RDN`: `op[0]` with `sign(op[0]) ^ sign(op[1])`<br>`RUP`: `op[0]` (passthrough) |
@@ -130,7 +132,7 @@ Unless noted otherwise, the first operand `op[0]` is used for the operation.
 
 ##### `fp_format_e` - FP Formats
 
-Enumeration of type `logic [2:0]` holding the supported FP formats.
+Enumeration of type `logic [3:0]` holding the supported FP formats.
 
 | Enumerator | Format        | Width  | Exp. Bits | Man. Bits |
 | ---------- | ------------- | -----: | :-------: | :-------: |
@@ -140,10 +142,13 @@ Enumeration of type `logic [2:0]` holding the supported FP formats.
 | `FP8`      | binary8       | 8 bit  | 5         | 2         |
 | `FP16ALT`  | binary16alt   | 16 bit | 8         | 7         |
 | `FP8ALT`   | binary8alt    | 8 bit  | 4         | 3         |
+| `FP6`      | binary6       | 6 bit  | 3         | 2         |
+| `FP6ALT`   | binary6alt    | 6 bit  | 2         | 3         |
+| `FP4`      | binary4       | 4 bit  | 2         | 1         |
 
 The following global parameters associated with FP formats are set in `fpnew_pkg`:
 ```SystemVerilog
-localparam int unsigned NUM_FP_FORMATS = 6;
+localparam int unsigned NUM_FP_FORMATS = 9;
 localparam int unsigned FP_FORMAT_BITS = $clog2(NUM_FP_FORMATS);
 ```
 
@@ -286,7 +291,7 @@ Otherwise, synthesis tools can optimize away any logic associated with this form
 
 #### `Implementation` - Implementation Options
 
-The FPU is divided into five operation groups,  `ADDMUL`, `DIVSQRT`, `NONDOMP`, `CONV`, and `DOTP` (see [Architecture: Top-Level](#top-level)).
+The FPU is divided into six operation groups: `ADDMUL`, `DIVSQRT`, `NONCOMP`, `CONV`, `DOTP`, and `MXDOTP` (see [Architecture: Top-Level](#top-level)).
 The `Implementation` parameter controls the implementation of these operation groups.
 It is of type `fpu_implementation_t` which is defined as:
 ```SystemVerilog
@@ -328,18 +333,19 @@ The unit type `unit_type_t` is an enumeration of type `logic [1:0]` holding the 
 The `UnitTypes` parameter allows to control resources used for the FPU by either removing operation units for certain formats and operations, or merging multiple formats into one.
 Currently, the follwoing unit types are available for the FPU operation groups:
 
-|            |      `ADDMUL`      |     `DIVSQRT`      |     `NONCOMP`      |       `CONV`       |       `DOTP`       |
-|------------|--------------------|--------------------|--------------------|--------------------|--------------------|
-| `PARALLEL` | :heavy_check_mark: |                    | :heavy_check_mark: |                    |                    |
-| `MERGED`   | :heavy_check_mark: | :heavy_check_mark: |                    | :heavy_check_mark: | :heavy_check_mark: |
+|            |      `ADDMUL`      |     `DIVSQRT`      |     `NONCOMP`      |       `CONV`       |       `DOTP`       |      `MXDOTP`      |
+|------------|--------------------|--------------------|--------------------|--------------------|--------------------|--------------------|
+| `PARALLEL` | :heavy_check_mark: |                    | :heavy_check_mark: |                    |                    |                    |
+| `MERGED`   | :heavy_check_mark: | :heavy_check_mark: |                    | :heavy_check_mark: | :heavy_check_mark: | :heavy_check_mark: |
 
 *Default*:
 ```SystemVerilog
-'{'{default: PARALLEL}, // ADDMUL
-  '{default: MERGED},   // DIVSQRT
-  '{default: PARALLEL}, // NONCOMP
-  '{default: MERGED},   // CONV`
-  '{default: DISABLED}} // DOTP`
+'{'{default: PARALLEL},  // ADDMUL
+  '{default: MERGED},    // DIVSQRT
+  '{default: PARALLEL},  // NONCOMP
+  '{default: MERGED},    // CONV
+  '{default: DISABLED},  // DOTP
+  '{default: DISABLED}}  // MXDOTP
 ```
 (all formats within operation group use same type)
 
@@ -437,7 +443,7 @@ The *operation group* is the highest level of grouping within FPnew and signifie
 
 ![FPnew](fig/top_block.png)
 
-There are currently five operation groups in FPnew which are enumerated in `opgroup_e` as outlined in the following table:
+There are currently six operation groups in FPnew which are enumerated in `opgroup_e` as outlined in the following table:
 
 | Enumerator |                  Description                  |         Associated Operations         |
 |------------|-----------------------------------------------|---------------------------------------|
@@ -446,6 +452,7 @@ There are currently five operation groups in FPnew which are enumerated in `opgr
 | `NONCOMP`  | Non-Computational Operations like Comparisons | `SGNJ`, `MINMAX`, `CMP`, `CLASS`      |
 | `CONV`     | Conversions                                   | `F2I`, `I2F`, `F2F`, `CPKAB`, `CPKCD` |
 | `DOTP`     | Dot Products                                  | `SDOTP`, `EXVSUM`, `VSUM`             |
+| `MXDOTP`   | Microscaling Dot Products                     | `MXDOTPF`, `MXDOTPI`                  |
 
 Most architectural decisions for FPnew are made at very fine granularity.
 The big exception to this is the generation of vectorial hardware which is decided at top level through the `EnableVectors` parameter.

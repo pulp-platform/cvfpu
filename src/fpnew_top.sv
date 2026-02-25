@@ -125,6 +125,8 @@ module fpnew_top #(
       .DivSqrtSel    ( DivSqrtSel                      ),
       .FpFmtMask     ( Features.FpFmtMask              ),
       .IntFmtMask    ( Features.IntFmtMask             ),
+      .MxFpFmtMask   ( Features.MxFpFmtMask            ),
+      .MxIntFmtMask  ( Features.MxIntFmtMask           ),
       .FmtPipeRegs   ( Implementation.PipeRegs[opgrp]  ),
       .FmtUnitTypes  ( Implementation.UnitTypes[opgrp] ),
       .PipeConfig    ( Implementation.PipeConfig       ),
