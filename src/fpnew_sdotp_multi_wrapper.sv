@@ -26,7 +26,7 @@ module fpnew_sdotp_multi_wrapper #(
   parameter type                     AuxType     = logic,
   parameter fpnew_pkg::rsr_impl_t    StochasticRndImplementation = fpnew_pkg::DEFAULT_NO_RSR,
   // Do not change
-  localparam fpnew_pkg::fmt_logic_t FpSrcFmtConfig = FpFmtConfig[0] ? (FpFmtConfig & 6'b001111) : (FpFmtConfig & 6'b000101),
+  localparam fpnew_pkg::fmt_logic_t FpSrcFmtConfig = FpFmtConfig[0] ? (FpFmtConfig & 9'b001111000) : (FpFmtConfig & 9'b000101000),
   localparam fpnew_pkg::fmt_logic_t FpDstFmtConfig = fpnew_pkg::get_dotp_dst_fmts(FpFmtConfig, FpSrcFmtConfig),
   localparam int                    SRC_WIDTH      = fpnew_pkg::maximum(fpnew_pkg::max_fp_width(FpSrcFmtConfig), 1),
   localparam int                    DST_WIDTH      = fpnew_pkg::maximum(2*fpnew_pkg::max_fp_width(FpSrcFmtConfig), 1), // do not change, current assumption of sdotpex_multi

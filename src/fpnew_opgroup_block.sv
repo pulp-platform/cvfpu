@@ -21,6 +21,8 @@ module fpnew_opgroup_block #(
   parameter fpnew_pkg::divsqrt_unit_t   DivSqrtSel    = fpnew_pkg::THMULTI,
   parameter fpnew_pkg::fmt_logic_t      FpFmtMask     = '1,
   parameter fpnew_pkg::ifmt_logic_t     IntFmtMask    = '1,
+  parameter fpnew_pkg::fmt_logic_t      MxFpFmtMask   = '0,  // MX-specific FP formats
+  parameter fpnew_pkg::ifmt_logic_t     MxIntFmtMask  = '0,  // MX-specific INT formats
   parameter fpnew_pkg::fmt_unsigned_t   FmtPipeRegs   = '{default: 0},
   parameter fpnew_pkg::fmt_unit_types_t FmtUnitTypes  = '{default: fpnew_pkg::PARALLEL},
   parameter fpnew_pkg::pipe_config_t    PipeConfig    = fpnew_pkg::BEFORE,
@@ -178,15 +180,17 @@ module fpnew_opgroup_block #(
     assign in_valid = in_valid_i & (FmtUnitTypes[dst_fmt_i] == fpnew_pkg::MERGED);
 
     fpnew_opgroup_multifmt_slice #(
-      .OpGroup       ( OpGroup          ),
-      .Width         ( Width            ),
-      .FpFmtConfig   ( FpFmtMask        ),
-      .IntFmtConfig  ( IntFmtMask       ),
-      .EnableVectors ( EnableVectors    ),
-      .DivSqrtSel    ( DivSqrtSel       ),
-      .NumPipeRegs   ( REG              ),
-      .PipeConfig    ( PipeConfig       ),
-      .TagType       ( TagType          ),
+      .OpGroup        ( OpGroup          ),
+      .Width          ( Width            ),
+      .FpFmtConfig    ( FpFmtMask        ),
+      .IntFmtConfig   ( IntFmtMask       ),
+      .MxFpFmtConfig  ( MxFpFmtMask      ),
+      .MxIntFmtConfig ( MxIntFmtMask     ),
+      .EnableVectors  ( EnableVectors    ),
+      .DivSqrtSel     ( DivSqrtSel       ),
+      .NumPipeRegs    ( REG              ),
+      .PipeConfig     ( PipeConfig       ),
+      .TagType        ( TagType          ),
       .StochasticRndImplementation ( StochasticRndImplementation )
     ) i_multifmt_slice (
       .clk_i,
