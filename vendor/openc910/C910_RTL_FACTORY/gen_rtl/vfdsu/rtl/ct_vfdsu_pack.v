@@ -404,7 +404,7 @@ assign ex4_rst_inf[63:0]       = (vfdsu_ex4_double) ? ex4_doub_rst_inf[63:0] :
                                   vfdsu_ex4_half    ? ex4_half_rst_inf[63:0] : ex4_bfloat_rst_inf[63:0];
 
       
-assign ex4_cor_uf            = (vfdsu_ex4_uf && !ex4_denorm_potnt_norm || ex4_uf_plus)
+assign ex4_cor_uf            = (vfdsu_ex4_uf || ex4_denorm_potnt_norm || ex4_uf_plus)
                                && vfdsu_ex4_nx;
 assign ex4_cor_nx            =  vfdsu_ex4_nx 
                                 || vfdsu_ex4_of 
