@@ -353,18 +353,25 @@ Currently, the follwoing unit types are available for the FPU operation groups:
 ##### `PipeConfig` - Pipeline Register Placement
 
 The `PipeConfig` parameter is of type `pipe_config_t` and controls register placement in operational units.
-The requested number of registers is placed to predefined locations within the units according to the `PipeConfig` parameter.
-For best results, we *strongly* encourage the use of automatic retiming options in synthesis tools to optimize the pre-placed pipeline registers.
+
+When a specific number of registers is requested, this parameter determines their distribution across predefined locations (input, internal stages, or output).
+
+> **Optimization Note:** For optimal timing closure, we recommend enabling **automatic retiming** in your synthesis tool to fine-tune the positions of these pre-placed registers. Note that this may result in a slight area increase.
+
+![Pipeline Register Distribution Matrix](fig/pipeline_distribution.png)
+
+*Figure 1: Visualization of register placement strategies based on the requested register count (X-axis) and the chosen configuration (Y-axis).*
+
+##### Configuration Options (`pipe_config_t`)
 
 The configuration  `pipe_config_t` is an enumeration of type `logic [1:0]` holding the following implementation options for the pipelines in operational units:
 
-|   Enumerator  |                                             Description                                              |
-|---------------|------------------------------------------------------------------------------------------------------|
-| `BEFORE`      | All pipeline registers are inserted at the inputs of the operational unit                            |
-| `AFTER`       | All pipeline registers are inserted at the outputs of the operational unit                           |
-| `INSIDE`      | All registers are inserted at roughly the middle of the operational unit (if not possible, `BEFORE`) |
-| `DISTRIBUTED` | Registers are evenly distributed to `INSIDE`, `BEFORE`, and `AFTER` (if no `INSIDE`, all `BEFORE`)   |
-
+| Enumerator | Strategy | Description |
+| :--- | :--- | :--- |
+| **`INSIDE`** | **Recommended** | Registers are inserted at manually optimized locations deep within the unit logic to maximize timing performance. |
+| **`BEFORE`** | Inputs | Registers fill the **inputs**, recommended for using automatic retiming features of the synthesis tool. |
+| **`AFTER`** | Outputs | Registers fill the **outputs** recommended as an alternative for using automatic retiming features of the synthesis tool. |
+| **`DISTRIBUTED`** | Balanced | Registers are inserted into the **middle** stages first, then alternating between input and output to maintain balance. |
 #### `Division and Square-Root Unit Selection`
 The `DivSqrtSel` parameter is used to choose among the support DivSqrt units.
 It is of type `divsqrt_unit_t`, which is defined as:
@@ -499,8 +506,7 @@ Pipeline registers are inserted into the operational units directly, according t
 As such, each slice in the system can have a different latency.
 Merged slices are bound to thave the largest latency of the included formats.
 
-All pipeline registers are inserted as shift registers at predefined locations in the FPU.
-For optimal mapping, retiming funcitonality of your synthesis tools should be used to balance the paths between registers.
+All pipeline registers are inserted at manually optimized locations in the FPU (when using the `INSIDE` configuration).
 
 Data traverses the pipeline stages within the operational units using the same handshaking mechanism that is also present at the top-level FPU interface.
 An individual pipeline stage is only stalled if its successor stage is stalled and cannot proceed in the following cycle.
