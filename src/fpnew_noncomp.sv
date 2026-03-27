@@ -61,16 +61,20 @@ module fpnew_noncomp #(
   localparam int unsigned EXP_BITS = fpnew_pkg::exp_bits(FpFormat);
   localparam int unsigned MAN_BITS = fpnew_pkg::man_bits(FpFormat);
   // Pipelines
-  localparam NUM_INP_REGS = (PipeConfig == fpnew_pkg::BEFORE || PipeConfig == fpnew_pkg::INSIDE)
-                            ? NumPipeRegs
-                            : (PipeConfig == fpnew_pkg::DISTRIBUTED
-                               ? ((NumPipeRegs + 1) / 2) // First to get distributed regs
-                               : 0); // no regs here otherwise
-  localparam NUM_OUT_REGS = PipeConfig == fpnew_pkg::AFTER
-                            ? NumPipeRegs
-                            : (PipeConfig == fpnew_pkg::DISTRIBUTED
-                               ? (NumPipeRegs / 2) // Last to get distributed regs
-                               : 0); // no regs here otherwise
+  localparam int unsigned NUM_INP_REGS = 
+    (PipeConfig == fpnew_pkg::BEFORE)      ? NumPipeRegs :
+    (PipeConfig == fpnew_pkg::DISTRIBUTED) ? ((NumPipeRegs + 1) / 3) :
+    (PipeConfig == fpnew_pkg::INSIDE)      ? (NumPipeRegs > 1) :
+                                            0;
+  localparam int unsigned NUM_MID_REGS =
+    (PipeConfig == fpnew_pkg::DISTRIBUTED) ? ((NumPipeRegs + 2) / 3) :
+    (PipeConfig == fpnew_pkg::INSIDE)      ? (NumPipeRegs - (NumPipeRegs > 1) - (NumPipeRegs > 2)) :
+                                            0;
+  localparam int unsigned NUM_OUT_REGS =
+    (PipeConfig == fpnew_pkg::AFTER)       ? NumPipeRegs :
+    (PipeConfig == fpnew_pkg::DISTRIBUTED) ? (NumPipeRegs / 3) :
+    (PipeConfig == fpnew_pkg::INSIDE)      ? (NumPipeRegs > 2) :
+                                            0;
 
   // ----------------
   // Type definition
@@ -95,7 +99,7 @@ module fpnew_noncomp #(
   AuxType                [0:NUM_INP_REGS]                 inp_pipe_aux_q;
   logic                  [0:NUM_INP_REGS]                 inp_pipe_valid_q;
   // Ready signal is combinatorial for all stages
-  logic [0:NUM_INP_REGS] inp_pipe_ready;
+  logic                  [0:NUM_INP_REGS]                 inp_pipe_ready;
 
   // Input stage: First element of pipeline is taken from inputs
   assign inp_pipe_operands_q[0] = operands_i;
@@ -107,8 +111,8 @@ module fpnew_noncomp #(
   assign inp_pipe_mask_q[0]     = mask_i;
   assign inp_pipe_aux_q[0]      = aux_i;
   assign inp_pipe_valid_q[0]    = in_valid_i;
-  // Input stage: Propagate pipeline ready signal to updtream circuitry
-  assign in_ready_o = inp_pipe_ready[0];
+  // Input stage: Propagate pipeline ready signal to upstream circuitry
+  assign in_ready_o             = inp_pipe_ready[0];
   // Generate the register stages
   for (genvar i = 0; i < NUM_INP_REGS; i++) begin : gen_input_pipeline
     // Internal register enable for this stage
@@ -242,6 +246,113 @@ module fpnew_noncomp #(
 
   assign minmax_extension_bit = 1'b1; // NaN-box as result is always a float value
 
+  // -----------------
+  // Internal pipeline
+  // -----------------
+  // Pipeline output signals as non-arrays
+  logic                                   signalling_nan_q;
+  logic                                   any_operand_nan_q;
+  logic                                   operands_equal_q, operand_a_smaller_q;
+  fpnew_pkg::fp_info_t                    info_a_q;
+  fp_t                                    operand_a_q;
+  fp_t                                    sgnj_result_q;
+  fpnew_pkg::status_t                     sgnj_status_q;
+  logic                                   sgnj_extension_bit_q;
+  fp_t                                    minmax_result_q;
+  fpnew_pkg::status_t                     minmax_status_q;
+  logic                                   minmax_extension_bit_q;
+  // Internal pipeline signals, index i holds signal after i register stages
+  logic                  [0:NUM_MID_REGS] mid_pipe_signalling_nan_q;
+  logic                  [0:NUM_MID_REGS] mid_pipe_any_operand_nan_q;
+  logic                  [0:NUM_MID_REGS] mid_pipe_operands_equal_q;
+  logic                  [0:NUM_MID_REGS] mid_pipe_operand_a_smaller_q;
+  fpnew_pkg::fp_info_t   [0:NUM_MID_REGS] mid_pipe_info_a_q;
+  fp_t                   [0:NUM_MID_REGS] mid_pipe_operand_a_q;
+  fp_t                   [0:NUM_MID_REGS] mid_pipe_sgnj_result_q;
+  fpnew_pkg::status_t    [0:NUM_MID_REGS] mid_pipe_sgnj_status_q;
+  logic                  [0:NUM_MID_REGS] mid_pipe_sgnj_extension_bit_q;
+  fp_t                   [0:NUM_MID_REGS] mid_pipe_minmax_result_q;
+  fpnew_pkg::status_t    [0:NUM_MID_REGS] mid_pipe_minmax_status_q;
+  logic                  [0:NUM_MID_REGS] mid_pipe_minmax_extension_bit_q;
+  fpnew_pkg::roundmode_e [0:NUM_MID_REGS] mid_pipe_rnd_mode_q;
+  fpnew_pkg::operation_e [0:NUM_MID_REGS] mid_pipe_op_q;
+  logic                  [0:NUM_MID_REGS] mid_pipe_op_mod_q;
+  TagType                [0:NUM_MID_REGS] mid_pipe_tag_q;
+  logic                  [0:NUM_MID_REGS] mid_pipe_mask_q;
+  AuxType                [0:NUM_MID_REGS] mid_pipe_aux_q;
+  logic                  [0:NUM_MID_REGS] mid_pipe_valid_q;
+  // Ready signal is combinatorial for all stages
+  logic                  [0:NUM_MID_REGS] mid_pipe_ready;
+
+  // Input stage: First element of pipeline is taken from inputs
+  assign mid_pipe_signalling_nan_q[0]       = signalling_nan;
+  assign mid_pipe_any_operand_nan_q[0]      = any_operand_nan;
+  assign mid_pipe_operands_equal_q[0]       = operands_equal;
+  assign mid_pipe_operand_a_smaller_q[0]    = operand_a_smaller;
+  assign mid_pipe_info_a_q[0]               = info_a;
+  assign mid_pipe_operand_a_q[0]            = operand_a;
+  assign mid_pipe_sgnj_result_q[0]          = sgnj_result;
+  assign mid_pipe_sgnj_status_q[0]          = sgnj_status;
+  assign mid_pipe_sgnj_extension_bit_q[0]   = sgnj_extension_bit;
+  assign mid_pipe_minmax_result_q[0]        = minmax_result;
+  assign mid_pipe_minmax_status_q[0]        = minmax_status;
+  assign mid_pipe_minmax_extension_bit_q[0] = minmax_extension_bit;
+  assign mid_pipe_rnd_mode_q[0]             = inp_pipe_rnd_mode_q[NUM_INP_REGS];
+  assign mid_pipe_op_q[0]                   = inp_pipe_op_q[NUM_INP_REGS];
+  assign mid_pipe_op_mod_q[0]               = inp_pipe_op_mod_q[NUM_INP_REGS];
+  assign mid_pipe_tag_q[0]                  = inp_pipe_tag_q[NUM_INP_REGS];
+  assign mid_pipe_mask_q[0]                 = inp_pipe_mask_q[NUM_INP_REGS];
+  assign mid_pipe_aux_q[0]                  = inp_pipe_aux_q[NUM_INP_REGS];
+  assign mid_pipe_valid_q[0]                = inp_pipe_valid_q[NUM_INP_REGS];
+  // Input stage: Propagate pipeline ready signal to upstream circuitry
+  assign inp_pipe_ready[NUM_INP_REGS]       = mid_pipe_ready[0];
+
+  // Generate the register stages
+  for (genvar i = 0; i < NUM_MID_REGS; i++) begin : gen_mid_pipeline
+    // Internal register enable for this stage
+    logic reg_ena;
+    // Determine the ready signal of the current stage - advance the pipeline:
+    // 1. if the next stage is ready for our data
+    // 2. if the next stage only holds a bubble (not valid) -> we can pop it
+    assign mid_pipe_ready[i] = mid_pipe_ready[i+1] | ~mid_pipe_valid_q[i+1];
+    // Valid: enabled by ready signal, synchronous clear with the flush signal
+    `FFLARNC(mid_pipe_valid_q[i+1], mid_pipe_valid_q[i], mid_pipe_ready[i], flush_i, 1'b0, clk_i, rst_ni)
+    // Enable register if pipeline ready and a valid data item is present
+    assign reg_ena = mid_pipe_ready[i] & mid_pipe_valid_q[i];
+    // Generate the pipeline registers within the stages, use enable-registers
+    `FFL(mid_pipe_signalling_nan_q[i+1],       mid_pipe_signalling_nan_q[i],       reg_ena, 1'b0)
+    `FFL(mid_pipe_any_operand_nan_q[i+1],      mid_pipe_any_operand_nan_q[i],      reg_ena, 1'b0)
+    `FFL(mid_pipe_operands_equal_q[i+1],       mid_pipe_operands_equal_q[i],       reg_ena, 1'b0)
+    `FFL(mid_pipe_operand_a_smaller_q[i+1],    mid_pipe_operand_a_smaller_q[i],    reg_ena, 1'b0)
+    `FFL(mid_pipe_info_a_q[i+1],               mid_pipe_info_a_q[i],               reg_ena, '0)
+    `FFL(mid_pipe_operand_a_q[i+1],            mid_pipe_operand_a_q[i],            reg_ena, '0)
+    `FFL(mid_pipe_sgnj_result_q[i+1],          mid_pipe_sgnj_result_q[i],          reg_ena, '0)
+    `FFL(mid_pipe_sgnj_status_q[i+1],          mid_pipe_sgnj_status_q[i],          reg_ena, '0)
+    `FFL(mid_pipe_sgnj_extension_bit_q[i+1],   mid_pipe_sgnj_extension_bit_q[i],   reg_ena, 1'b0)
+    `FFL(mid_pipe_minmax_result_q[i+1],        mid_pipe_minmax_result_q[i],        reg_ena, '0)
+    `FFL(mid_pipe_minmax_status_q[i+1],        mid_pipe_minmax_status_q[i],        reg_ena, '0)
+    `FFL(mid_pipe_minmax_extension_bit_q[i+1], mid_pipe_minmax_extension_bit_q[i], reg_ena, 1'b0)
+    `FFL(mid_pipe_rnd_mode_q[i+1],             mid_pipe_rnd_mode_q[i],             reg_ena, fpnew_pkg::RNE)
+    `FFL(mid_pipe_op_q[i+1],                   mid_pipe_op_q[i],                   reg_ena, fpnew_pkg::FMADD)
+    `FFL(mid_pipe_op_mod_q[i+1],               mid_pipe_op_mod_q[i],               reg_ena, '0)
+    `FFL(mid_pipe_tag_q[i+1],                  mid_pipe_tag_q[i],                  reg_ena, TagType'('0))
+    `FFL(mid_pipe_mask_q[i+1],                 mid_pipe_mask_q[i],                 reg_ena, '0)
+    `FFL(mid_pipe_aux_q[i+1],                  mid_pipe_aux_q[i],                  reg_ena, AuxType'('0))
+  end
+  // Output stage: assign selected pipe outputs to signals for later use
+  assign signalling_nan_q       = mid_pipe_signalling_nan_q[NUM_MID_REGS];
+  assign any_operand_nan_q      = mid_pipe_any_operand_nan_q[NUM_MID_REGS];
+  assign operands_equal_q       = mid_pipe_operands_equal_q[NUM_MID_REGS];
+  assign operand_a_smaller_q    = mid_pipe_operand_a_smaller_q[NUM_MID_REGS];
+  assign info_a_q               = mid_pipe_info_a_q[NUM_MID_REGS];
+  assign operand_a_q            = mid_pipe_operand_a_q[NUM_MID_REGS];
+  assign sgnj_result_q          = mid_pipe_sgnj_result_q[NUM_MID_REGS];
+  assign sgnj_status_q          = mid_pipe_sgnj_status_q[NUM_MID_REGS];
+  assign sgnj_extension_bit_q   = mid_pipe_sgnj_extension_bit_q[NUM_MID_REGS];
+  assign minmax_result_q        = mid_pipe_minmax_result_q[NUM_MID_REGS];
+  assign minmax_status_q        = mid_pipe_minmax_status_q[NUM_MID_REGS];
+  assign minmax_extension_bit_q = mid_pipe_minmax_extension_bit_q[NUM_MID_REGS];
+
   // ------------
   // Comparisons
   // ------------
@@ -258,21 +369,21 @@ module fpnew_noncomp #(
     cmp_status = '0; // no flags
 
     // Signalling NaNs always compare as false and are illegal
-    if (signalling_nan) cmp_status.NV = 1'b1; // invalid operation
+    if (signalling_nan_q) cmp_status.NV = 1'b1; // invalid operation
     // Otherwise do comparisons
     else begin
-      unique case (inp_pipe_rnd_mode_q[NUM_INP_REGS])
+      unique case (mid_pipe_rnd_mode_q[NUM_MID_REGS])
         fpnew_pkg::RNE: begin // Less than or equal
-          if (any_operand_nan) cmp_status.NV = 1'b1; // Signalling comparison: NaNs are invalid
-          else cmp_result = (operand_a_smaller | operands_equal) ^ inp_pipe_op_mod_q[NUM_INP_REGS];
+          if (any_operand_nan_q) cmp_status.NV = 1'b1; // Signalling comparison: NaNs are invalid
+          else cmp_result = (operand_a_smaller_q | operands_equal_q) ^ mid_pipe_op_mod_q[NUM_MID_REGS];
         end
         fpnew_pkg::RTZ: begin // Less than
-          if (any_operand_nan) cmp_status.NV = 1'b1; // Signalling comparison: NaNs are invalid
-          else cmp_result = (operand_a_smaller & ~operands_equal) ^ inp_pipe_op_mod_q[NUM_INP_REGS];
+          if (any_operand_nan_q) cmp_status.NV = 1'b1; // Signalling comparison: NaNs are invalid
+          else cmp_result = (operand_a_smaller_q & ~operands_equal_q) ^ mid_pipe_op_mod_q[NUM_MID_REGS];
         end
         fpnew_pkg::RDN: begin // Equal
-          if (any_operand_nan) cmp_result = inp_pipe_op_mod_q[NUM_INP_REGS]; // NaN always not equal
-          else cmp_result = operands_equal ^ inp_pipe_op_mod_q[NUM_INP_REGS];
+          if (any_operand_nan_q) cmp_result = mid_pipe_op_mod_q[NUM_MID_REGS]; // NaN always not equal
+          else cmp_result = operands_equal_q ^ mid_pipe_op_mod_q[NUM_MID_REGS];
         end
         default: cmp_result = '{default: fpnew_pkg::DONT_CARE}; // don't care
       endcase
@@ -290,16 +401,16 @@ module fpnew_noncomp #(
 
   // Classification - always return the classification mask on the dedicated port
   always_comb begin : classify
-    if (info_a.is_normal) begin
-      class_mask_d = operand_a.sign       ? fpnew_pkg::NEGNORM    : fpnew_pkg::POSNORM;
-    end else if (info_a.is_subnormal) begin
-      class_mask_d = operand_a.sign       ? fpnew_pkg::NEGSUBNORM : fpnew_pkg::POSSUBNORM;
-    end else if (info_a.is_zero) begin
-      class_mask_d = operand_a.sign       ? fpnew_pkg::NEGZERO    : fpnew_pkg::POSZERO;
-    end else if (info_a.is_inf) begin
-      class_mask_d = operand_a.sign       ? fpnew_pkg::NEGINF     : fpnew_pkg::POSINF;
-    end else if (info_a.is_nan) begin
-      class_mask_d = info_a.is_signalling ? fpnew_pkg::SNAN       : fpnew_pkg::QNAN;
+    if (info_a_q.is_normal) begin
+      class_mask_d = operand_a_q.sign       ? fpnew_pkg::NEGNORM    : fpnew_pkg::POSNORM;
+    end else if (info_a_q.is_subnormal) begin
+      class_mask_d = operand_a_q.sign       ? fpnew_pkg::NEGSUBNORM : fpnew_pkg::POSSUBNORM;
+    end else if (info_a_q.is_zero) begin
+      class_mask_d = operand_a_q.sign       ? fpnew_pkg::NEGZERO    : fpnew_pkg::POSZERO;
+    end else if (info_a_q.is_inf) begin
+      class_mask_d = operand_a_q.sign       ? fpnew_pkg::NEGINF     : fpnew_pkg::POSINF;
+    end else if (info_a_q.is_nan) begin
+      class_mask_d = info_a_q.is_signalling ? fpnew_pkg::SNAN       : fpnew_pkg::QNAN;
     end else begin
       class_mask_d = fpnew_pkg::QNAN; // default value
     end
@@ -318,16 +429,16 @@ module fpnew_noncomp #(
 
   // Select result
   always_comb begin : select_result
-    unique case (inp_pipe_op_q[NUM_INP_REGS])
+    unique case (mid_pipe_op_q[NUM_MID_REGS])
       fpnew_pkg::SGNJ: begin
-        result_d        = sgnj_result;
-        status_d        = sgnj_status;
-        extension_bit_d = sgnj_extension_bit;
+        result_d        = sgnj_result_q;
+        status_d        = sgnj_status_q;
+        extension_bit_d = sgnj_extension_bit_q;
       end
       fpnew_pkg::MINMAX: begin
-        result_d        = minmax_result;
-        status_d        = minmax_status;
-        extension_bit_d = minmax_extension_bit;
+        result_d        = minmax_result_q;
+        status_d        = minmax_status_q;
+        extension_bit_d = minmax_extension_bit_q;
       end
       fpnew_pkg::CMP: begin
         result_d        = cmp_result;
@@ -347,7 +458,7 @@ module fpnew_noncomp #(
     endcase
   end
 
-  assign is_class_d = (inp_pipe_op_q[NUM_INP_REGS] == fpnew_pkg::CLASSIFY);
+  assign is_class_d = (mid_pipe_op_q[NUM_MID_REGS] == fpnew_pkg::CLASSIFY);
 
   // ----------------
   // Output Pipeline
@@ -363,20 +474,20 @@ module fpnew_noncomp #(
   AuxType                [0:NUM_OUT_REGS] out_pipe_aux_q;
   logic                  [0:NUM_OUT_REGS] out_pipe_valid_q;
   // Ready signal is combinatorial for all stages
-  logic [0:NUM_OUT_REGS] out_pipe_ready;
+  logic                  [0:NUM_OUT_REGS] out_pipe_ready;
 
   // Input stage: First element of pipeline is taken from inputs
-  assign out_pipe_result_q[0]        = result_d;
-  assign out_pipe_status_q[0]        = status_d;
-  assign out_pipe_extension_bit_q[0] = extension_bit_d;
-  assign out_pipe_class_mask_q[0]    = class_mask_d;
-  assign out_pipe_is_class_q[0]      = is_class_d;
-  assign out_pipe_tag_q[0]           = inp_pipe_tag_q[NUM_INP_REGS];
-  assign out_pipe_mask_q[0]          = inp_pipe_mask_q[NUM_INP_REGS];
-  assign out_pipe_aux_q[0]           = inp_pipe_aux_q[NUM_INP_REGS];
-  assign out_pipe_valid_q[0]         = inp_pipe_valid_q[NUM_INP_REGS];
+  assign out_pipe_result_q[0]         = result_d;
+  assign out_pipe_status_q[0]         = status_d;
+  assign out_pipe_extension_bit_q[0]  = extension_bit_d;
+  assign out_pipe_class_mask_q[0]     = class_mask_d;
+  assign out_pipe_is_class_q[0]       = is_class_d;
+  assign out_pipe_tag_q[0]            = mid_pipe_tag_q[NUM_MID_REGS];
+  assign out_pipe_mask_q[0]           = mid_pipe_mask_q[NUM_MID_REGS];
+  assign out_pipe_aux_q[0]            = mid_pipe_aux_q[NUM_MID_REGS];
+  assign out_pipe_valid_q[0]          = mid_pipe_valid_q[NUM_MID_REGS];
   // Input stage: Propagate pipeline ready signal to inside pipe
-  assign inp_pipe_ready[NUM_INP_REGS] = out_pipe_ready[0];
+  assign mid_pipe_ready[NUM_MID_REGS] = out_pipe_ready[0];
   // Generate the register stages
   for (genvar i = 0; i < NUM_OUT_REGS; i++) begin : gen_output_pipeline
     // Internal register enable for this stage
@@ -411,5 +522,5 @@ module fpnew_noncomp #(
   assign mask_o          = out_pipe_mask_q[NUM_OUT_REGS];
   assign aux_o           = out_pipe_aux_q[NUM_OUT_REGS];
   assign out_valid_o     = out_pipe_valid_q[NUM_OUT_REGS];
-  assign busy_o          = (| {inp_pipe_valid_q, out_pipe_valid_q});
+  assign busy_o          = (| {inp_pipe_valid_q, mid_pipe_valid_q, out_pipe_valid_q});
 endmodule
