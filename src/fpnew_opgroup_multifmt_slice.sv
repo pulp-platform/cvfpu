@@ -426,6 +426,7 @@ FP8. Please use the PULP DivSqrt unit when in need of div/sqrt operations on FP8
 
     // Otherwise generate constant sign-extension
     end else begin : inactive_lane
+      assign lane_early_out_valid[lane] = 1'b0; // unused lane
       assign lane_out_valid[lane] = 1'b0; // unused lane
       assign lane_in_ready[lane]  = 1'b0; // unused lane
       assign lane_aux[lane]       = 1'b0; // unused lane
