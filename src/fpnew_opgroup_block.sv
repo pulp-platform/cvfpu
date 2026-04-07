@@ -98,7 +98,7 @@ module fpnew_opgroup_block #(
 
       logic in_valid;
 
-      assign in_valid = in_valid_i & (dst_fmt_i == fmt); // enable selected format
+      assign in_valid = in_valid_i & (dst_fmt_i == fpnew_pkg::fp_format_e'(fmt)); // enable selected format
 
       // Forward masks related to the right SIMD lane
       localparam int unsigned INTERNAL_LANES = fpnew_pkg::num_lanes(Width, fpnew_pkg::fp_format_e'(fmt), EnableVectors);
