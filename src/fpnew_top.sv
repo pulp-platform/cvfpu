@@ -56,7 +56,8 @@ module fpnew_top #(
   output logic                              out_valid_o,
   input  logic                              out_ready_i,
   // Indication of valid data in flight
-  output logic                              busy_o
+  output logic                              busy_o,
+  output logic                              early_valid_o
 );
 
   localparam int unsigned NUM_OPGROUPS = fpnew_pkg::NUM_OPGROUPS;
@@ -73,6 +74,7 @@ module fpnew_top #(
 
   // Handshake signals for the blocks
   logic [NUM_OPGROUPS-1:0] opgrp_in_ready, opgrp_out_valid, opgrp_out_ready, opgrp_ext, opgrp_busy;
+  logic [NUM_OPGROUPS-1:0] opgrp_early_valid;
   output_t [NUM_OPGROUPS-1:0] opgrp_outputs;
 
   logic [NUM_FORMATS-1:0][NUM_OPERANDS-1:0] is_boxed;
@@ -106,6 +108,13 @@ module fpnew_top #(
   // -------------------------
   for (genvar opgrp = 0; opgrp < int'(NUM_OPGROUPS); opgrp++) begin : gen_operation_groups
     localparam int unsigned NUM_OPS = fpnew_pkg::num_operands(fpnew_pkg::opgroup_e'(opgrp));
+    localparam fpnew_pkg::opgroup_e OpGroup = fpnew_pkg::opgroup_e'(opgrp);
+    localparam logic EnableVectors = Features.EnableVectors;
+    localparam fpnew_pkg::fmt_logic_t FpFmtMask = Features.FpFmtMask;
+    localparam fpnew_pkg::ifmt_logic_t IntFmtMask = Features.IntFmtMask;
+    localparam fpnew_pkg::fmt_unsigned_t FmtPipeRegs = Implementation.PipeRegs[opgrp];
+    localparam fpnew_pkg::fmt_unit_types_t FmtUnitTypes = Implementation.UnitTypes[opgrp];
+    localparam fpnew_pkg::pipe_config_t PipeConfig = Implementation.PipeConfig;
 
     logic in_valid;
     logic [NUM_FORMATS-1:0][NUM_OPS-1:0] input_boxed;
@@ -158,7 +167,8 @@ module fpnew_top #(
       .tag_o           ( opgrp_outputs[opgrp].tag    ),
       .out_valid_o     ( opgrp_out_valid[opgrp]      ),
       .out_ready_i     ( opgrp_out_ready[opgrp]      ),
-      .busy_o          ( opgrp_busy[opgrp]           )
+      .busy_o          ( opgrp_busy[opgrp]           ),
+      .early_valid_o   ( opgrp_early_valid[opgrp]    )
     );
   end
 
@@ -191,6 +201,7 @@ module fpnew_top #(
   assign status_o        = arbiter_output.status;
   assign tag_o           = arbiter_output.tag;
 
+  assign early_valid_o   = |opgrp_early_valid;
   assign busy_o = (| opgrp_busy);
 
 endmodule

@@ -27,13 +27,15 @@ module fpnew_opgroup_multifmt_slice #(
   parameter fpnew_pkg::divsqrt_unit_t DivSqrtSel     = fpnew_pkg::THMULTI,
   parameter int unsigned              NumPipeRegs    = 0,
   parameter fpnew_pkg::pipe_config_t  PipeConfig     = fpnew_pkg::BEFORE,
+  parameter logic                     ExtRegEna      = 1'b0,
   parameter type                      TagType        = logic,
   parameter fpnew_pkg::rsr_impl_t     StochasticRndImplementation = fpnew_pkg::DEFAULT_NO_RSR,
   // Do not change
   localparam int unsigned NUM_OPERANDS = fpnew_pkg::num_operands(OpGroup),
   localparam int unsigned NUM_FORMATS  = fpnew_pkg::NUM_FP_FORMATS,
   localparam int unsigned NUM_SIMD_LANES = fpnew_pkg::max_num_lanes(Width, FpFmtConfig, EnableVectors),
-  localparam type         MaskType     = logic [NUM_SIMD_LANES-1:0]
+  localparam type         MaskType     = logic [NUM_SIMD_LANES-1:0],
+  localparam int unsigned ExtRegEnaWidth = NumPipeRegs == 0 ? 1 : NumPipeRegs
 ) (
   input logic                                     clk_i,
   input logic                                     rst_ni,
@@ -63,7 +65,11 @@ module fpnew_opgroup_multifmt_slice #(
   output logic                                    out_valid_o,
   input  logic                                    out_ready_i,
   // Indication of valid data in flight
-  output logic                                    busy_o
+  output logic                                    busy_o,
+  // External register enable override
+  input  logic [ExtRegEnaWidth-1:0]               reg_ena_i,
+  // Early valid for external structural hazard generation
+  output logic                                    early_out_valid_o
 );
 
   if ((OpGroup == fpnew_pkg::DIVSQRT)) begin
@@ -130,6 +136,8 @@ or on 16b inputs producing 32b outputs");
   logic   [NUM_LANES-1:0]               lane_masks;
   logic   [NUM_LANES-1:0][AUX_BITS-1:0] lane_aux; // only the first one is actually used
   logic   [NUM_LANES-1:0]               lane_busy; // dito
+  logic   [NUM_LANES-1:0]               lane_early_out_valid;
+
 
   logic                result_is_vector, result_is_vsum, op_is_vsum;
   logic [FMT_BITS-1:0] result_fmt;
@@ -247,7 +255,11 @@ or on 16b inputs producing 32b outputs");
       // Slice out the operands for this lane, upper bits are ignored in the unit
       always_comb begin : prepare_input
         for (int unsigned i = 0; i < NUM_OPERANDS; i++) begin
-          local_operands[i] = operands_i[i] >> LANE*fpnew_pkg::fp_width(src_fmt_i);
+          if (i == 2) begin
+            local_operands[i] = operands_i[i] >> LANE*fpnew_pkg::fp_width(op_i == fpnew_pkg::ADDS ? src_fmt_i : dst_fmt_i);
+          end else begin
+            local_operands[i] = operands_i[i] >> LANE*fpnew_pkg::fp_width(src_fmt_i);
+          end
         end
 
         if (OpGroup == fpnew_pkg::DOTP) begin
@@ -288,7 +300,7 @@ or on 16b inputs producing 32b outputs");
         ) i_fpnew_fma_multi (
           .clk_i,
           .rst_ni,
-          .operands_i      ( local_operands  ),
+          .operands_i       ( local_operands                                  ),
           .is_boxed_i,
           .rnd_mode_i      ( rnd_mode        ),
           .op_i,
@@ -330,22 +342,25 @@ or on 16b inputs producing 32b outputs");
           .op_i,
           .op_mod_i,
           .src_fmt_i,
+          .src2_fmt_i       ( op_i == fpnew_pkg::ADDS ? src_fmt_i : dst_fmt_i ),
           .dst_fmt_i,
           .tag_i,
-          .mask_i          ( simd_mask_i[lane]   ),
-          .aux_i           ( aux_data            ),
-          .in_valid_i      ( in_valid            ),
-          .in_ready_o      ( lane_in_ready[lane] ),
+          .mask_i           ( simd_mask_i[lane]                               ),
+          .aux_i            ( aux_data                                        ),
+          .in_valid_i       ( in_valid                                        ),
+          .in_ready_o       ( lane_in_ready[lane]                             ),
           .flush_i,
-          .result_o        ( op_result           ),
-          .status_o        ( op_status           ),
-          .extension_bit_o ( lane_ext_bit[lane]  ),
-          .tag_o           ( lane_tags[lane]     ),
-          .mask_o          ( lane_masks[lane]    ),
-          .aux_o           ( lane_aux[lane]      ),
-          .out_valid_o     ( out_valid           ),
-          .out_ready_i     ( out_ready           ),
-          .busy_o          ( lane_busy[lane]     )
+          .result_o         ( op_result                                       ),
+          .status_o         ( op_status                                       ),
+          .extension_bit_o  ( lane_ext_bit[lane]                              ),
+          .tag_o            ( lane_tags[lane]                                 ),
+          .mask_o           ( lane_masks[lane]                                ),
+          .aux_o            ( lane_aux[lane]                                  ),
+          .out_valid_o      ( out_valid                                       ),
+          .out_ready_i      ( out_ready                                       ),
+          .busy_o           ( lane_busy[lane]                                 ),
+          .reg_ena_i,
+          .early_out_valid_o( lane_early_out_valid[lane]                      )
         );
       end else if (OpGroup == fpnew_pkg::DIVSQRT) begin : lane_instance
          if (DivSqrtSel == fpnew_pkg::TH32 && LANE_FORMATS[0] && (LANE_FORMATS[1:fpnew_pkg::NUM_FP_FORMATS-1] == '0)) begin : gen_th32_e906_divsqrt
@@ -358,25 +373,27 @@ or on 16b inputs producing 32b outputs");
           ) i_fpnew_divsqrt_multi_th (
             .clk_i,
             .rst_ni,
-            .operands_i      ( local_operands[1:0] ), // 2 operands
-            .is_boxed_i      ( is_boxed_2op        ), // 2 operands
-            .rnd_mode_i      ( rnd_mode            ),
+            .operands_i       ( local_operands[1:0] ), // 2 operands
+            .is_boxed_i       ( is_boxed_2op        ), // 2 operands
+            .rnd_mode_i       ( rnd_mode            ),
             .op_i,
             .tag_i,
-            .mask_i          ( simd_mask_i[lane]   ),
-            .aux_i           ( aux_data            ),
-            .in_valid_i      ( in_valid            ),
-            .in_ready_o      ( lane_in_ready[lane] ),
+            .mask_i           ( simd_mask_i[lane]   ),
+            .aux_i            ( aux_data            ),
+            .in_valid_i       ( in_valid            ),
+            .in_ready_o       ( lane_in_ready[lane] ),
             .flush_i,
-            .result_o        ( op_result           ),
-            .status_o        ( op_status           ),
-            .extension_bit_o ( lane_ext_bit[lane]  ),
-            .tag_o           ( lane_tags[lane]     ),
-            .mask_o          ( lane_masks[lane]    ),
-            .aux_o           ( lane_aux[lane]      ),
-            .out_valid_o     ( out_valid           ),
-            .out_ready_i     ( out_ready           ),
-            .busy_o          ( lane_busy[lane]     )
+            .result_o         ( op_result           ),
+            .status_o         ( op_status           ),
+            .extension_bit_o  ( lane_ext_bit[lane]  ),
+            .tag_o            ( lane_tags[lane]     ),
+            .mask_o           ( lane_masks[lane]    ),
+            .aux_o            ( lane_aux[lane]      ),
+            .out_valid_o      ( out_valid           ),
+            .out_ready_i      ( out_ready           ),
+            .busy_o           ( lane_busy[lane]     ),
+            .reg_ena_i,
+            .early_out_valid_o( lane_early_out_valid[lane] )
           );
         end else if(DivSqrtSel == fpnew_pkg::THMULTI) begin : gen_thmulti_c910_divsqrt
           fpnew_divsqrt_th_64_multi #(
@@ -412,7 +429,9 @@ or on 16b inputs producing 32b outputs");
             .aux_o            ( lane_aux[lane]      ),
             .out_valid_o      ( out_valid           ),
             .out_ready_i      ( out_ready           ),
-            .busy_o           ( lane_busy[lane]     )
+            .busy_o           ( lane_busy[lane]     ),
+            .reg_ena_i,
+            .early_out_valid_o( lane_early_out_valid[lane] )
           );
         end else begin : gen_pulp_divsqrt
           fpnew_divsqrt_multi #(
@@ -448,9 +467,12 @@ or on 16b inputs producing 32b outputs");
             .aux_o            ( lane_aux[lane]      ),
             .out_valid_o      ( out_valid           ),
             .out_ready_i      ( out_ready           ),
-            .busy_o           ( lane_busy[lane]     )
+            .busy_o           ( lane_busy[lane]     ),
+            .reg_ena_i,
+            .early_out_valid_o( lane_early_out_valid[lane] )
           );
         end
+
       end else if (OpGroup == fpnew_pkg::NONCOMP) begin : lane_instance
 
       end else if (OpGroup == fpnew_pkg::CONV) begin : lane_instance
@@ -473,20 +495,22 @@ or on 16b inputs producing 32b outputs");
           .dst_fmt_i,
           .int_fmt_i,
           .tag_i,
-          .mask_i          ( simd_mask_i[lane]   ),
-          .aux_i           ( aux_data            ),
-          .in_valid_i      ( in_valid            ),
-          .in_ready_o      ( lane_in_ready[lane] ),
+          .mask_i           ( simd_mask_i[lane]   ),
+          .aux_i            ( aux_data            ),
+          .in_valid_i       ( in_valid            ),
+          .in_ready_o       ( lane_in_ready[lane] ),
           .flush_i,
-          .result_o        ( op_result           ),
-          .status_o        ( op_status           ),
-          .extension_bit_o ( lane_ext_bit[lane]  ),
-          .tag_o           ( lane_tags[lane]     ),
-          .mask_o          ( lane_masks[lane]    ),
-          .aux_o           ( lane_aux[lane]      ),
-          .out_valid_o     ( out_valid           ),
-          .out_ready_i     ( out_ready           ),
-          .busy_o          ( lane_busy[lane]     )
+          .result_o         ( op_result           ),
+          .status_o         ( op_status           ),
+          .extension_bit_o  ( lane_ext_bit[lane]  ),
+          .tag_o            ( lane_tags[lane]     ),
+          .mask_o           ( lane_masks[lane]    ),
+          .aux_o            ( lane_aux[lane]      ),
+          .out_valid_o      ( out_valid           ),
+          .out_ready_i      ( out_ready           ),
+          .busy_o           ( lane_busy[lane]     ),
+          .reg_ena_i,
+          .early_out_valid_o( lane_early_out_valid[lane] )
         );
       end else if (OpGroup == fpnew_pkg::MXDOTP) begin : lane_instance
         fpnew_mxdotp_multi_wrapper #(
@@ -531,11 +555,12 @@ or on 16b inputs producing 32b outputs");
       assign lane_out_valid[lane] = out_valid & ((lane == 0) | result_is_vector);
 
       // Properly NaN-box or sign-extend the slice result if not in use
-      assign local_result      = lane_out_valid[lane] ? op_result : {(LANE_WIDTH){lane_ext_bit[0]}};
-      assign lane_status[lane] = lane_out_valid[lane] ? op_status : '0;
+      assign local_result      = (lane_out_valid[lane] | ExtRegEna) ? op_result : {(LANE_WIDTH){lane_ext_bit[0]}};
+      assign lane_status[lane] = (lane_out_valid[lane] | ExtRegEna) ? op_status : '0;
 
     // Otherwise generate constant sign-extension
     end else begin : inactive_lane
+      assign lane_early_out_valid[lane] = 1'b0; // unused lane
       assign lane_out_valid[lane] = 1'b0; // unused lane
       assign lane_in_ready[lane]  = 1'b0; // unused lane
       assign lane_aux[lane]       = 1'b0; // unused lane
@@ -650,7 +675,7 @@ or on 16b inputs producing 32b outputs");
       // Valid: enabled by ready signal, synchronous clear with the flush signal
       `FFLARNC(byp_pipe_valid_q[i+1], byp_pipe_valid_q[i], byp_pipe_ready[i], flush_i, 1'b0, clk_i, rst_ni)
       // Enable register if pipleine ready and a valid data item is present
-      assign reg_ena = byp_pipe_ready[i] & byp_pipe_valid_q[i];
+      assign reg_ena = (byp_pipe_ready[i] & byp_pipe_valid_q[i]) | reg_ena_i[i];
       // Generate the pipeline registers within the stages, use enable-registers
       `FFL(byp_pipe_target_q[i+1],  byp_pipe_target_q[i],  reg_ena, '0)
       `FFL(byp_pipe_aux_q[i+1],     byp_pipe_aux_q[i],     reg_ena, '0)
@@ -688,7 +713,7 @@ or on 16b inputs producing 32b outputs");
     assign conv_target_q = '0;
   end
 
-  if ((DivSqrtSel != fpnew_pkg::TH32) && (OpGroup == fpnew_pkg::DIVSQRT)) begin
+  if ((DivSqrtSel != fpnew_pkg::TH32) && (OpGroup == fpnew_pkg::DIVSQRT) && !ExtRegEna) begin
     // Synch lanes if there is more than one
     assign simd_synch_rdy  = EnableVectors ? &divsqrt_ready[NUM_DIVSQRT_LANES-1:0] : divsqrt_ready[0];
     assign simd_synch_done = EnableVectors ? &divsqrt_done[NUM_DIVSQRT_LANES-1:0]  : divsqrt_done[0];
@@ -711,6 +736,7 @@ or on 16b inputs producing 32b outputs");
   assign extension_bit_o = lane_ext_bit[0]; // don't care about upper ones
   assign tag_o           = lane_tags[0];    // don't care about upper ones
   assign busy_o          = (| lane_busy);
+  assign early_out_valid_o = |lane_early_out_valid;
 
   assign out_valid_o     = lane_out_valid[0]; // don't care about upper ones
 

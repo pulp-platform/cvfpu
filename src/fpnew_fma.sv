@@ -21,8 +21,9 @@ module fpnew_fma #(
   parameter fpnew_pkg::pipe_config_t PipeConfig  = fpnew_pkg::BEFORE,
   parameter type                     TagType     = logic,
   parameter type                     AuxType     = logic,
-
-  localparam int unsigned WIDTH = fpnew_pkg::fp_width(FpFormat) // do not change
+  // Do not change
+  localparam int unsigned WIDTH = fpnew_pkg::fp_width(FpFormat),
+  localparam int unsigned ExtRegEnaWidth = NumPipeRegs == 0 ? 1 : NumPipeRegs
 ) (
   input logic                      clk_i,
   input logic                      rst_ni,
@@ -50,7 +51,11 @@ module fpnew_fma #(
   output logic                     out_valid_o,
   input  logic                     out_ready_i,
   // Indication of valid data in flight
-  output logic                     busy_o
+  output logic                     busy_o,
+  // External register enable override
+  input  logic [ExtRegEnaWidth-1:0] reg_ena_i,
+  // Early valid for external structural hazard generation
+  output logic                     early_out_valid_o
 );
 
   // ----------
@@ -135,7 +140,7 @@ module fpnew_fma #(
     // Valid: enabled by ready signal, synchronous clear with the flush signal
     `FFLARNC(inp_pipe_valid_q[i+1], inp_pipe_valid_q[i], inp_pipe_ready[i], flush_i, 1'b0, clk_i, rst_ni)
     // Enable register if pipleine ready and a valid data item is present
-    assign reg_ena = inp_pipe_ready[i] & inp_pipe_valid_q[i];
+    assign reg_ena = (inp_pipe_ready[i] & inp_pipe_valid_q[i]) | reg_ena_i[i];
     // Generate the pipeline registers within the stages, use enable-registers
     `FFL(inp_pipe_operands_q[i+1], inp_pipe_operands_q[i], reg_ena, '0)
     `FFL(inp_pipe_is_boxed_q[i+1], inp_pipe_is_boxed_q[i], reg_ena, '0)
@@ -193,7 +198,8 @@ module fpnew_fma #(
     unique case (inp_pipe_op_q[NUM_INP_REGS])
       fpnew_pkg::FMADD:  ; // do nothing
       fpnew_pkg::FNMSUB: operand_a.sign = ~operand_a.sign; // invert sign of product
-      fpnew_pkg::ADD: begin // Set multiplicand to +1
+      fpnew_pkg::ADD,
+      fpnew_pkg::ADDS: begin // Set multiplicand to +1
         operand_a = '{sign: 1'b0, exponent: BIAS, mantissa: '0};
         info_a    = '{is_normal: 1'b1, is_boxed: 1'b1, default: 1'b0}; //normal, boxed value.
       end
@@ -366,17 +372,22 @@ module fpnew_fma #(
   // ------
   // Adder
   // ------
-  logic [3*PRECISION_BITS+4:0] sum_raw;   // added one bit for the carry
-  logic                        sum_carry; // observe carry bit from sum for sign fixing
-  logic [3*PRECISION_BITS+3:0] sum;       // discard carry as sum won't overflow
+  logic [3*PRECISION_BITS+4:0] sum_pos, sum_neg; // added one bit for the carry
+  logic                        sum_carry;        // observe carry bit from positive sum for sign fixing
+  logic [3*PRECISION_BITS+3:0] sum;              // discard carry as sum won't overflow
   logic                        final_sign;
 
   //Mantissa adder (ab+c). In normal addition, it cannot overflow.
-  assign sum_raw = product_shifted + addend_shifted + inject_carry_in;
-  assign sum_carry = sum_raw[3*PRECISION_BITS+4];
+  assign sum_pos = product_shifted + addend_shifted + inject_carry_in;
+  assign sum_carry = sum_pos[3*PRECISION_BITS+4];
+
+  // Parallel adder for negative sum (only used for effective subtractions).
+  // Note: inject_carry_in is used to complete the negation of the addend in the positive sum but
+  // for the negative sum the addend is not negated, so no carry needs to be injected.
+  assign sum_neg = addend_after_shift - product_shifted;
 
   // Complement negative sum (can only happen in subtraction -> overflows for positive results)
-  assign sum        = (effective_subtraction && ~sum_carry) ? -sum_raw : sum_raw;
+  assign sum        = (effective_subtraction && ~sum_carry) ? sum_neg : sum_pos;
 
   // In case of a mispredicted subtraction result, do a sign flip
   assign final_sign = (effective_subtraction && (sum_carry == tentative_sign))
@@ -450,7 +461,7 @@ module fpnew_fma #(
     // Valid: enabled by ready signal, synchronous clear with the flush signal
     `FFLARNC(mid_pipe_valid_q[i+1], mid_pipe_valid_q[i], mid_pipe_ready[i], flush_i, 1'b0, clk_i, rst_ni)
     // Enable register if pipleine ready and a valid data item is present
-    assign reg_ena = mid_pipe_ready[i] & mid_pipe_valid_q[i];
+    assign reg_ena = (mid_pipe_ready[i] & mid_pipe_valid_q[i]) | reg_ena_i[NUM_INP_REGS + i];
     // Generate the pipeline registers within the stages, use enable-registers
     `FFL(mid_pipe_eff_sub_q[i+1],     mid_pipe_eff_sub_q[i],     reg_ena, '0)
     `FFL(mid_pipe_exp_prod_q[i+1],    mid_pipe_exp_prod_q[i],    reg_ena, '0)
@@ -616,7 +627,9 @@ module fpnew_fma #(
   );
 
   // Classification after rounding
-  assign uf_after_round = rounded_abs[EXP_BITS+MAN_BITS-1:MAN_BITS] == '0; // exponent = 0
+  assign uf_after_round = (rounded_abs[EXP_BITS+MAN_BITS-1:MAN_BITS] == '0) // denormal
+        || ((pre_round_abs[EXP_BITS+MAN_BITS-1:MAN_BITS] == '0) && (rounded_abs[EXP_BITS+MAN_BITS-1:MAN_BITS] == 1) &&
+           ((round_sticky_bits != 2'b11) || (!sum_sticky_bits[MAN_BITS*2 + 4] && ((rnd_mode_q == fpnew_pkg::RNE) || (rnd_mode_q == fpnew_pkg::RMM)))));
   assign of_after_round = rounded_abs[EXP_BITS+MAN_BITS-1:MAN_BITS] == '1; // exponent all ones
 
   // -----------------
@@ -674,7 +687,7 @@ module fpnew_fma #(
     // Valid: enabled by ready signal, synchronous clear with the flush signal
     `FFLARNC(out_pipe_valid_q[i+1], out_pipe_valid_q[i], out_pipe_ready[i], flush_i, 1'b0, clk_i, rst_ni)
     // Enable register if pipleine ready and a valid data item is present
-    assign reg_ena = out_pipe_ready[i] & out_pipe_valid_q[i];
+    assign reg_ena = (out_pipe_ready[i] & out_pipe_valid_q[i]) | reg_ena_i[NUM_INP_REGS + NUM_MID_REGS + i];
     // Generate the pipeline registers within the stages, use enable-registers
     `FFL(out_pipe_result_q[i+1], out_pipe_result_q[i], reg_ena, '0)
     `FFL(out_pipe_status_q[i+1], out_pipe_status_q[i], reg_ena, '0)
@@ -693,4 +706,18 @@ module fpnew_fma #(
   assign aux_o           = out_pipe_aux_q[NUM_OUT_REGS];
   assign out_valid_o     = out_pipe_valid_q[NUM_OUT_REGS];
   assign busy_o          = (| {inp_pipe_valid_q, mid_pipe_valid_q, out_pipe_valid_q});
+
+  // Early valid_o signal. This is used for dispatching instructions for dual-issue processor.
+  if (NUM_OUT_REGS > 0) begin
+    assign early_out_valid_o = |{out_pipe_valid_q[NUM_OUT_REGS] & ~out_pipe_ready[NUM_OUT_REGS],
+                                 out_pipe_valid_q[NUM_OUT_REGS-1]};
+  end else if (NUM_MID_REGS > 0) begin
+    assign early_out_valid_o = |{mid_pipe_valid_q[NUM_MID_REGS] & ~mid_pipe_ready[NUM_OUT_REGS],
+                                 mid_pipe_valid_q[NUM_MID_REGS-1]};
+  end else if (NUM_INP_REGS > 0) begin
+    assign early_out_valid_o = |{inp_pipe_valid_q[NUM_INP_REGS] & ~inp_pipe_ready[NUM_INP_REGS],
+                                 inp_pipe_valid_q[NUM_INP_REGS-1]};
+  end else begin
+    assign early_out_valid_o = 1'b0;
+  end
 endmodule

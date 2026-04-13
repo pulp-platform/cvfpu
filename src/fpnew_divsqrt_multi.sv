@@ -24,7 +24,8 @@ module fpnew_divsqrt_multi #(
   parameter type                     AuxType     = logic,
   // Do not change
   localparam int unsigned WIDTH       = fpnew_pkg::max_fp_width(FpFmtConfig),
-  localparam int unsigned NUM_FORMATS = fpnew_pkg::NUM_FP_FORMATS
+  localparam int unsigned NUM_FORMATS = fpnew_pkg::NUM_FP_FORMATS,
+  localparam int unsigned ExtRegEnaWidth = NumPipeRegs == 0 ? 1 : NumPipeRegs
 ) (
   input  logic                        clk_i,
   input  logic                        rst_ni,
@@ -57,7 +58,11 @@ module fpnew_divsqrt_multi #(
   output logic                        out_valid_o,
   input  logic                        out_ready_i,
   // Indication of valid data in flight
-  output logic                        busy_o
+  output logic                        busy_o,
+  // External register enable override
+  input  logic [ExtRegEnaWidth-1:0]   reg_ena_i,
+  // Early valid for external structural hazard generation
+  output logic                        early_out_valid_o
 );
 
   // ----------
@@ -121,7 +126,7 @@ module fpnew_divsqrt_multi #(
     // Valid: enabled by ready signal, synchronous clear with the flush signal
     `FFLARNC(inp_pipe_valid_q[i+1], inp_pipe_valid_q[i], inp_pipe_ready[i], flush_i, 1'b0, clk_i, rst_ni)
     // Enable register if pipleine ready and a valid data item is present
-    assign reg_ena = inp_pipe_ready[i] & inp_pipe_valid_q[i];
+    assign reg_ena = (inp_pipe_ready[i] & inp_pipe_valid_q[i]) | reg_ena_i[i];
     // Generate the pipeline registers within the stages, use enable-registers
     `FFL(inp_pipe_operands_q[i+1], inp_pipe_operands_q[i], reg_ena, '0)
     `FFL(inp_pipe_rnd_mode_q[i+1], inp_pipe_rnd_mode_q[i], reg_ena, fpnew_pkg::RNE)
@@ -138,6 +143,9 @@ module fpnew_divsqrt_multi #(
   assign op_q       = inp_pipe_op_q[NUM_INP_REGS];
   assign dst_fmt_q  = inp_pipe_dst_fmt_q[NUM_INP_REGS];
   assign in_valid_q = inp_pipe_valid_q[NUM_INP_REGS];
+
+  logic ext_op_start_q;
+  `FF(ext_op_start_q, reg_ena_i[NUM_INP_REGS-1], 1'b0)
 
   // -----------------
   // Input processing
@@ -180,8 +188,8 @@ module fpnew_divsqrt_multi #(
   fsm_state_e state_q, state_d;
 
   // Valids are gated by the FSM ready. Invalid input ops run a sqrt to not lose illegal instr.
-  assign div_valid   = in_valid_q & (op_q == fpnew_pkg::DIV) & in_ready & ~flush_i;
-  assign sqrt_valid  = in_valid_q & (op_q != fpnew_pkg::DIV) & in_ready & ~flush_i;
+  assign div_valid   = ((in_valid_q & in_ready & ~flush_i) | ext_op_start_q) & (op_q == fpnew_pkg::DIV);
+  assign sqrt_valid  = ((in_valid_q & in_ready & ~flush_i) | ext_op_start_q) & (op_q != fpnew_pkg::DIV);
   assign op_starting = div_valid | sqrt_valid;
 
   // Hold additional information while the operation is in progress
@@ -204,7 +212,9 @@ module fpnew_divsqrt_multi #(
   // Valid synch with other lanes
   // When one divsqrt unit completes an operation, keep its done high, waiting for the other lanes
   // As soon as all the lanes are over, we can clear this FF and start with a new operation
-  `FFLARNC(unit_done_q, unit_done, unit_done, simd_synch_done, 1'b0, clk_i, rst_ni);
+  logic unit_done_clear;
+  `FFLARNC(unit_done_q, unit_done, unit_done, unit_done_clear, 1'b0, clk_i, rst_ni)
+  assign unit_done_clear = simd_synch_done | reg_ena_i[NUM_INP_REGS-1];
   // Tell the other units that this unit has finished now or in the past
   assign divsqrt_done_o = (unit_done_q | unit_done) & result_vec_op_q;
 
@@ -286,20 +296,20 @@ module fpnew_divsqrt_multi #(
   logic               hold_en;
 
   div_sqrt_top_mvp i_divsqrt_lei (
-   .Clk_CI           ( clk_i               ),
-   .Rst_RBI          ( rst_ni              ),
-   .Div_start_SI     ( div_valid           ),
-   .Sqrt_start_SI    ( sqrt_valid          ),
-   .Operand_a_DI     ( divsqrt_operands[0] ),
-   .Operand_b_DI     ( divsqrt_operands[1] ),
-   .RM_SI            ( rnd_mode_q          ),
-   .Precision_ctl_SI ( '0                  ),
-   .Format_sel_SI    ( divsqrt_fmt         ),
-   .Kill_SI          ( flush_i             ),
-   .Result_DO        ( unit_result         ),
-   .Fflags_SO        ( unit_status         ),
-   .Ready_SO         ( unit_ready          ),
-   .Done_SO          ( unit_done           )
+   .Clk_CI           ( clk_i                               ),
+   .Rst_RBI          ( rst_ni                              ),
+   .Div_start_SI     ( div_valid                           ),
+   .Sqrt_start_SI    ( sqrt_valid                          ),
+   .Operand_a_DI     ( divsqrt_operands[0]                 ),
+   .Operand_b_DI     ( divsqrt_operands[1]                 ),
+   .RM_SI            ( rnd_mode_q                          ),
+   .Precision_ctl_SI ( '0                                  ),
+   .Format_sel_SI    ( divsqrt_fmt                         ),
+   .Kill_SI          ( flush_i | reg_ena_i[NUM_INP_REGS-1] ),
+   .Result_DO        ( unit_result                         ),
+   .Fflags_SO        ( unit_status                         ),
+   .Ready_SO         ( unit_ready                          ),
+   .Done_SO          ( unit_done                           )
   );
 
   // Adjust result width and fix FP8
@@ -354,7 +364,7 @@ module fpnew_divsqrt_multi #(
     // Valid: enabled by ready signal, synchronous clear with the flush signal
     `FFLARNC(out_pipe_valid_q[i+1], out_pipe_valid_q[i], out_pipe_ready[i], flush_i, 1'b0, clk_i, rst_ni)
     // Enable register if pipleine ready and a valid data item is present
-    assign reg_ena = out_pipe_ready[i] & out_pipe_valid_q[i];
+    assign reg_ena = (out_pipe_ready[i] & out_pipe_valid_q[i]) | reg_ena_i[NUM_INP_REGS + i];
     // Generate the pipeline registers within the stages, use enable-registers
     `FFL(out_pipe_result_q[i+1], out_pipe_result_q[i], reg_ena, '0)
     `FFL(out_pipe_status_q[i+1], out_pipe_status_q[i], reg_ena, '0)
@@ -373,4 +383,16 @@ module fpnew_divsqrt_multi #(
   assign aux_o           = out_pipe_aux_q[NUM_OUT_REGS];
   assign out_valid_o     = out_pipe_valid_q[NUM_OUT_REGS];
   assign busy_o          = (| {inp_pipe_valid_q, unit_busy, out_pipe_valid_q});
+
+  // Early valid_o signal. This is used for dispatching instructions for dual-issue processor.
+  if (NUM_OUT_REGS > 0) begin
+    assign early_out_valid_o = |{out_pipe_valid_q[NUM_OUT_REGS] & ~out_pipe_ready[NUM_OUT_REGS],
+                                 out_pipe_valid_q[NUM_OUT_REGS-1]};
+  end else if (NUM_INP_REGS > 0) begin
+    assign early_out_valid_o = |{inp_pipe_valid_q[NUM_INP_REGS] & ~inp_pipe_ready[NUM_INP_REGS],
+                                 inp_pipe_valid_q[NUM_INP_REGS-1]};
+  end else begin
+    assign early_out_valid_o = 1'b0;
+  end
+
 endmodule

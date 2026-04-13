@@ -73,6 +73,7 @@ As the width of some input/output signals is defined by the configuration, it is
 | `out_valid_o`    | out       | `logic`              | Output data valid (see [Handshake](#handshake-interface))      |
 | `out_ready_i`    | in        | `logic`              | Output interface ready (see [Handshake](#handshake-interface)) |
 | `busy_o`         | out       | `logic`              | FPU operation in flight                                        |
+| `early_valid_o`  | out       | `logic`              | Output data valid in the next cycle                            |
 
 #### Data Types
 
@@ -99,6 +100,7 @@ Enumeration of type `logic [2:0]` holding available rounding modes, encoded for 
 Enumeration of type `logic [3:0]` holding the FP operation.
 The operation modifier `op_mod_i` can change the operation carried out.
 Unless noted otherwise, the first operand `op[0]` is used for the operation.
+Unless noted otherwise, `op[0]` and `op[1]` are given in source FP format and `op[2]` is given in destination FP format.
 
 | Enumerator | Modifier |                                                                                                    Operation                                                                                                     |
 |------------|----------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -106,8 +108,8 @@ Unless noted otherwise, the first operand `op[0]` is used for the operation.
 | `FMADD`    | `1`      | Fused multiply-subtract (`(op[0] * op[1]) - op[2]`)                                                                                                                                                              |
 | `FNMSUB`   | `0`      | Negated fused multiply-subtract (`-(op[0] * op[1]) + op[2]`)                                                                                                                                                     |
 | `FNMSUB`   | `1`      | Negated fused multiply-add (`-(op[0] * op[1]) - op[2]`)                                                                                                                                                          |
-| `ADD`      | `0`      | Addition (`op[1] + op[2]`) *note the operand indices*                                                                                                                                                            |
-| `ADD`      | `1`      | Subtraction (`op[1] - op[2]`) *note the operand indices*                                                                                                                                                         |
+| `ADD/ADDS` | `0`      | Addition (`op[1] + op[2]`) *note the operand indices*. For `ADD`, `op[1]` is in source FP format and `op[2]` in destination FP format (default). When `ADDS` is used, both operands are in source FP format.     |
+| `ADD/ADDS` | `1`      | Subtraction (`op[1] - op[2]`) *note the operand indices*. For `ADD`, `op[1]` is in source FP format and `op[2]` in destination FP format (default). When `ADDS` is used, both operands are in source FP format.  |
 | `MUL`      | `0`      | Multiplication (`op[0] * op[1]`)                                                                                                                                                                                 |
 | `SDOTP`    | `0`      | Sum of dot product                                                                                                                                                                                               |
 | `VSUM`     | `0`      | Vector Inner Sum                                                                                                                                                                                                 |
@@ -445,14 +447,14 @@ The *operation group* is the highest level of grouping within FPnew and signifie
 
 There are currently six operation groups in FPnew which are enumerated in `opgroup_e` as outlined in the following table:
 
-| Enumerator |                  Description                  |         Associated Operations         |
-|------------|-----------------------------------------------|---------------------------------------|
-| `ADDMUL`   | Addition and Multiplication                   | `FMADD`, `FNMSUB`, `ADD`, `MUL`       |
-| `DIVSQRT`  | Division and Square Root                      | `DIV`, `SQRT`                         |
-| `NONCOMP`  | Non-Computational Operations like Comparisons | `SGNJ`, `MINMAX`, `CMP`, `CLASS`      |
-| `CONV`     | Conversions                                   | `F2I`, `I2F`, `F2F`, `CPKAB`, `CPKCD` |
-| `DOTP`     | Dot Products                                  | `SDOTP`, `EXVSUM`, `VSUM`             |
-| `MXDOTP`   | Microscaling Dot Products                     | `MXDOTPF`, `MXDOTPI`                  |
+| Enumerator |                  Description                  |         Associated Operations           |
+|------------|-----------------------------------------------|-----------------------------------------|
+| `ADDMUL`   | Addition and Multiplication                   | `FMADD`, `FNMSUB`, `ADD`, `ADDS`, `MUL` |
+| `DIVSQRT`  | Division and Square Root                      | `DIV`, `SQRT`                           |
+| `NONCOMP`  | Non-Computational Operations like Comparisons | `SGNJ`, `MINMAX`, `CMP`, `CLASS`        |
+| `CONV`     | Conversions                                   | `F2I`, `I2F`, `F2F`, `CPKAB`, `CPKCD`   |
+| `DOTP`     | Dot Products                                  | `SDOTP`, `EXVSUM`, `VSUM`               |
+| `MXDOTP`   | Microscaling Dot Products                     | `MXDOTPF`, `MXDOTPI`                    |
 
 Most architectural decisions for FPnew are made at very fine granularity.
 The big exception to this is the generation of vectorial hardware which is decided at top level through the `EnableVectors` parameter.

@@ -26,7 +26,8 @@ module fpnew_cast_multi #(
   // Do not change
   localparam int unsigned WIDTH = fpnew_pkg::maximum(fpnew_pkg::max_fp_width(FpFmtConfig),
                                                      fpnew_pkg::max_int_width(IntFmtConfig)),
-  localparam int unsigned NUM_FORMATS = fpnew_pkg::NUM_FP_FORMATS
+  localparam int unsigned NUM_FORMATS = fpnew_pkg::NUM_FP_FORMATS,
+  localparam int unsigned ExtRegEnaWidth = NumPipeRegs == 0 ? 1 : NumPipeRegs
 ) (
   input  logic                   clk_i,
   input  logic                   rst_ni,
@@ -57,7 +58,11 @@ module fpnew_cast_multi #(
   output logic                   out_valid_o,
   input  logic                   out_ready_i,
   // Indication of valid data in flight
-  output logic                   busy_o
+  output logic                   busy_o,
+  // External register enable override
+  input  logic [ExtRegEnaWidth-1:0] reg_ena_i,
+  // Early valid for external structural hazard generation
+  output logic                   early_out_valid_o
 );
 
   // ----------
@@ -150,7 +155,7 @@ module fpnew_cast_multi #(
     // Valid: enabled by ready signal, synchronous clear with the flush signal
     `FFLARNC(inp_pipe_valid_q[i+1], inp_pipe_valid_q[i], inp_pipe_ready[i], flush_i, 1'b0, clk_i, rst_ni)
     // Enable register if pipleine ready and a valid data item is present
-    assign reg_ena = inp_pipe_ready[i] & inp_pipe_valid_q[i];
+    assign reg_ena = (inp_pipe_ready[i] & inp_pipe_valid_q[i]) | reg_ena_i[i];
     // Generate the pipeline registers within the stages, use enable-registers
     `FFL(inp_pipe_operands_q[i+1], inp_pipe_operands_q[i], reg_ena, '0)
     `FFL(inp_pipe_is_boxed_q[i+1], inp_pipe_is_boxed_q[i], reg_ena, '0)
@@ -201,10 +206,12 @@ module fpnew_cast_multi #(
     localparam int unsigned MAN_BITS = fpnew_pkg::man_bits(fpnew_pkg::fp_format_e'(fmt));
 
     if (FpFmtConfig[fmt]) begin : active_format
+      localparam fpnew_pkg::fp_format_e FpFormat = fpnew_pkg::fp_format_e'(fmt);
+
       // Classify input
       fpnew_classifier #(
-        .FpFormat    ( fpnew_pkg::fp_format_e'(fmt) ),
-        .NumOperands ( 1                            )
+        .FpFormat    ( FpFormat ),
+        .NumOperands ( 1        )
       ) i_fpnew_classifier (
         .operands_i ( operands_q[FP_WIDTH-1:0] ),
         .is_boxed_i ( is_boxed_q[fmt]          ),
@@ -373,7 +380,7 @@ module fpnew_cast_multi #(
     // Valid: enabled by ready signal, synchronous clear with the flush signal
     `FFLARNC(mid_pipe_valid_q[i+1], mid_pipe_valid_q[i], mid_pipe_ready[i], flush_i, 1'b0, clk_i, rst_ni)
     // Enable register if pipleine ready and a valid data item is present
-    assign reg_ena = mid_pipe_ready[i] & mid_pipe_valid_q[i];
+    assign reg_ena = (mid_pipe_ready[i] & mid_pipe_valid_q[i]) | reg_ena_i[NUM_INP_REGS + i];
     // Generate the pipeline registers within the stages, use enable-registers
     `FFL(mid_pipe_input_sign_q[i+1], mid_pipe_input_sign_q[i], reg_ena, '0)
     `FFL(mid_pipe_input_exp_q[i+1],  mid_pipe_input_exp_q[i],  reg_ena, '0)
@@ -440,7 +447,11 @@ module fpnew_cast_multi #(
       // By default right shift mantissa to be an integer
       denorm_shamt = unsigned'(MAX_INT_WIDTH - 1 - input_exp_q);
       // overflow: when converting to unsigned the range is larger by one
-      if (input_exp_q >= signed'(fpnew_pkg::int_width(int_fmt_q2) - 1 + op_mod_q2)) begin
+      if ((input_exp_q >= signed'(fpnew_pkg::int_width(int_fmt_q2) - 1 + op_mod_q2))    // Exponent larger than max int range,
+          && !(!op_mod_q2                                                               // unless cast to signed int
+               && input_sign_q                                                          // and input value is larges negative int value
+               && (input_exp_q == signed'(fpnew_pkg::int_width(int_fmt_q2) - 1))
+               && (input_mant_q == {1'b1, {INT_MAN_WIDTH-1{1'b0}}}))) begin
         denorm_shamt    = '0; // prevent shifting
         of_before_round = 1'b1;
       // underflow
@@ -450,9 +461,12 @@ module fpnew_cast_multi #(
       end
     // Handle FP over-/underflows
     end else begin
-      // Overflow or infinities (for proper rounding)
-      if ((destination_exp_q >= signed'(2**fpnew_pkg::exp_bits(dst_fmt_q2))-1) ||
-          (~src_is_int_q && info_q.is_inf)) begin
+      // Infinities
+      if (~src_is_int_q && info_q.is_inf) begin
+        final_exp       = unsigned'(2**fpnew_pkg::exp_bits(dst_fmt_q2)-1); // largest exponent
+        preshift_mant   = '0;
+      // Overflow (for proper rounding)
+      end else if (destination_exp_q >= signed'(2**fpnew_pkg::exp_bits(dst_fmt_q2))-1) begin
         final_exp       = unsigned'(2**fpnew_pkg::exp_bits(dst_fmt_q2)-2); // largest normal value
         preshift_mant   = '1;                           // largest normal value and RS bits set
         of_before_round = 1'b1;
@@ -498,14 +512,16 @@ module fpnew_cast_multi #(
   logic [NUM_FORMATS-1:0]            fmt_of_after_round;
   logic [NUM_FORMATS-1:0]            fmt_uf_after_round;
 
-  logic [NUM_INT_FORMATS-1:0][WIDTH-1:0] ifmt_pre_round_abs; // per format
+  logic [NUM_INT_FORMATS-1:0][WIDTH-1:0] ifmt_pre_round_abs;      // per format
+  logic [NUM_INT_FORMATS-1:0][WIDTH-1:0] ifmt_rounded_signed_res; // per format
   logic [NUM_INT_FORMATS-1:0]            ifmt_of_after_round;
 
   logic             rounded_sign;
   logic [WIDTH-1:0] rounded_abs; // absolute value of result after rounding
   logic             result_true_zero;
 
-  logic [WIDTH-1:0] rounded_int_res; // after possible inversion
+  logic [WIDTH-1:0] rounded_uint_res;     // after possible inversion
+  logic [WIDTH-1:0] rounded_int_res;      // sign-extended, after possible inversion
   logic             rounded_int_res_zero; // after rounding
 
 
@@ -524,15 +540,15 @@ module fpnew_cast_multi #(
     end
   end
 
-  // Sign-extend integer result
-  for (genvar ifmt = 0; ifmt < int'(NUM_INT_FORMATS); ifmt++) begin : gen_int_res_sign_ext
+  // Zero-extend integer result
+  for (genvar ifmt = 0; ifmt < int'(NUM_INT_FORMATS); ifmt++) begin : gen_int_res_zero_ext
     // Set up some constants
     localparam int unsigned INT_WIDTH = fpnew_pkg::int_width(fpnew_pkg::int_format_e'(ifmt));
 
     if (IntFmtConfig[ifmt]) begin : active_format
       always_comb begin : assemble_result
-        // sign-extend reusult
-        ifmt_pre_round_abs[ifmt]                = '{default: final_int[INT_WIDTH-1]};
+        // zero-extend absolute value result
+        ifmt_pre_round_abs[ifmt]                = '0;
         ifmt_pre_round_abs[ifmt][INT_WIDTH-1:0] = final_int[INT_WIDTH-1:0];
       end
     end else begin : inactive_format
@@ -591,7 +607,25 @@ module fpnew_cast_multi #(
   end
 
   // Negative integer result needs to be brought into two's complement
-  assign rounded_int_res      = rounded_sign ? unsigned'(-rounded_abs) : rounded_abs;
+  assign rounded_uint_res      = rounded_sign ? unsigned'(-rounded_abs) : rounded_abs;
+
+    // Sign-extend integer result
+  for (genvar ifmt = 0; ifmt < int'(NUM_INT_FORMATS); ifmt++) begin : gen_int_res_sign_ext
+    // Set up some constants
+    localparam int unsigned INT_WIDTH = fpnew_pkg::int_width(fpnew_pkg::int_format_e'(ifmt));
+
+    if (IntFmtConfig[ifmt]) begin : active_format
+      always_comb begin : assemble_result
+        // zero-extend absolute value result
+        ifmt_rounded_signed_res[ifmt]                = '{default: rounded_uint_res[INT_WIDTH-1]};
+        ifmt_rounded_signed_res[ifmt][INT_WIDTH-1:0] = rounded_uint_res[INT_WIDTH-1:0];
+      end
+    end else begin : inactive_format
+      assign ifmt_rounded_signed_res[ifmt] = '{default: fpnew_pkg::DONT_CARE};
+    end
+  end
+  
+  assign rounded_int_res = ifmt_rounded_signed_res[int_fmt_q2];
   assign rounded_int_res_zero = (rounded_int_res == '0);
 
   // Detect integer overflows after rounding (only positives)
@@ -717,13 +751,13 @@ module fpnew_cast_multi #(
   logic [WIDTH-1:0]   fp_result, int_result;
   fpnew_pkg::status_t fp_status, int_status;
 
-  assign fp_regular_status.NV = src_is_int_q & (of_before_round | of_after_round); // overflow is invalid for I2F casts
+  assign fp_regular_status.NV = 1'b0; // floating-point results are always valid
   assign fp_regular_status.DZ = 1'b0; // no divisions
-  assign fp_regular_status.OF = ~src_is_int_q & (~info_q.is_inf & (of_before_round | of_after_round)); // inf casts no OF
+  assign fp_regular_status.OF = (src_is_int_q | ~info_q.is_inf) & (of_before_round | of_after_round); // inf casts no OF
   assign fp_regular_status.UF = uf_after_round & fp_regular_status.NX;
-  assign fp_regular_status.NX = src_is_int_q ? (| fp_round_sticky_bits) // overflow is invalid in i2f
-            : (| fp_round_sticky_bits) | (~info_q.is_inf & (of_before_round | of_after_round));
-  assign int_regular_status = '{NX: (| int_round_sticky_bits), default: 1'b0};
+  assign fp_regular_status.NX = (| fp_round_sticky_bits) | ((src_is_int_q | ~info_q.is_inf) & (of_before_round | of_after_round));
+  assign int_regular_status = '{NV: of_before_round | of_after_round, // overflow is invalid for F2I casts
+                                NX: (| int_round_sticky_bits), default: 1'b0};
 
   assign fp_result  = fp_result_is_special  ? fp_special_result  : fmt_result[dst_fmt_q2];
   assign fp_status  = fp_result_is_special  ? fp_special_status  : fp_regular_status;
@@ -777,7 +811,7 @@ module fpnew_cast_multi #(
     // Valid: enabled by ready signal, synchronous clear with the flush signal
     `FFLARNC(out_pipe_valid_q[i+1], out_pipe_valid_q[i], out_pipe_ready[i], flush_i, 1'b0, clk_i, rst_ni)
     // Enable register if pipleine ready and a valid data item is present
-    assign reg_ena = out_pipe_ready[i] & out_pipe_valid_q[i];
+    assign reg_ena = (out_pipe_ready[i] & out_pipe_valid_q[i]) | reg_ena_i[NUM_INP_REGS + NUM_MID_REGS + i];
     // Generate the pipeline registers within the stages, use enable-registers
     `FFL(out_pipe_result_q[i+1],  out_pipe_result_q[i],  reg_ena, '0)
     `FFL(out_pipe_status_q[i+1],  out_pipe_status_q[i],  reg_ena, '0)
@@ -797,4 +831,19 @@ module fpnew_cast_multi #(
   assign aux_o           = out_pipe_aux_q[NUM_OUT_REGS];
   assign out_valid_o     = out_pipe_valid_q[NUM_OUT_REGS];
   assign busy_o          = (| {inp_pipe_valid_q, mid_pipe_valid_q, out_pipe_valid_q});
+
+  // Early valid_o signal. This is used for dispatching instructions for dual-issue processor.
+  if (NUM_OUT_REGS > 0) begin
+    assign early_out_valid_o = |{out_pipe_valid_q[NUM_OUT_REGS] & ~out_pipe_ready[NUM_OUT_REGS],
+                                 out_pipe_valid_q[NUM_OUT_REGS-1]};
+  end else if (NUM_MID_REGS > 0) begin
+    assign early_out_valid_o = |{mid_pipe_valid_q[NUM_MID_REGS] & ~mid_pipe_ready[NUM_OUT_REGS],
+                                 mid_pipe_valid_q[NUM_MID_REGS-1]};
+  end else if (NUM_INP_REGS > 0) begin
+    assign early_out_valid_o = |{inp_pipe_valid_q[NUM_INP_REGS] & ~inp_pipe_ready[NUM_INP_REGS],
+                                 inp_pipe_valid_q[NUM_INP_REGS-1]};
+  end else begin
+    assign early_out_valid_o = 1'b0;
+  end
+
 endmodule

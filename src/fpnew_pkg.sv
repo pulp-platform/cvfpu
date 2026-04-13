@@ -151,7 +151,8 @@ package fpnew_pkg;
     SGNJ, MINMAX, CMP, CLASSIFY, // NONCOMP operation group
     F2F, F2I, I2F, CPKAB, CPKCD, // CONV operation group
     SDOTP, EXVSUM, VSUM,         // DOTP operation group
-    MXDOTPF, MXDOTPI             // MXDOTP operation group
+    MXDOTPF, MXDOTPI,            // MXDOTP operation group
+    ADDS                         // ADDMUL operation group (appended to preserve existing pulp op encodings)
   } operation_e;
 
   // -------------
@@ -460,13 +461,13 @@ package fpnew_pkg;
   // Returns the operation group of the given operation
   function automatic opgroup_e get_opgroup(operation_e op);
     unique case (op)
-      FMADD, FNMSUB, ADD, MUL:     return ADDMUL;
-      DIV, SQRT:                   return DIVSQRT;
-      SGNJ, MINMAX, CMP, CLASSIFY: return NONCOMP;
-      F2F, F2I, I2F, CPKAB, CPKCD: return CONV;
-      SDOTP, EXVSUM, VSUM:         return DOTP;
-      MXDOTPF, MXDOTPI:            return MXDOTP;
-      default:                     return NONCOMP;
+      FMADD, FNMSUB, ADD, ADDS, MUL: return ADDMUL;
+      DIV, SQRT:                     return DIVSQRT;
+      SGNJ, MINMAX, CMP, CLASSIFY:   return NONCOMP;
+      F2F, F2I, I2F, CPKAB, CPKCD:   return CONV;
+      SDOTP, EXVSUM, VSUM:           return DOTP;
+      MXDOTPF, MXDOTPI:              return MXDOTP;
+      default:                       return NONCOMP;
     endcase
   endfunction
 
