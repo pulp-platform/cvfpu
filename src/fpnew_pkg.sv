@@ -13,7 +13,7 @@
 
 // Author: Stefan Mach <smach@iis.ee.ethz.ch>
 
-package fpnew_pkg;
+package quadrilatero_fpnew_pkg;
 
   // ---------
   // FP TYPES

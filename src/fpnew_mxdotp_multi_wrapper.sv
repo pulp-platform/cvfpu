@@ -17,15 +17,15 @@ module fpnew_mxdotp_multi_wrapper
   import fpnew_mxdotp_multi_pkg::*;
 #(
   parameter int unsigned             LaneWidth       = 64,
-  parameter fpnew_pkg::fmt_logic_t   FpSrcFmtConfig  = '1,  // Supported FP source formats (FP8, FP8ALT, FP6, FP6ALT, FP4)
-  parameter fpnew_pkg::ifmt_logic_t  IntSrcFmtConfig = '1,  // Supported INT formats (INT8)
-  parameter fpnew_pkg::fmt_logic_t   FpDstFmtConfig  = '1,  // Supported FP destination formats (FP32, FP16ALT)
+  parameter quadrilatero_fpnew_pkg::fmt_logic_t   FpSrcFmtConfig  = '1,  // Supported FP source formats (FP8, FP8ALT, FP6, FP6ALT, FP4)
+  parameter quadrilatero_fpnew_pkg::ifmt_logic_t  IntSrcFmtConfig = '1,  // Supported INT formats (INT8)
+  parameter quadrilatero_fpnew_pkg::fmt_logic_t   FpDstFmtConfig  = '1,  // Supported FP destination formats (FP32, FP16ALT)
   parameter int unsigned             Unroll          = 8,   // Unroll factor for FP6 extended operands, possible values: 1, 2, 4, 8
   parameter int unsigned             NumPipeRegs     = 4,
-  parameter fpnew_pkg::pipe_config_t PipeConfig      = fpnew_pkg::BEFORE,
+  parameter quadrilatero_fpnew_pkg::pipe_config_t PipeConfig      = quadrilatero_fpnew_pkg::BEFORE,
   parameter type                     TagType         = logic,
   parameter type                     AuxType         = logic,
-  parameter fpnew_pkg::rsr_impl_t    StochasticRndImplementation = fpnew_pkg::DEFAULT_NO_RSR,
+  parameter quadrilatero_fpnew_pkg::rsr_impl_t    StochasticRndImplementation = quadrilatero_fpnew_pkg::DEFAULT_NO_RSR,
   // Do not change
   localparam int                     OPERAND_WIDTH    = LaneWidth,
   localparam int                     UNROLL_IDX_WIDTH = (Unroll > 1) ? $clog2(Unroll) : 1
@@ -35,12 +35,12 @@ module fpnew_mxdotp_multi_wrapper
   // Input signals
   input logic [2:0][OPERAND_WIDTH-1:0] operands_i, // 3 operands
   input logic [NUM_FORMATS-1:0][2:0]   is_boxed_i, // 3 operands
-  input fpnew_pkg::roundmode_e         rnd_mode_i,
-  input fpnew_pkg::operation_e         op_i,
+  input quadrilatero_fpnew_pkg::roundmode_e         rnd_mode_i,
+  input quadrilatero_fpnew_pkg::operation_e         op_i,
   input logic                          op_mod_i,
-  input fpnew_pkg::fp_format_e         src_fmt_i,
-  input fpnew_pkg::int_format_e        int_fmt_i,
-  input fpnew_pkg::fp_format_e         dst_fmt_i,
+  input quadrilatero_fpnew_pkg::fp_format_e         src_fmt_i,
+  input quadrilatero_fpnew_pkg::int_format_e        int_fmt_i,
+  input quadrilatero_fpnew_pkg::fp_format_e         dst_fmt_i,
   input TagType                        tag_i,
   input logic                          mask_i,
   input AuxType                        aux_i,
@@ -50,7 +50,7 @@ module fpnew_mxdotp_multi_wrapper
   input  logic                         flush_i,
   // Output signals
   output logic [OPERAND_WIDTH-1:0]     result_o,
-  output fpnew_pkg::status_t           status_o,
+  output quadrilatero_fpnew_pkg::status_t           status_o,
   output logic                         extension_bit_o,
   output TagType                       tag_o,
   output logic                         mask_o,
@@ -78,7 +78,7 @@ module fpnew_mxdotp_multi_wrapper
   // Extended operands for FP6
   // -------------------------
 
-  if (FpSrcFmtConfig[fpnew_pkg::FP6] || FpSrcFmtConfig[fpnew_pkg::FP6ALT]) begin : gen_fp6_operands
+  if (FpSrcFmtConfig[quadrilatero_fpnew_pkg::FP6] || FpSrcFmtConfig[quadrilatero_fpnew_pkg::FP6ALT]) begin : gen_fp6_operands
 
     typedef enum logic [1:0] {
       STEP0 = 2'b00,
@@ -116,7 +116,7 @@ module fpnew_mxdotp_multi_wrapper
       local_src_fmt_operand_a_rem = '0;
       local_src_fmt_operand_b_rem = '0;
 
-      if (src_fmt_i == fpnew_pkg::FP6 || src_fmt_i == fpnew_pkg::FP6ALT) begin
+      if (src_fmt_i == quadrilatero_fpnew_pkg::FP6 || src_fmt_i == quadrilatero_fpnew_pkg::FP6ALT) begin
         if (step == STEP0) begin
           local_src_fmt_operand_a = {4'b0000, operands_i[0][59:0]};
           local_fp6_stores[0]     = operands_i[0][63:60];
@@ -180,8 +180,8 @@ module fpnew_mxdotp_multi_wrapper
   // NaN-boxing check
   for (genvar fmt = 0; fmt < int'(NUM_FORMATS); fmt++) begin : gen_nanbox
 
-    localparam int unsigned FP_WIDTH         = fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(fmt));
-    localparam int unsigned FP_WIDTH_DST_MIN = fpnew_pkg::minimum(DST_WIDTH, FP_WIDTH);
+    localparam int unsigned FP_WIDTH         = quadrilatero_fpnew_pkg::fp_width(quadrilatero_fpnew_pkg::fp_format_e'(fmt));
+    localparam int unsigned FP_WIDTH_DST_MIN = quadrilatero_fpnew_pkg::minimum(DST_WIDTH, FP_WIDTH);
 
     always_comb begin : nanbox
       local_src_fmt_operand_d[fmt] = '1;
@@ -207,12 +207,15 @@ module fpnew_mxdotp_multi_wrapper
   ) i_fpnew_mxdotp_multi (
     .clk_i,
     .rst_ni,
+    .flush_i,
+    // -------
     .operands_a_i ( local_src_fmt_operand_a ),
     .operands_b_i ( local_src_fmt_operand_b ),
     .operands_a_fp6_rem_i ( local_src_fmt_operand_a_rem ),
     .operands_b_fp6_rem_i ( local_src_fmt_operand_b_rem ),
     .operands_c_i ( local_src_fmt_operand_c            ),
     .operand_d_i  ( local_src_fmt_operand_d[dst_fmt_i] ),
+    // --------
     .is_boxed_i   ( local_is_boxed                     ),
     .rnd_mode_i,
     .op_i,
@@ -225,7 +228,6 @@ module fpnew_mxdotp_multi_wrapper
     .aux_i,
     .in_valid_i,
     .in_ready_o,
-    .flush_i,
     .result_o     ( local_result[DST_WIDTH-1:0] ),
     .status_o,
     .extension_bit_o,

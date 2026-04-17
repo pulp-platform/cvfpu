@@ -19,11 +19,11 @@ module fpnew_mxdotp_multi
   import fpnew_mxdotp_multi_pkg::*;
 #(
   // By default, all MX formats are enabled for the source and FP32 and FP16ALT are enabled for the destination.
-  parameter fpnew_pkg::fmt_logic_t   FpSrcFmtConfig  = MxdotpSrcFpFmtConfig,
-  parameter fpnew_pkg::ifmt_logic_t  IntSrcFmtConfig = MxdotpSrcIntFmtConfig,
-  parameter fpnew_pkg::fmt_logic_t   FpDstFmtConfig  = MxdotpDstFpFmtConfig,
+  parameter quadrilatero_fpnew_pkg::fmt_logic_t   FpSrcFmtConfig  = MxdotpSrcFpFmtConfig,
+  parameter quadrilatero_fpnew_pkg::ifmt_logic_t  IntSrcFmtConfig = MxdotpSrcIntFmtConfig,
+  parameter quadrilatero_fpnew_pkg::fmt_logic_t   FpDstFmtConfig  = MxdotpDstFpFmtConfig,
   parameter int unsigned             NumPipeRegs = 4,
-  parameter fpnew_pkg::pipe_config_t PipeConfig  = fpnew_pkg::BEFORE,
+  parameter quadrilatero_fpnew_pkg::pipe_config_t PipeConfig  = quadrilatero_fpnew_pkg::BEFORE,
   parameter type                     TagType     = logic,
   parameter type                     AuxType     = logic
 ) (
@@ -37,12 +37,12 @@ module fpnew_mxdotp_multi
   input  logic [1:0][SCALE_WIDTH-1:0] operands_c_i, // 2 operands
   input  logic [DST_WIDTH-1:0]        operand_d_i, // 1 operand, accumulator
   input  logic [NUM_FORMATS-1:0][NUM_OPERANDS-1:0] is_boxed_i,
-  input  fpnew_pkg::roundmode_e       rnd_mode_i,
-  input  fpnew_pkg::operation_e       op_i,
+  input  quadrilatero_fpnew_pkg::roundmode_e       rnd_mode_i,
+  input  quadrilatero_fpnew_pkg::operation_e       op_i,
   input  logic                        op_mod_i,
-  input  fpnew_pkg::fp_format_e       src_fmt_i, // format of the multiplicands
-  input  fpnew_pkg::int_format_e      int_fmt_i, // format of the multiplicands if they are integers
-  input  fpnew_pkg::fp_format_e       dst_fmt_i, // format of the addend and result
+  input  quadrilatero_fpnew_pkg::fp_format_e       src_fmt_i, // format of the multiplicands
+  input  quadrilatero_fpnew_pkg::int_format_e      int_fmt_i, // format of the multiplicands if they are integers
+  input  quadrilatero_fpnew_pkg::fp_format_e       dst_fmt_i, // format of the addend and result
   input  TagType                      tag_i,
   input  logic                        mask_i,
   input  AuxType                      aux_i,
@@ -52,7 +52,7 @@ module fpnew_mxdotp_multi
   input  logic                        flush_i,
   // Output signals
   output logic [DST_WIDTH-1:0]        result_o,
-  output fpnew_pkg::status_t          status_o,
+  output quadrilatero_fpnew_pkg::status_t          status_o,
   output logic                        extension_bit_o,
   output TagType                      tag_o,
   output logic                        mask_o,
@@ -67,19 +67,19 @@ module fpnew_mxdotp_multi
   // ----------------
   // Pipeline stages
   // ----------------
-  localparam int unsigned NUM_INP_REGS = PipeConfig == fpnew_pkg::BEFORE
+  localparam int unsigned NUM_INP_REGS = PipeConfig == quadrilatero_fpnew_pkg::BEFORE
                                          ? NumPipeRegs
-                                         : (PipeConfig == fpnew_pkg::DISTRIBUTED
+                                         : (PipeConfig == quadrilatero_fpnew_pkg::DISTRIBUTED
                                             ? ((NumPipeRegs + 1) / 3)
                                             : 0);
-  localparam int unsigned NUM_MID_REGS = PipeConfig == fpnew_pkg::INSIDE
+  localparam int unsigned NUM_MID_REGS = PipeConfig == quadrilatero_fpnew_pkg::INSIDE
                                          ? NumPipeRegs
-                                         : (PipeConfig == fpnew_pkg::DISTRIBUTED
+                                         : (PipeConfig == quadrilatero_fpnew_pkg::DISTRIBUTED
                                             ? ((NumPipeRegs + 2) / 3)
                                             : 0);
-  localparam int unsigned NUM_OUT_REGS = PipeConfig == fpnew_pkg::AFTER
+  localparam int unsigned NUM_OUT_REGS = PipeConfig == quadrilatero_fpnew_pkg::AFTER
                                          ? NumPipeRegs
-                                         : (PipeConfig == fpnew_pkg::DISTRIBUTED
+                                         : (PipeConfig == quadrilatero_fpnew_pkg::DISTRIBUTED
                                             ? (NumPipeRegs / 3)
                                             : 0);
 
@@ -87,16 +87,16 @@ module fpnew_mxdotp_multi
   // Config-dependent derived localparams
   // -----------------------------------------
   // Computed from module parameters instead of package constants
-  localparam int unsigned FP6_VECTOR_SIZE = ((FpSrcFmtConfig[fpnew_pkg::FP6] || FpSrcFmtConfig[fpnew_pkg::FP6ALT]) == 1) ?
-                                            (((FpSrcFmtConfig[fpnew_pkg::FP8] || FpSrcFmtConfig[fpnew_pkg::FP8ALT]) == 1) ? 3 : 11) : 0;
-  localparam int unsigned FP4_VECTOR_SIZE = (FpSrcFmtConfig[fpnew_pkg::FP4] == 1) ?
-                                            (((FpSrcFmtConfig[fpnew_pkg::FP8] || FpSrcFmtConfig[fpnew_pkg::FP8ALT]) == 1) ?
-                                            (((FpSrcFmtConfig[fpnew_pkg::FP6] || FpSrcFmtConfig[fpnew_pkg::FP6ALT]) == 1) ? 5 : 8) : 16) : 0;
+  localparam int unsigned FP6_VECTOR_SIZE = ((FpSrcFmtConfig[quadrilatero_fpnew_pkg::FP6] || FpSrcFmtConfig[quadrilatero_fpnew_pkg::FP6ALT]) == 1) ?
+                                            (((FpSrcFmtConfig[quadrilatero_fpnew_pkg::FP8] || FpSrcFmtConfig[quadrilatero_fpnew_pkg::FP8ALT]) == 1) ? 3 : 11) : 0;
+  localparam int unsigned FP4_VECTOR_SIZE = (FpSrcFmtConfig[quadrilatero_fpnew_pkg::FP4] == 1) ?
+                                            (((FpSrcFmtConfig[quadrilatero_fpnew_pkg::FP8] || FpSrcFmtConfig[quadrilatero_fpnew_pkg::FP8ALT]) == 1) ?
+                                            (((FpSrcFmtConfig[quadrilatero_fpnew_pkg::FP6] || FpSrcFmtConfig[quadrilatero_fpnew_pkg::FP6ALT]) == 1) ? 5 : 8) : 16) : 0;
 
-  localparam int unsigned INT_SUPER_BITS = fpnew_pkg::max_int_width(IntSrcFmtConfig);
+  localparam int unsigned INT_SUPER_BITS = quadrilatero_fpnew_pkg::max_int_width(IntSrcFmtConfig);
 
   // FP8/INT8 Lane configuration
-  localparam int unsigned PROD_BITS = fpnew_pkg::maximum(2*INT_SUPER_BITS, 2*PRECISION_BITS+1); // +1 for the sign bit in FP8 product
+  localparam int unsigned PROD_BITS = quadrilatero_fpnew_pkg::maximum(2*INT_SUPER_BITS, 2*PRECISION_BITS+1); // +1 for the sign bit in FP8 product
 
   localparam int unsigned FP6_SUM_WIDTH = $clog2(FP6_VECTOR_SIZE) + FP6_PROD_SHIFT_WIDTH;
   localparam int unsigned FP4_SUM_WIDTH = $clog2(FP4_VECTOR_SIZE) + FP4_PROD_SHIFT_WIDTH;
@@ -111,9 +111,9 @@ module fpnew_mxdotp_multi
   logic [1:0] operands_b_fp6_rem_q;
   logic [1:0][SCALE_WIDTH-1:0] operands_c_q;
   logic [DST_WIDTH-1:0] operand_d_q;
-  fpnew_pkg::fp_format_e src_fmt_q;
-  fpnew_pkg::int_format_e int_fmt_q;
-  fpnew_pkg::fp_format_e dst_fmt_q;
+  quadrilatero_fpnew_pkg::fp_format_e src_fmt_q;
+  quadrilatero_fpnew_pkg::int_format_e int_fmt_q;
+  quadrilatero_fpnew_pkg::fp_format_e dst_fmt_q;
 
   // Input pipeline signals, index i holds signal after i register stages
   logic                   [0:NUM_INP_REGS][VectorSize-1:0][SRC_WIDTH-1:0]   inp_pipe_operands_a_q;
@@ -123,12 +123,12 @@ module fpnew_mxdotp_multi
   logic                   [0:NUM_INP_REGS][1:0][SCALE_WIDTH-1:0] inp_pipe_operands_c_q;
   logic                   [0:NUM_INP_REGS][DST_WIDTH-1:0]        inp_pipe_operand_d_q;
   logic                   [0:NUM_INP_REGS][NUM_FORMATS-1:0][NUM_OPERANDS-1:0] inp_pipe_is_boxed_q;
-  fpnew_pkg::roundmode_e  [0:NUM_INP_REGS]                       inp_pipe_rnd_mode_q;
-  fpnew_pkg::operation_e  [0:NUM_INP_REGS]                       inp_pipe_op_q;
+  quadrilatero_fpnew_pkg::roundmode_e  [0:NUM_INP_REGS]                       inp_pipe_rnd_mode_q;
+  quadrilatero_fpnew_pkg::operation_e  [0:NUM_INP_REGS]                       inp_pipe_op_q;
   logic                   [0:NUM_INP_REGS]                       inp_pipe_op_mod_q;
-  fpnew_pkg::fp_format_e  [0:NUM_INP_REGS]                       inp_pipe_src_fmt_q;
-  fpnew_pkg::int_format_e [0:NUM_INP_REGS]                       inp_pipe_int_fmt_q;
-  fpnew_pkg::fp_format_e  [0:NUM_INP_REGS]                       inp_pipe_dst_fmt_q;
+  quadrilatero_fpnew_pkg::fp_format_e  [0:NUM_INP_REGS]                       inp_pipe_src_fmt_q;
+  quadrilatero_fpnew_pkg::int_format_e [0:NUM_INP_REGS]                       inp_pipe_int_fmt_q;
+  quadrilatero_fpnew_pkg::fp_format_e  [0:NUM_INP_REGS]                       inp_pipe_dst_fmt_q;
   TagType                 [0:NUM_INP_REGS]                       inp_pipe_tag_q;
   logic                   [0:NUM_INP_REGS]                       inp_pipe_mask_q;
   AuxType                 [0:NUM_INP_REGS]                       inp_pipe_aux_q;
@@ -176,12 +176,12 @@ module fpnew_mxdotp_multi
     `FFL(inp_pipe_operands_c_q[i+1],   inp_pipe_operands_c_q[i],   reg_ena, '0)
     `FFL(inp_pipe_operand_d_q[i+1],    inp_pipe_operand_d_q[i],    reg_ena, '0)
     `FFL(inp_pipe_is_boxed_q[i+1],     inp_pipe_is_boxed_q[i],     reg_ena, '0)
-    `FFL(inp_pipe_rnd_mode_q[i+1],     inp_pipe_rnd_mode_q[i],     reg_ena, fpnew_pkg::RNE)
-    `FFL(inp_pipe_op_q[i+1],           inp_pipe_op_q[i],           reg_ena, fpnew_pkg::MXDOTPF)
+    `FFL(inp_pipe_rnd_mode_q[i+1],     inp_pipe_rnd_mode_q[i],     reg_ena, quadrilatero_fpnew_pkg::RNE)
+    `FFL(inp_pipe_op_q[i+1],           inp_pipe_op_q[i],           reg_ena, quadrilatero_fpnew_pkg::MXDOTPF)
     `FFL(inp_pipe_op_mod_q[i+1],       inp_pipe_op_mod_q[i],       reg_ena, '0)
-    `FFL(inp_pipe_src_fmt_q[i+1],      inp_pipe_src_fmt_q[i],      reg_ena, fpnew_pkg::fp_format_e'(0))
-    `FFL(inp_pipe_int_fmt_q[i+1],      inp_pipe_int_fmt_q[i],      reg_ena, fpnew_pkg::int_format_e'(0))
-    `FFL(inp_pipe_dst_fmt_q[i+1],      inp_pipe_dst_fmt_q[i],      reg_ena, fpnew_pkg::fp_format_e'(0))
+    `FFL(inp_pipe_src_fmt_q[i+1],      inp_pipe_src_fmt_q[i],      reg_ena, quadrilatero_fpnew_pkg::fp_format_e'(0))
+    `FFL(inp_pipe_int_fmt_q[i+1],      inp_pipe_int_fmt_q[i],      reg_ena, quadrilatero_fpnew_pkg::int_format_e'(0))
+    `FFL(inp_pipe_dst_fmt_q[i+1],      inp_pipe_dst_fmt_q[i],      reg_ena, quadrilatero_fpnew_pkg::fp_format_e'(0))
     `FFL(inp_pipe_tag_q[i+1],          inp_pipe_tag_q[i],          reg_ena, TagType'('0))
     `FFL(inp_pipe_mask_q[i+1],         inp_pipe_mask_q[i],         reg_ena, '0)
     `FFL(inp_pipe_aux_q[i+1],          inp_pipe_aux_q[i],          reg_ena, AuxType'('0))
@@ -211,7 +211,7 @@ module fpnew_mxdotp_multi
     flat_operands_a_q = operands_a_q;
     flat_operands_b_q = operands_b_q;
     // TODO: FP6 and FP4 without FP8
-    if (src_fmt_q == fpnew_pkg::FP6 || src_fmt_q == fpnew_pkg::FP6ALT) begin
+    if (src_fmt_q == quadrilatero_fpnew_pkg::FP6 || src_fmt_q == quadrilatero_fpnew_pkg::FP6ALT) begin
       for (int i = 0; i < FP6_VECTOR_SIZE; i++) begin // Last 3 elements use FP6 datapath
         fp6_operands_post_inp_pipe[i] = {{(SRC_WIDTH-6){1'b0}}, flat_operands_a_q[(48+i*6) +: 6]};
         fp6_operands_post_inp_pipe[i+FP6_VECTOR_SIZE] = {{(SRC_WIDTH-6){1'b0}}, flat_operands_b_q[(48+i*6) +: 6]};
@@ -224,7 +224,7 @@ module fpnew_mxdotp_multi
         operands_post_inp_pipe[i] = {{(SRC_WIDTH-6){1'b0}}, flat_operands_a_q[(i*6) +: 6]};
         operands_post_inp_pipe[i+VectorSize] = {{(SRC_WIDTH-6){1'b0}}, flat_operands_b_q[(i*6) +: 6]};
       end
-    end else if (src_fmt_q == fpnew_pkg::FP4) begin
+    end else if (src_fmt_q == quadrilatero_fpnew_pkg::FP4) begin
       for (int i = 0; i < VectorSize; i++) begin
         if (i < FP6_VECTOR_SIZE) begin // First 3 elements use FP6 datapath
           fp6_operands_post_inp_pipe[i] = {{(SRC_WIDTH-4){1'b0}}, operands_a_q[i][7:4]};
@@ -242,20 +242,20 @@ module fpnew_mxdotp_multi
   // -----------------
   logic src_is_int; // if 0, it's a float
 
-  assign src_is_int = (inp_pipe_op_q[NUM_INP_REGS] == fpnew_pkg::MXDOTPI);
+  assign src_is_int = (inp_pipe_op_q[NUM_INP_REGS] == quadrilatero_fpnew_pkg::MXDOTPI);
 
   fp_src_t [VectorSize-1:0] operands_a, operands_b;
   logic signed [1:0][SCALE_WIDTH-1:0] operands_c;
   fp_dst_t             operand_d;
-  fpnew_pkg::fp_info_t [VectorSize-1:0] info_a, info_b;
-  fpnew_pkg::fp_info_t [1:0] info_c;
-  fpnew_pkg::fp_info_t info_d;
+  quadrilatero_fpnew_pkg::fp_info_t [VectorSize-1:0] info_a, info_b;
+  quadrilatero_fpnew_pkg::fp_info_t [1:0] info_c;
+  quadrilatero_fpnew_pkg::fp_info_t info_d;
 
   fp6_src_t [FP6_VECTOR_SIZE-1:0] fp6_operands_a, fp6_operands_b;
-  fpnew_pkg::fp_info_t [FP6_VECTOR_SIZE-1:0] fp6_info_a, fp6_info_b;
+  quadrilatero_fpnew_pkg::fp_info_t [FP6_VECTOR_SIZE-1:0] fp6_info_a, fp6_info_b;
 
   fp4_src_t [FP4_VECTOR_SIZE-1:0] fp4_operands_a, fp4_operands_b;
-  fpnew_pkg::fp_info_t [FP4_VECTOR_SIZE-1:0] fp4_info_a, fp4_info_b;
+  quadrilatero_fpnew_pkg::fp_info_t [FP4_VECTOR_SIZE-1:0] fp4_info_a, fp4_info_b;
 
   fpnew_mxdotp_classifier #(
     .FpSrcFmtConfig ( FpSrcFmtConfig ),
@@ -297,11 +297,11 @@ module fpnew_mxdotp_multi
   // ---------------------
 
   logic [DST_WIDTH-1:0] special_result;
-  fpnew_pkg::status_t   special_status;
+  quadrilatero_fpnew_pkg::status_t   special_status;
   logic                 result_is_special;
 
   // Inf and NaN do not exists in FP6 and FP4 formats
-  if (FpSrcFmtConfig[fpnew_pkg::FP8] || FpSrcFmtConfig[fpnew_pkg::FP8ALT]) begin : special_case_handling
+  if (FpSrcFmtConfig[quadrilatero_fpnew_pkg::FP8] || FpSrcFmtConfig[quadrilatero_fpnew_pkg::FP8ALT]) begin : special_case_handling
     fpnew_mxdotp_special_cases #(
       .FpDstFmtConfig ( FpDstFmtConfig )
     ) i_special_cases (
@@ -320,7 +320,7 @@ module fpnew_mxdotp_multi
     );
   end else begin : no_special_case_handling
     assign special_result = '0;
-    assign special_status = fpnew_pkg::status_t'(0);
+    assign special_status = quadrilatero_fpnew_pkg::status_t'(0);
     assign result_is_special = 1'b0;
   end
 
@@ -342,7 +342,7 @@ module fpnew_mxdotp_multi
   logic signed [FP6_VECTOR_SIZE-1:0][2*FP6_PREC_BITS:0] fp6_product_signed;  // two's complement product, +1 for sign bit
   logic signed [FP4_VECTOR_SIZE-1:0][2*FP4_PREC_BITS:0] fp4_product_signed;  // two's complement product, +1 for sign bit
 
-  if (IntSrcFmtConfig[fpnew_pkg::INT8]) begin : int8_multiplier
+  if (IntSrcFmtConfig[quadrilatero_fpnew_pkg::INT8]) begin : int8_multiplier
     fpnew_mxdotp_signed_vector_multiplier #(
       .SrcType(fp_src_t),
       .LocalVectorSize(VectorSize),
@@ -357,7 +357,7 @@ module fpnew_mxdotp_multi
       .info_b(info_b),
       .product_signed(product_signed)
     );
-  end else if (FpSrcFmtConfig[fpnew_pkg::FP8] || FpSrcFmtConfig[fpnew_pkg::FP8ALT]) begin : fp8_multiplier
+  end else if (FpSrcFmtConfig[quadrilatero_fpnew_pkg::FP8] || FpSrcFmtConfig[quadrilatero_fpnew_pkg::FP8ALT]) begin : fp8_multiplier
     fpnew_mxdotp_vector_multiplier #(
       .SrcType(fp_src_t),
       .LocalVectorSize(VectorSize),
@@ -373,7 +373,7 @@ module fpnew_mxdotp_multi
     assign product_signed = '0;
   end
 
-  if (FpSrcFmtConfig[fpnew_pkg::FP6] || FpSrcFmtConfig[fpnew_pkg::FP6ALT]) begin : fp6_multiplier
+  if (FpSrcFmtConfig[quadrilatero_fpnew_pkg::FP6] || FpSrcFmtConfig[quadrilatero_fpnew_pkg::FP6ALT]) begin : fp6_multiplier
     fpnew_mxdotp_vector_multiplier #(
       .SrcType(fp6_src_t),
       .LocalVectorSize(FP6_VECTOR_SIZE),
@@ -388,7 +388,7 @@ module fpnew_mxdotp_multi
   end else begin : no_fp6_multiplier
     assign fp6_product_signed = '0;
   end
-  if (FpSrcFmtConfig[fpnew_pkg::FP4]) begin : fp4_multiplier
+  if (FpSrcFmtConfig[quadrilatero_fpnew_pkg::FP4]) begin : fp4_multiplier
     fpnew_mxdotp_vector_multiplier #(
       .SrcType(fp4_src_t),
       .LocalVectorSize(FP4_VECTOR_SIZE),
@@ -411,11 +411,11 @@ module fpnew_mxdotp_multi
   logic signed [FP6_VECTOR_SIZE-1:0][FP6_PROD_SHIFT_WIDTH-1:0] fp6_shifted_product;
   logic signed [FP4_VECTOR_SIZE-1:0][FP4_PROD_SHIFT_WIDTH-1:0] fp4_shifted_product;
 
-  if (FpSrcFmtConfig[fpnew_pkg::FP8] || FpSrcFmtConfig[fpnew_pkg::FP8ALT]) begin : fp8_product_shifter
+  if (FpSrcFmtConfig[quadrilatero_fpnew_pkg::FP8] || FpSrcFmtConfig[quadrilatero_fpnew_pkg::FP8ALT]) begin : fp8_product_shifter
     fpnew_mxdotp_product_shifter #(
       .SrcType(fp_src_t),
       .LocalVectorSize(VectorSize),
-      .SrcFmt(fpnew_pkg::FP8), // TODO: For now, we assume that FP8 and FP8ALT are always enabled together
+      .SrcFmt(quadrilatero_fpnew_pkg::FP8), // TODO: For now, we assume that FP8 and FP8ALT are always enabled together
       .ProductBits(PROD_BITS),
       .ExpWidth(EXP_WIDTH),
       .OutputWidth(PROD_SHIFT_WIDTH)
@@ -434,11 +434,11 @@ module fpnew_mxdotp_multi
     assign shifted_product = '0;
   end
 
-  if (FpSrcFmtConfig[fpnew_pkg::FP6] || FpSrcFmtConfig[fpnew_pkg::FP6ALT]) begin : fp6_product_shifter
+  if (FpSrcFmtConfig[quadrilatero_fpnew_pkg::FP6] || FpSrcFmtConfig[quadrilatero_fpnew_pkg::FP6ALT]) begin : fp6_product_shifter
     fpnew_mxdotp_product_shifter #(
       .SrcType(fp6_src_t),
       .LocalVectorSize(FP6_VECTOR_SIZE),
-      .SrcFmt(fpnew_pkg::FP6), // TODO: For now, we assume that FP6 and FP6ALT are always enabled together
+      .SrcFmt(quadrilatero_fpnew_pkg::FP6), // TODO: For now, we assume that FP6 and FP6ALT are always enabled together
       .ProductBits(2*FP6_PREC_BITS+1),
       .ExpWidth(5),
       .OutputWidth(FP6_PROD_SHIFT_WIDTH)
@@ -456,11 +456,11 @@ module fpnew_mxdotp_multi
   end else begin : no_fp6_product_shifter
     assign fp6_shifted_product = '0;
   end
-  if (FpSrcFmtConfig[fpnew_pkg::FP4]) begin : fp4_product_shifter
+  if (FpSrcFmtConfig[quadrilatero_fpnew_pkg::FP4]) begin : fp4_product_shifter
     fpnew_mxdotp_product_shifter #(
       .SrcType(fp4_src_t),
       .LocalVectorSize(FP4_VECTOR_SIZE),
-      .SrcFmt(fpnew_pkg::FP4),
+      .SrcFmt(quadrilatero_fpnew_pkg::FP4),
       .ProductBits(2*FP4_PREC_BITS+1),
       .ExpWidth(3),
       .OutputWidth(FP4_PROD_SHIFT_WIDTH)
@@ -487,7 +487,7 @@ module fpnew_mxdotp_multi
   logic signed [FP4_SUM_WIDTH-1:0]   sum_product_fp4;
   logic signed [FIXED_SUM_WIDTH-1:0] sum_product;
 
-  if (FpSrcFmtConfig[fpnew_pkg::FP8] || FpSrcFmtConfig[fpnew_pkg::FP8ALT] || IntSrcFmtConfig[fpnew_pkg::INT8]) begin : fp8_adder_tree
+  if (FpSrcFmtConfig[quadrilatero_fpnew_pkg::FP8] || FpSrcFmtConfig[quadrilatero_fpnew_pkg::FP8ALT] || IntSrcFmtConfig[quadrilatero_fpnew_pkg::INT8]) begin : fp8_adder_tree
     fpnew_mxdotp_adder_tree #(
       .LocalVectorSize(VectorSize),
       .InputWidth(PROD_SHIFT_WIDTH),
@@ -500,7 +500,7 @@ module fpnew_mxdotp_multi
     assign sum_product_fp8 = '0;
   end
 
-  if (FpSrcFmtConfig[fpnew_pkg::FP6] || FpSrcFmtConfig[fpnew_pkg::FP6ALT]) begin : fp6_adder_tree
+  if (FpSrcFmtConfig[quadrilatero_fpnew_pkg::FP6] || FpSrcFmtConfig[quadrilatero_fpnew_pkg::FP6ALT]) begin : fp6_adder_tree
     fpnew_mxdotp_adder_tree #(
       .LocalVectorSize(FP6_VECTOR_SIZE),
       .InputWidth(FP6_PROD_SHIFT_WIDTH),
@@ -512,7 +512,7 @@ module fpnew_mxdotp_multi
   end else begin : no_fp6_adder_tree
     assign sum_product_fp6 = '0;
   end
-  if (FpSrcFmtConfig[fpnew_pkg::FP4]) begin : fp4_adder_tree
+  if (FpSrcFmtConfig[quadrilatero_fpnew_pkg::FP4]) begin : fp4_adder_tree
     fpnew_mxdotp_adder_tree #(
       .LocalVectorSize(FP4_VECTOR_SIZE),
       .InputWidth(FP4_PROD_SHIFT_WIDTH),
@@ -543,22 +543,22 @@ module fpnew_mxdotp_multi
   logic signed [FIXED_SUM_WIDTH-1:0] sum_product_q;
   logic [SCALE_WIDTH:0]              scale_q2;
   fp_dst_t                           operand_d_q2;
-  fpnew_pkg::fp_info_t               info_d_q;
-  fpnew_pkg::fp_format_e             dst_fmt_q2;
-  fpnew_pkg::roundmode_e             rnd_mode_q;
+  quadrilatero_fpnew_pkg::fp_info_t               info_d_q;
+  quadrilatero_fpnew_pkg::fp_format_e             dst_fmt_q2;
+  quadrilatero_fpnew_pkg::roundmode_e             rnd_mode_q;
   logic                              result_is_special_q;
   logic [DST_WIDTH-1:0]              special_result_q;
-  fpnew_pkg::status_t                special_status_q;
+  quadrilatero_fpnew_pkg::status_t                special_status_q;
   // Internal pipeline signals, index i holds signal after i register stages
   logic signed           [0:NUM_MID_REGS][FIXED_SUM_WIDTH-1:0]    mid_pipe_sum_product_q;
   logic                  [0:NUM_MID_REGS][SCALE_WIDTH:0]          mid_pipe_scale_q;
   fp_dst_t               [0:NUM_MID_REGS]                         mid_pipe_operand_d_q;
-  fpnew_pkg::fp_info_t   [0:NUM_MID_REGS]                         mid_pipe_info_d_q;
-  fpnew_pkg::fp_format_e [0:NUM_MID_REGS]                         mid_pipe_dst_fmt_q;
-  fpnew_pkg::roundmode_e [0:NUM_MID_REGS]                         mid_pipe_rnd_mode_q;
+  quadrilatero_fpnew_pkg::fp_info_t   [0:NUM_MID_REGS]                         mid_pipe_info_d_q;
+  quadrilatero_fpnew_pkg::fp_format_e [0:NUM_MID_REGS]                         mid_pipe_dst_fmt_q;
+  quadrilatero_fpnew_pkg::roundmode_e [0:NUM_MID_REGS]                         mid_pipe_rnd_mode_q;
   logic                  [0:NUM_MID_REGS]                         mid_pipe_res_is_spec_q;
   logic                  [0:NUM_MID_REGS][DST_WIDTH-1:0]          mid_pipe_spec_res_q;
-  fpnew_pkg::status_t    [0:NUM_MID_REGS]                         mid_pipe_spec_stat_q;
+  quadrilatero_fpnew_pkg::status_t    [0:NUM_MID_REGS]                         mid_pipe_spec_stat_q;
   TagType                [0:NUM_MID_REGS]                         mid_pipe_tag_q;
   logic                  [0:NUM_MID_REGS]                         mid_pipe_mask_q;
   AuxType                [0:NUM_MID_REGS]                         mid_pipe_aux_q;
@@ -600,8 +600,8 @@ module fpnew_mxdotp_multi
     `FFL(mid_pipe_scale_q[i+1],       mid_pipe_scale_q[i],       reg_ena, '0)
     `FFL(mid_pipe_operand_d_q[i+1],   mid_pipe_operand_d_q[i],   reg_ena, '0)
     `FFL(mid_pipe_info_d_q[i+1],      mid_pipe_info_d_q[i],      reg_ena, '0)
-    `FFL(mid_pipe_dst_fmt_q[i+1],     mid_pipe_dst_fmt_q[i],     reg_ena, fpnew_pkg::fp_format_e'(0))
-    `FFL(mid_pipe_rnd_mode_q[i+1],    mid_pipe_rnd_mode_q[i],    reg_ena, fpnew_pkg::RNE)
+    `FFL(mid_pipe_dst_fmt_q[i+1],     mid_pipe_dst_fmt_q[i],     reg_ena, quadrilatero_fpnew_pkg::fp_format_e'(0))
+    `FFL(mid_pipe_rnd_mode_q[i+1],    mid_pipe_rnd_mode_q[i],    reg_ena, quadrilatero_fpnew_pkg::RNE)
     `FFL(mid_pipe_res_is_spec_q[i+1], mid_pipe_res_is_spec_q[i], reg_ena, '0)
     `FFL(mid_pipe_spec_res_q[i+1],    mid_pipe_spec_res_q[i],    reg_ena, '0)
     `FFL(mid_pipe_spec_stat_q[i+1],   mid_pipe_spec_stat_q[i],   reg_ena, '0)
@@ -720,8 +720,8 @@ module fpnew_mxdotp_multi
   // -----------------
   logic [DST_WIDTH-1:0] regular_result;
   logic [DST_WIDTH-1:0] accumulator_result;
-  fpnew_pkg::status_t   regular_status;
-  fpnew_pkg::status_t   accumulator_status;
+  quadrilatero_fpnew_pkg::status_t   regular_status;
+  quadrilatero_fpnew_pkg::status_t   accumulator_status;
 
   // Assemble regular result
   assign regular_result    = fmt_result[dst_fmt_q2];
@@ -738,12 +738,12 @@ module fpnew_mxdotp_multi
   assign accumulator_status.UF = 1'b0;
   assign accumulator_status.NX = (sum_product_q != '0);
 
-  assign accumulator_result = (dst_fmt_q2 == fpnew_pkg::FP16ALT) ? {16'hFFFF, operand_d_q2[31:16]} :
+  assign accumulator_result = (dst_fmt_q2 == quadrilatero_fpnew_pkg::FP16ALT) ? {16'hFFFF, operand_d_q2[31:16]} :
                               operand_d_q2;
 
   // Final results for output pipeline
   logic [DST_WIDTH-1:0] result_d;
-  fpnew_pkg::status_t   status_d;
+  quadrilatero_fpnew_pkg::status_t   status_d;
 
   // Select output depending on special case detection
   assign result_d = result_is_special_q ? special_result_q : (result_is_accumulator ? accumulator_result : regular_result);
@@ -754,7 +754,7 @@ module fpnew_mxdotp_multi
   // ----------------
   // Output pipeline signals, index i holds signal after i register stages
   logic               [0:NUM_OUT_REGS][DST_WIDTH-1:0] out_pipe_result_q;
-  fpnew_pkg::status_t [0:NUM_OUT_REGS]                out_pipe_status_q;
+  quadrilatero_fpnew_pkg::status_t [0:NUM_OUT_REGS]                out_pipe_status_q;
   TagType             [0:NUM_OUT_REGS]                out_pipe_tag_q;
   logic               [0:NUM_OUT_REGS]                out_pipe_mask_q;
   AuxType             [0:NUM_OUT_REGS]                out_pipe_aux_q;
