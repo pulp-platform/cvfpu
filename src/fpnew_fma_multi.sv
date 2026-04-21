@@ -29,12 +29,14 @@ module fpnew_fma_multi #(
   input  logic                        rst_ni,
   // Input signals
   input  logic [2:0][WIDTH-1:0]       operands_i, // 3 operands
+  output logic [WIDTH-1:0]            pace_operand_o, // bypassed operand for PACE
   input  logic [NUM_FORMATS-1:0][2:0] is_boxed_i, // 3 operands
   input  fpnew_pkg::roundmode_e       rnd_mode_i,
   input  fpnew_pkg::operation_e       op_i,
   input  logic                        op_mod_i,
   input  fpnew_pkg::fp_format_e       src_fmt_i, // format of the multiplicands
   input  fpnew_pkg::fp_format_e       dst_fmt_i, // format of the addend and result
+  output fpnew_pkg::fp_format_e       pace_fmt_o, // format of the addend and result
   input  TagType                      tag_i,
   input  logic                        mask_i,
   input  AuxType                      aux_i,
@@ -448,6 +450,7 @@ module fpnew_fma_multi #(
   fp_t                   [0:NUM_IM_EARLY_REGS]                         im_early_pipe_spec_res_q;
   fpnew_pkg::status_t    [0:NUM_IM_EARLY_REGS]                         im_early_pipe_spec_stat_q;
   fpnew_pkg::fp_format_e [0:NUM_IM_EARLY_REGS]                         im_early_pipe_dst_fmt_q;
+  logic                  [0:NUM_IM_EARLY_REGS][WIDTH-1:0]              im_early_pipe_pace_operand_q;
   TagType                [0:NUM_IM_EARLY_REGS]                         im_early_pipe_tag_q;
   logic                  [0:NUM_IM_EARLY_REGS]                         im_early_pipe_mask_q;
   AuxType                [0:NUM_IM_EARLY_REGS]                         im_early_pipe_aux_q;
@@ -470,6 +473,7 @@ module fpnew_fma_multi #(
   assign im_early_pipe_spec_res_q[0]       = special_result;
   assign im_early_pipe_spec_stat_q[0]      = special_status;
   assign im_early_pipe_dst_fmt_q[0]        = dst_fmt_q;
+  assign im_early_pipe_pace_operand_q[0]   = operands_q[1];
   assign im_early_pipe_tag_q[0]            = inp_pipe_tag_q[NUM_INP_REGS];
   assign im_early_pipe_mask_q[0]           = inp_pipe_mask_q[NUM_INP_REGS];
   assign im_early_pipe_aux_q[0]            = inp_pipe_aux_q[NUM_INP_REGS];
@@ -504,6 +508,7 @@ module fpnew_fma_multi #(
     `FFL(im_early_pipe_spec_res_q[i+1],       im_early_pipe_spec_res_q[i],       reg_ena, '0)
     `FFL(im_early_pipe_spec_stat_q[i+1],      im_early_pipe_spec_stat_q[i],      reg_ena, '0)
     `FFL(im_early_pipe_dst_fmt_q[i+1],        im_early_pipe_dst_fmt_q[i],        reg_ena, fpnew_pkg::fp_format_e'(0))
+    `FFL(im_early_pipe_pace_operand_q[i+1],   im_early_pipe_pace_operand_q[i],   reg_ena, '0)
     `FFL(im_early_pipe_tag_q[i+1],            im_early_pipe_tag_q[i],            reg_ena, TagType'('0))
     `FFL(im_early_pipe_mask_q[i+1],           im_early_pipe_mask_q[i],           reg_ena, '0)
     `FFL(im_early_pipe_aux_q[i+1],            im_early_pipe_aux_q[i],            reg_ena, AuxType'('0))
@@ -550,6 +555,7 @@ module fpnew_fma_multi #(
   fp_t                   [0:NUM_IM_LATE_REGS]                         im_late_pipe_spec_res_q;
   fpnew_pkg::status_t    [0:NUM_IM_LATE_REGS]                         im_late_pipe_spec_stat_q;
   fpnew_pkg::fp_format_e [0:NUM_IM_LATE_REGS]                         im_late_pipe_dst_fmt_q;
+  logic                  [0:NUM_IM_LATE_REGS][WIDTH-1:0]              im_late_pipe_pace_operand_q;
   TagType                [0:NUM_IM_LATE_REGS]                         im_late_pipe_tag_q;
   logic                  [0:NUM_IM_LATE_REGS]                         im_late_pipe_mask_q;
   AuxType                [0:NUM_IM_LATE_REGS]                         im_late_pipe_aux_q;
@@ -571,6 +577,7 @@ module fpnew_fma_multi #(
   assign im_late_pipe_spec_res_q[0]             = im_early_pipe_spec_res_q[NUM_IM_EARLY_REGS];
   assign im_late_pipe_spec_stat_q[0]            = im_early_pipe_spec_stat_q[NUM_IM_EARLY_REGS];
   assign im_late_pipe_dst_fmt_q[0]              = im_early_pipe_dst_fmt_q[NUM_IM_EARLY_REGS];
+  assign im_late_pipe_pace_operand_q[0]         = im_early_pipe_pace_operand_q[NUM_IM_EARLY_REGS];
   assign im_late_pipe_tag_q[0]                  = im_early_pipe_tag_q[NUM_IM_EARLY_REGS];
   assign im_late_pipe_mask_q[0]                 = im_early_pipe_mask_q[NUM_IM_EARLY_REGS];
   assign im_late_pipe_aux_q[0]                  = im_early_pipe_aux_q[NUM_IM_EARLY_REGS];
@@ -604,6 +611,7 @@ module fpnew_fma_multi #(
     `FFL(im_late_pipe_spec_res_q[i+1],        im_late_pipe_spec_res_q[i],        reg_ena, '0)
     `FFL(im_late_pipe_spec_stat_q[i+1],       im_late_pipe_spec_stat_q[i],       reg_ena, '0)
     `FFL(im_late_pipe_dst_fmt_q[i+1],         im_late_pipe_dst_fmt_q[i],         reg_ena, fpnew_pkg::fp_format_e'(0))
+    `FFL(im_late_pipe_pace_operand_q[i+1],    im_late_pipe_pace_operand_q[i],    reg_ena, '0)
     `FFL(im_late_pipe_tag_q[i+1],             im_late_pipe_tag_q[i],             reg_ena, TagType'('0))
     `FFL(im_late_pipe_mask_q[i+1],            im_late_pipe_mask_q[i],            reg_ena, '0)
     `FFL(im_late_pipe_aux_q[i+1],             im_late_pipe_aux_q[i],             reg_ena, AuxType'('0))
@@ -685,6 +693,7 @@ module fpnew_fma_multi #(
   logic                  [0:NUM_MID_REGS]                         mid_pipe_res_is_spec_q;
   fp_t                   [0:NUM_MID_REGS]                         mid_pipe_spec_res_q;
   fpnew_pkg::status_t    [0:NUM_MID_REGS]                         mid_pipe_spec_stat_q;
+  logic                  [0:NUM_MID_REGS][WIDTH-1:0]              mid_pipe_pace_operand_q;
   TagType                [0:NUM_MID_REGS]                         mid_pipe_tag_q;
   logic                  [0:NUM_MID_REGS]                         mid_pipe_mask_q;
   AuxType                [0:NUM_MID_REGS]                         mid_pipe_aux_q;
@@ -706,6 +715,7 @@ module fpnew_fma_multi #(
   assign mid_pipe_res_is_spec_q[0]            = im_late_pipe_res_is_spec_q[NUM_IM_LATE_REGS];
   assign mid_pipe_spec_res_q[0]               = im_late_pipe_spec_res_q[NUM_IM_LATE_REGS];
   assign mid_pipe_spec_stat_q[0]              = im_late_pipe_spec_stat_q[NUM_IM_LATE_REGS];
+  assign mid_pipe_pace_operand_q[0]           = im_late_pipe_pace_operand_q[NUM_IM_LATE_REGS];
   assign mid_pipe_tag_q[0]                    = im_late_pipe_tag_q[NUM_IM_LATE_REGS];
   assign mid_pipe_mask_q[0]                   = im_late_pipe_mask_q[NUM_IM_LATE_REGS];
   assign mid_pipe_aux_q[0]                    = im_late_pipe_aux_q[NUM_IM_LATE_REGS];
@@ -739,6 +749,7 @@ module fpnew_fma_multi #(
     `FFL(mid_pipe_res_is_spec_q[i+1],    mid_pipe_res_is_spec_q[i],    reg_ena, '0)
     `FFL(mid_pipe_spec_res_q[i+1],       mid_pipe_spec_res_q[i],       reg_ena, '0)
     `FFL(mid_pipe_spec_stat_q[i+1],      mid_pipe_spec_stat_q[i],      reg_ena, '0)
+    `FFL(mid_pipe_pace_operand_q[i+1],   mid_pipe_pace_operand_q[i],   reg_ena, '0)
     `FFL(mid_pipe_tag_q[i+1],            mid_pipe_tag_q[i],            reg_ena, TagType'('0))
     `FFL(mid_pipe_mask_q[i+1],           mid_pipe_mask_q[i],           reg_ena, '0)
     `FFL(mid_pipe_aux_q[i+1],            mid_pipe_aux_q[i],            reg_ena, AuxType'('0))
@@ -818,6 +829,7 @@ module fpnew_fma_multi #(
   fp_t                   [0:NUM_MO_EARLY_REGS]                         mo_early_pipe_spec_res_q;
   fpnew_pkg::status_t    [0:NUM_MO_EARLY_REGS]                         mo_early_pipe_spec_stat_q;
   fpnew_pkg::fp_format_e [0:NUM_MO_EARLY_REGS]                         mo_early_pipe_dst_fmt_q;
+  logic                  [0:NUM_MO_EARLY_REGS][WIDTH-1:0]              mo_early_pipe_pace_operand_q;
   TagType                [0:NUM_MO_EARLY_REGS]                         mo_early_pipe_tag_q;
   logic                  [0:NUM_MO_EARLY_REGS]                         mo_early_pipe_mask_q;
   AuxType                [0:NUM_MO_EARLY_REGS]                         mo_early_pipe_aux_q;
@@ -837,6 +849,7 @@ module fpnew_fma_multi #(
   assign mo_early_pipe_spec_res_q[0]            = mid_pipe_spec_res_q[NUM_MID_REGS];
   assign mo_early_pipe_spec_stat_q[0]           = mid_pipe_spec_stat_q[NUM_MID_REGS];
   assign mo_early_pipe_dst_fmt_q[0]             = mid_pipe_dst_fmt_q[NUM_MID_REGS];
+  assign mo_early_pipe_pace_operand_q[0]        = mid_pipe_pace_operand_q[NUM_MID_REGS];
   assign mo_early_pipe_tag_q[0]                 = mid_pipe_tag_q[NUM_MID_REGS];
   assign mo_early_pipe_mask_q[0]                = mid_pipe_mask_q[NUM_MID_REGS];
   assign mo_early_pipe_aux_q[0]                 = mid_pipe_aux_q[NUM_MID_REGS];
@@ -868,6 +881,7 @@ module fpnew_fma_multi #(
     `FFL(mo_early_pipe_spec_res_q[i+1],            mo_early_pipe_spec_res_q[i],            reg_ena, '0)
     `FFL(mo_early_pipe_spec_stat_q[i+1],           mo_early_pipe_spec_stat_q[i],           reg_ena, '0)
     `FFL(mo_early_pipe_dst_fmt_q[i+1],             mo_early_pipe_dst_fmt_q[i],             reg_ena, fpnew_pkg::fp_format_e'(0))
+    `FFL(mo_early_pipe_pace_operand_q[i+1],        mo_early_pipe_pace_operand_q[i],        reg_ena, '0)
     `FFL(mo_early_pipe_tag_q[i+1],                 mo_early_pipe_tag_q[i],                 reg_ena, TagType'('0))
     `FFL(mo_early_pipe_mask_q[i+1],                mo_early_pipe_mask_q[i],                reg_ena, '0)
     `FFL(mo_early_pipe_aux_q[i+1],                 mo_early_pipe_aux_q[i],                 reg_ena, AuxType'('0))
@@ -943,6 +957,7 @@ module fpnew_fma_multi #(
   fp_t                   [0:NUM_MO_LATE_REGS]                         mo_late_pipe_spec_res_q;
   fpnew_pkg::status_t    [0:NUM_MO_LATE_REGS]                         mo_late_pipe_spec_stat_q;
   fpnew_pkg::fp_format_e [0:NUM_MO_LATE_REGS]                         mo_late_pipe_dst_fmt_q;
+  logic                  [0:NUM_MO_LATE_REGS][WIDTH-1:0]              mo_late_pipe_pace_operand_q;
   TagType                [0:NUM_MO_LATE_REGS]                         mo_late_pipe_tag_q;
   logic                  [0:NUM_MO_LATE_REGS]                         mo_late_pipe_mask_q;
   AuxType                [0:NUM_MO_LATE_REGS]                         mo_late_pipe_aux_q;
@@ -961,6 +976,7 @@ module fpnew_fma_multi #(
   assign mo_late_pipe_spec_res_q[0]             = mo_early_pipe_spec_res_q[NUM_MO_EARLY_REGS];
   assign mo_late_pipe_spec_stat_q[0]            = mo_early_pipe_spec_stat_q[NUM_MO_EARLY_REGS];
   assign mo_late_pipe_dst_fmt_q[0]              = mo_early_pipe_dst_fmt_q[NUM_MO_EARLY_REGS];
+  assign mo_late_pipe_pace_operand_q[0]         = mo_early_pipe_pace_operand_q[NUM_MO_EARLY_REGS];
   assign mo_late_pipe_tag_q[0]                  = mo_early_pipe_tag_q[NUM_MO_EARLY_REGS];
   assign mo_late_pipe_mask_q[0]                 = mo_early_pipe_mask_q[NUM_MO_EARLY_REGS];
   assign mo_late_pipe_aux_q[0]                  = mo_early_pipe_aux_q[NUM_MO_EARLY_REGS];
@@ -991,6 +1007,7 @@ module fpnew_fma_multi #(
     `FFL(mo_late_pipe_spec_res_q[i+1],          mo_late_pipe_spec_res_q[i],          reg_ena, '0)
     `FFL(mo_late_pipe_spec_stat_q[i+1],         mo_late_pipe_spec_stat_q[i],         reg_ena, '0)
     `FFL(mo_late_pipe_dst_fmt_q[i+1],           mo_late_pipe_dst_fmt_q[i],           reg_ena, fpnew_pkg::fp_format_e'(0))
+    `FFL(mo_late_pipe_pace_operand_q[i+1],      mo_late_pipe_pace_operand_q[i],      reg_ena, '0)
     `FFL(mo_late_pipe_tag_q[i+1],               mo_late_pipe_tag_q[i],               reg_ena, TagType'('0))
     `FFL(mo_late_pipe_mask_q[i+1],              mo_late_pipe_mask_q[i],              reg_ena, '0)
     `FFL(mo_late_pipe_aux_q[i+1],               mo_late_pipe_aux_q[i],               reg_ena, AuxType'('0))
@@ -1147,12 +1164,15 @@ module fpnew_fma_multi #(
   // Output Pipeline
   // ----------------
   // Output pipeline signals, index i holds signal after i register stages
-  logic               [0:NUM_OUT_REGS][WIDTH-1:0] out_pipe_result_q;
-  fpnew_pkg::status_t [0:NUM_OUT_REGS]            out_pipe_status_q;
-  TagType             [0:NUM_OUT_REGS]            out_pipe_tag_q;
-  logic               [0:NUM_OUT_REGS]            out_pipe_mask_q;
-  AuxType             [0:NUM_OUT_REGS]            out_pipe_aux_q;
-  logic               [0:NUM_OUT_REGS]            out_pipe_valid_q;
+  logic                  [0:NUM_OUT_REGS][WIDTH-1:0] out_pipe_result_q;
+  fpnew_pkg::status_t    [0:NUM_OUT_REGS]            out_pipe_status_q;
+  TagType                [0:NUM_OUT_REGS]            out_pipe_tag_q;
+  logic                  [0:NUM_OUT_REGS]            out_pipe_mask_q;
+  AuxType                [0:NUM_OUT_REGS]            out_pipe_aux_q;
+  logic                  [0:NUM_OUT_REGS]            out_pipe_valid_q;
+  logic                  [0:NUM_OUT_REGS][WIDTH-1:0] out_pipe_pace_operand_q;
+  fpnew_pkg::fp_format_e [0:NUM_OUT_REGS]            out_pipe_dst_fmt_q;
+
   // Ready signal is combinatorial for all stages
   logic               [0:NUM_OUT_REGS]            out_pipe_ready;
 
@@ -1163,6 +1183,8 @@ module fpnew_fma_multi #(
   assign out_pipe_mask_q[0]                   = mo_late_pipe_mask_q[NUM_MO_LATE_REGS];
   assign out_pipe_aux_q[0]                    = mo_late_pipe_aux_q[NUM_MO_LATE_REGS];
   assign out_pipe_valid_q[0]                  = mo_late_pipe_valid_q[NUM_MO_LATE_REGS];
+  assign out_pipe_pace_operand_q[0]           = mo_late_pipe_pace_operand_q[NUM_MO_LATE_REGS];
+  assign out_pipe_dst_fmt_q[0]                = dst_fmt_q2;
   // Input stage: Propagate pipeline ready signal to inside pipe
   assign mo_late_pipe_ready[NUM_MO_LATE_REGS] = out_pipe_ready[0];
   // Generate the register stages
@@ -1178,17 +1200,21 @@ module fpnew_fma_multi #(
     // Enable register if pipleine ready and a valid data item is present
     assign reg_ena = out_pipe_ready[i] & out_pipe_valid_q[i];
     // Generate the pipeline registers within the stages, use enable-registers
-    `FFL(out_pipe_result_q[i+1], out_pipe_result_q[i], reg_ena, '0)
-    `FFL(out_pipe_status_q[i+1], out_pipe_status_q[i], reg_ena, '0)
-    `FFL(out_pipe_tag_q[i+1],    out_pipe_tag_q[i],    reg_ena, TagType'('0))
-    `FFL(out_pipe_mask_q[i+1],   out_pipe_mask_q[i],   reg_ena, '0)
-    `FFL(out_pipe_aux_q[i+1],    out_pipe_aux_q[i],    reg_ena, AuxType'('0))
+    `FFL(out_pipe_result_q[i+1],       out_pipe_result_q[i],       reg_ena, '0)
+    `FFL(out_pipe_status_q[i+1],       out_pipe_status_q[i],       reg_ena, '0)
+    `FFL(out_pipe_tag_q[i+1],          out_pipe_tag_q[i],          reg_ena, TagType'('0))
+    `FFL(out_pipe_mask_q[i+1],         out_pipe_mask_q[i],         reg_ena, '0)
+    `FFL(out_pipe_aux_q[i+1],          out_pipe_aux_q[i],          reg_ena, AuxType'('0))
+    `FFL(out_pipe_pace_operand_q[i+1], out_pipe_pace_operand_q[i], reg_ena, '0)
+    `FFL(out_pipe_dst_fmt_q[i+1],      out_pipe_dst_fmt_q[i],      reg_ena, fpnew_pkg::fp_format_e'('0))
   end
   // Output stage: Ready travels backwards from output side, driven by downstream circuitry
   assign out_pipe_ready[NUM_OUT_REGS] = out_ready_i;
   // Output stage: assign module outputs
   assign result_o        = out_pipe_result_q[NUM_OUT_REGS];
   assign status_o        = out_pipe_status_q[NUM_OUT_REGS];
+  assign pace_operand_o  = out_pipe_pace_operand_q[NUM_OUT_REGS];
+  assign pace_fmt_o      = out_pipe_dst_fmt_q[NUM_OUT_REGS];
   assign extension_bit_o = 1'b1; // always NaN-Box result
   assign tag_o           = out_pipe_tag_q[NUM_OUT_REGS];
   assign mask_o          = out_pipe_mask_q[NUM_OUT_REGS];

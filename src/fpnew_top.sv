@@ -28,7 +28,10 @@ module fpnew_top #(
   localparam int unsigned NumLanes     = fpnew_pkg::max_num_lanes(Features.Width, Features.FpFmtMask, Features.EnableVectors),
   localparam type         MaskType     = logic [NumLanes-1:0],
   localparam int unsigned WIDTH        = Features.Width,
-  localparam int unsigned NUM_OPERANDS = 3
+  localparam int unsigned NUM_OPERANDS = 3,
+  localparam fpnew_pkg::pace_features_t PaceFeatures = Features.PaceFeatures,
+  localparam int unsigned PaceParamWidth = PaceFeatures.PaceParamWidth,
+  localparam int unsigned PaceParamMsb   = (PaceParamWidth > 0) ? (PaceParamWidth - 1) : 0
 ) (
   input logic                               clk_i,
   input logic                               rst_ni,
@@ -56,7 +59,10 @@ module fpnew_top #(
   output logic                              out_valid_o,
   input  logic                              out_ready_i,
   // Indication of valid data in flight
-  output logic                              busy_o
+  output logic                              busy_o,
+  input  logic [PaceParamMsb:0]             pace_param_i,
+  input  fpnew_pkg::pace_mode_t             pace_mode_i
+
 );
 
   localparam int unsigned NUM_OPGROUPS = fpnew_pkg::NUM_OPGROUPS;
@@ -132,6 +138,7 @@ module fpnew_top #(
       .PipeConfig    ( Implementation.PipeConfig       ),
       .TagType       ( TagType                         ),
       .TrueSIMDClass ( TrueSIMDClass                   ),
+      .PaceFeatures  ( PaceFeatures                    ),
       .CompressedVecCmpResult ( CompressedVecCmpResult ),
       .StochasticRndImplementation ( StochasticRndImplementation )
     ) i_opgroup_block (
@@ -158,7 +165,10 @@ module fpnew_top #(
       .tag_o           ( opgrp_outputs[opgrp].tag    ),
       .out_valid_o     ( opgrp_out_valid[opgrp]      ),
       .out_ready_i     ( opgrp_out_ready[opgrp]      ),
-      .busy_o          ( opgrp_busy[opgrp]           )
+      .busy_o          ( opgrp_busy[opgrp]           ),
+      .pace_param_i    ( pace_param_i                ),
+      .pace_mode_i     ( pace_mode_i                 )
+
     );
   end
 
