@@ -26,6 +26,7 @@ module fpnew_opgroup_block #(
   parameter fpnew_pkg::fmt_unsigned_t   FmtPipeRegs   = '{default: 0},
   parameter fpnew_pkg::fmt_unit_types_t FmtUnitTypes  = '{default: fpnew_pkg::PARALLEL},
   parameter fpnew_pkg::pipe_config_t    PipeConfig    = fpnew_pkg::BEFORE,
+  parameter fpnew_pkg::pace_features_t  PaceFeatures  = '{default: 0},
   parameter type                        TagType       = logic,
   parameter logic                       TrueSIMDClass = 1'b0,
   parameter logic                       CompressedVecCmpResult = 1'b0,
@@ -34,7 +35,10 @@ module fpnew_opgroup_block #(
   localparam int unsigned NUM_FORMATS  = fpnew_pkg::NUM_FP_FORMATS,
   localparam int unsigned NUM_OPERANDS = fpnew_pkg::num_operands(OpGroup),
   localparam int unsigned NUM_LANES    = fpnew_pkg::max_num_lanes(Width, FpFmtMask, EnableVectors),
-  localparam type         MaskType     = logic [NUM_LANES-1:0]
+  localparam type         MaskType     = logic [NUM_LANES-1:0],
+  localparam int unsigned PaceParamWidth = PaceFeatures.PaceParamWidth,
+  localparam int unsigned PaceParamMsb   = (PaceParamWidth > 0) ? (PaceParamWidth - 1) : 0
+
 ) (
   input logic                                     clk_i,
   input logic                                     rst_ni,
@@ -64,7 +68,9 @@ module fpnew_opgroup_block #(
   output logic                                    out_valid_o,
   input  logic                                    out_ready_i,
   // Indication of valid data in flight
-  output logic                                    busy_o
+  output logic                                    busy_o,
+  input  logic [PaceParamMsb:0]                   pace_param_i,
+  input  fpnew_pkg::pace_mode_t                   pace_mode_i
 );
 
   // ----------------
@@ -190,6 +196,7 @@ module fpnew_opgroup_block #(
       .DivSqrtSel     ( DivSqrtSel       ),
       .NumPipeRegs    ( REG              ),
       .PipeConfig     ( PipeConfig       ),
+      .PaceFeatures  ( PaceFeatures     ),
       .TagType        ( TagType          ),
       .StochasticRndImplementation ( StochasticRndImplementation )
     ) i_multifmt_slice (
@@ -216,7 +223,9 @@ module fpnew_opgroup_block #(
       .tag_o           ( fmt_outputs[FMT].tag     ),
       .out_valid_o     ( fmt_out_valid[FMT]       ),
       .out_ready_i     ( fmt_out_ready[FMT]       ),
-      .busy_o          ( fmt_busy[FMT]            )
+      .busy_o          ( fmt_busy[FMT]            ),
+      .pace_param_i    ( pace_param_i             ),
+      .pace_mode_i     ( pace_mode_i              )
     );
 
   end
