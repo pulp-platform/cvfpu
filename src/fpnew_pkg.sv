@@ -127,7 +127,8 @@ package fpnew_pkg;
     DIV, SQRT,                   // DIVSQRT operation group
     SGNJ, MINMAX, CMP, CLASSIFY, // NONCOMP operation group
     F2F, F2I, I2F, CPKAB, CPKCD, // CONV operation group
-    SDOTP, EXVSUM, VSUM          // DOTP operation group
+    SDOTP, EXVSUM, VSUM,         // DOTP operation group
+    EXPS, COSHS, TANHS, LOGS, RSQRT, COS, SIN, REC // NL-specific operations 
   } operation_e;
 
   // -------------------
