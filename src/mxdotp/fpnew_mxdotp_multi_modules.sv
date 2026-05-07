@@ -724,6 +724,7 @@ module fpnew_mxdotp_twos_compl
   input  logic accumulator_is_right_shifted,
   input  logic signed [9:0] accumulator_right_shift_amount,
   input  logic final_sign,
+  input  logic accumulator_sticky,
   // Output signals
   output logic [LZC_SUM_WIDTH-1:0] sum_magnitude
 );
@@ -734,7 +735,7 @@ module fpnew_mxdotp_twos_compl
   always_comb begin : get_twos_complement
     if (final_sign) begin
       sum_magnitude = ~sum_product_accumulator_extended + 1;
-      if (accumulator_is_right_shifted && accumulator_right_shift_amount > DST_PRECISION_BITS && signed_mantissa_d != 0) begin
+      if (accumulator_is_right_shifted && accumulator_right_shift_amount > DST_PRECISION_BITS && signed_mantissa_d != 0 && accumulator_sticky) begin
         sum_magnitude = ~sum_product_accumulator_extended;
       end
     end else begin
@@ -808,6 +809,7 @@ module fpnew_mxdotp_normalizer
     .signed_mantissa_d               ( signed_mantissa_d               ),
     .accumulator_is_right_shifted    ( accumulator_is_right_shifted    ),
     .accumulator_right_shift_amount  ( accumulator_right_shift_amount  ),
+    .accumulator_sticky              ( accumulator_sticky              ),
     .sum_magnitude( sum_magnitude                  )
   );
 
