@@ -217,13 +217,15 @@ or on 16b inputs producing 32b outputs");
         MXDOTP_FORMATS.src_int_formats;
     localparam fpnew_pkg::fmt_logic_t MXDOTP_DST_FORMATS =
         MXDOTP_FORMATS.dst_fp_formats;
+    localparam int unsigned MXDOTP_WIDTH = Width; // Only one MXDOTP lane, processing the whole vector
 
     // Lane parameters from Opgroup
     localparam fpnew_pkg::fmt_logic_t LANE_FORMATS = (OpGroup == fpnew_pkg::CONV) ? CONV_FORMATS :
                                                      (OpGroup == fpnew_pkg::DOTP) ? DOTP_FORMATS :
                                                                                     ACTIVE_FORMATS;
     localparam int unsigned LANE_WIDTH = (OpGroup == fpnew_pkg::CONV) ? CONV_WIDTH :
-                                         (OpGroup == fpnew_pkg::DOTP) ? DOTP_WIDTH : MAX_WIDTH;
+                                         (OpGroup == fpnew_pkg::DOTP) ? DOTP_WIDTH :
+                                         (OpGroup == fpnew_pkg::MXDOTP) ? MXDOTP_WIDTH : MAX_WIDTH;
 
     logic [LANE_WIDTH-1:0] local_result; // lane-local results
 
