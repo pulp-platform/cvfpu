@@ -29,14 +29,12 @@ module fpnew_fma_multi #(
   input  logic                        rst_ni,
   // Input signals
   input  logic [2:0][WIDTH-1:0]       operands_i, // 3 operands
-  output logic [WIDTH-1:0]            pace_operand_o, // bypassed operand for PACE
   input  logic [NUM_FORMATS-1:0][2:0] is_boxed_i, // 3 operands
   input  fpnew_pkg::roundmode_e       rnd_mode_i,
   input  fpnew_pkg::operation_e       op_i,
   input  logic                        op_mod_i,
   input  fpnew_pkg::fp_format_e       src_fmt_i, // format of the multiplicands
   input  fpnew_pkg::fp_format_e       dst_fmt_i, // format of the addend and result
-  output fpnew_pkg::fp_format_e       pace_fmt_o, // format of the addend and result
   input  TagType                      tag_i,
   input  logic                        mask_i,
   input  AuxType                      aux_i,
@@ -51,6 +49,9 @@ module fpnew_fma_multi #(
   output TagType                      tag_o,
   output logic                        mask_o,
   output AuxType                      aux_o,
+  // PACE bypass outputs
+  output logic [WIDTH-1:0]            pace_operand_o, // operand B pipelined to output for PACE loopback
+  output fpnew_pkg::fp_format_e       pace_fmt_o,     // dst_fmt pipelined to output for PACE
   // Output handshake
   output logic                        out_valid_o,
   input  logic                        out_ready_i,

@@ -254,33 +254,45 @@ package fpnew_pkg;
   typedef logic [MAX_PACE_DEGREE_BITS-1:0] pace_deg_t;
 
   typedef struct packed {
-    int unsigned PaceDegree;
-    int unsigned PaceParts;
-    int unsigned PaceEps;
-    int unsigned PaceDataWidth;
-    int unsigned PaceParamWidth;
-    int unsigned PacePipeDist;
-    fmt_logic_t  FmtConfig;
+    int unsigned PaceDegree;     // polynomial degree for Horner evaluation
+    int unsigned PaceParts;      // number of piecewise partitions
+    logic        PaceEps;        // enable epsilon thresholding
+    int unsigned PaceDataWidth;  // coefficient/bound data width in bits
+    int unsigned PaceParamWidth; // total parameter bus width in bits
+    int unsigned PacePipeDist;   // pipeline stages in partition detector
+    fmt_logic_t  FmtConfig;      // FP formats enabled for PACE
   } pace_features_t;
 
   typedef struct packed {
-    logic inv;      // inverse of a number
-    logic sqrt; // inverse square root
-    logic rsqrt; // inverse square root
-    logic extend;   // use partial result to compute
-    logic enable;   // use partial result to compute
-    pace_deg_t degree;   // use partial result to compute
+    logic inv;         // compute reciprocal (1/x)
+    logic sqrt;        // compute square root
+    logic rsqrt;       // compute reciprocal square root (1/sqrt(x))
+    logic extend;      // extend evaluation using partial result from previous iteration
+    logic enable;      // enable PACE polynomial evaluation mode
+    pace_deg_t degree; // polynomial degree
   } pace_mode_t;
+
+  // Reference PACE configuration: degree-2 piecewise polynomial over 16 intervals on FP32/FP16/FP16ALT.
+  // PaceParamWidth = ((PaceDegree+1)*PaceParts + (PaceParts-1) + 2*PaceEps) entries * PaceDataWidth bits.
+  localparam pace_features_t DEFAULT_PACE_FEATURES = '{
+    PaceDegree    : 2,
+    PaceParts     : 16,
+    PaceEps       : 1'b1,
+    PaceDataWidth : 32,
+    PaceParamWidth: 2080,
+    PacePipeDist  : 4,
+    FmtConfig     : 9'b101010000
+  };
 
   // FPU configuration: features
   typedef struct packed {
-    int unsigned Width;
-    logic        EnableVectors;
-    logic        EnableNanBox;
-    fmt_logic_t  FpFmtMask;    // Standard FP formats for all opgroups
-    ifmt_logic_t IntFmtMask;   // Standard INT formats for all opgroups
-    fmt_logic_t  MxFpFmtMask;  // MX-specific FP formats (FP6, FP6ALT, FP4, plus FP8/FP8ALT)
-    ifmt_logic_t MxIntFmtMask; // MX-specific INT formats (INT8)
+    int unsigned    Width;
+    logic           EnableVectors;
+    logic           EnableNanBox;
+    fmt_logic_t     FpFmtMask;    // Standard FP formats for all opgroups
+    ifmt_logic_t    IntFmtMask;   // Standard INT formats for all opgroups
+    fmt_logic_t     MxFpFmtMask;  // MX-specific FP formats (FP6, FP6ALT, FP4, plus FP8/FP8ALT)
+    ifmt_logic_t    MxIntFmtMask; // MX-specific INT formats (INT8)
     pace_features_t PaceFeatures;
   } fpu_features_t;
 
@@ -325,7 +337,7 @@ package fpnew_pkg;
     IntFmtMask:    4'b1111,
     MxFpFmtMask:   9'b000101111,  // MX formats: FP8, FP8ALT, FP6, FP6ALT, FP4
     MxIntFmtMask:  4'b1000,       // INT8 for MX operations
-    PaceFeatures: '{default: 0}
+    PaceFeatures:  DEFAULT_PACE_FEATURES
   };
 
   localparam fpu_features_t RV32F_Xsflt = '{
@@ -561,7 +573,7 @@ package fpnew_pkg;
     return res;
   endfunction
 
-  // Returns a mask of active FP formats that are present in lane lane_no of a multiformat slice, considering also the PACE format config
+  // Returns the intersection of FPU-enabled formats and PACE-enabled formats for a given lane
   function automatic fmt_logic_t get_pace_lane_formats( fmt_logic_t cfg_fpu, fmt_logic_t cfg_pace);
     automatic fmt_logic_t res;
     for (int unsigned fmt = 0; fmt < NUM_FP_FORMATS; fmt++)

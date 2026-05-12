@@ -47,6 +47,8 @@ module fpnew_top #(
   input logic                               vectorial_op_i,
   input TagType                             tag_i,
   input MaskType                            simd_mask_i,
+  input  logic [PaceParamMsb:0]             pace_param_i,
+  input  fpnew_pkg::pace_mode_t             pace_mode_i,
   // Input Handshake
   input  logic                              in_valid_i,
   output logic                              in_ready_o,
@@ -59,10 +61,7 @@ module fpnew_top #(
   output logic                              out_valid_o,
   input  logic                              out_ready_i,
   // Indication of valid data in flight
-  output logic                              busy_o,
-  input  logic [PaceParamMsb:0]             pace_param_i,
-  input  fpnew_pkg::pace_mode_t             pace_mode_i
-
+  output logic                              busy_o
 );
 
   localparam int unsigned NUM_OPGROUPS = fpnew_pkg::NUM_OPGROUPS;

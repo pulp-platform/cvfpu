@@ -32,13 +32,12 @@ module fpnew_opgroup_block #(
   parameter logic                       CompressedVecCmpResult = 1'b0,
   parameter fpnew_pkg::rsr_impl_t       StochasticRndImplementation = fpnew_pkg::DEFAULT_NO_RSR,
   // Do not change
-  localparam int unsigned NUM_FORMATS  = fpnew_pkg::NUM_FP_FORMATS,
-  localparam int unsigned NUM_OPERANDS = fpnew_pkg::num_operands(OpGroup),
-  localparam int unsigned NUM_LANES    = fpnew_pkg::max_num_lanes(Width, FpFmtMask, EnableVectors),
-  localparam type         MaskType     = logic [NUM_LANES-1:0],
+  localparam int unsigned NUM_FORMATS    = fpnew_pkg::NUM_FP_FORMATS,
+  localparam int unsigned NUM_OPERANDS   = fpnew_pkg::num_operands(OpGroup),
+  localparam int unsigned NUM_LANES      = fpnew_pkg::max_num_lanes(Width, FpFmtMask, EnableVectors),
+  localparam type         MaskType       = logic [NUM_LANES-1:0],
   localparam int unsigned PaceParamWidth = PaceFeatures.PaceParamWidth,
   localparam int unsigned PaceParamMsb   = (PaceParamWidth > 0) ? (PaceParamWidth - 1) : 0
-
 ) (
   input logic                                     clk_i,
   input logic                                     rst_ni,
@@ -55,6 +54,8 @@ module fpnew_opgroup_block #(
   input logic                                     vectorial_op_i,
   input TagType                                   tag_i,
   input MaskType                                  simd_mask_i,
+  input  logic [PaceParamMsb:0]                   pace_param_i,
+  input  fpnew_pkg::pace_mode_t                   pace_mode_i,
   // Input Handshake
   input  logic                                    in_valid_i,
   output logic                                    in_ready_o,
@@ -68,10 +69,14 @@ module fpnew_opgroup_block #(
   output logic                                    out_valid_o,
   input  logic                                    out_ready_i,
   // Indication of valid data in flight
-  output logic                                    busy_o,
-  input  logic [PaceParamMsb:0]                   pace_param_i,
-  input  fpnew_pkg::pace_mode_t                   pace_mode_i
+  output logic                                    busy_o
 );
+
+  // PACE requires MERGED unit type; a PARALLEL config with PACE enabled is a silent mis-use.
+  if (OpGroup == fpnew_pkg::ADDMUL && (PaceFeatures.FmtConfig != '0) &&
+      !fpnew_pkg::any_enabled_multi(FmtUnitTypes, FpFmtMask)) begin : gen_check_pace_merged
+    $fatal(1, "fpnew_opgroup_block: PACE requires MERGED unit type for ADDMUL.");
+  end
 
   // ----------------
   // Type Definition
@@ -196,7 +201,7 @@ module fpnew_opgroup_block #(
       .DivSqrtSel     ( DivSqrtSel       ),
       .NumPipeRegs    ( REG              ),
       .PipeConfig     ( PipeConfig       ),
-      .PaceFeatures  ( PaceFeatures     ),
+      .PaceFeatures   ( PaceFeatures     ),
       .TagType        ( TagType          ),
       .StochasticRndImplementation ( StochasticRndImplementation )
     ) i_multifmt_slice (
@@ -214,6 +219,8 @@ module fpnew_opgroup_block #(
       .vectorial_op_i,
       .tag_i,
       .simd_mask_i     ( simd_mask_i              ),
+      .pace_param_i,
+      .pace_mode_i,
       .in_valid_i      ( in_valid                 ),
       .in_ready_o      ( fmt_in_ready[FMT]        ),
       .flush_i,
@@ -223,9 +230,7 @@ module fpnew_opgroup_block #(
       .tag_o           ( fmt_outputs[FMT].tag     ),
       .out_valid_o     ( fmt_out_valid[FMT]       ),
       .out_ready_i     ( fmt_out_ready[FMT]       ),
-      .busy_o          ( fmt_busy[FMT]            ),
-      .pace_param_i    ( pace_param_i             ),
-      .pace_mode_i     ( pace_mode_i              )
+      .busy_o          ( fmt_busy[FMT]            )
     );
 
   end
@@ -259,7 +264,5 @@ module fpnew_opgroup_block #(
   assign status_o        = arbiter_output.status;
   assign extension_bit_o = arbiter_output.ext_bit;
   assign tag_o           = arbiter_output.tag;
-
   assign busy_o = (| fmt_busy);
-
 endmodule

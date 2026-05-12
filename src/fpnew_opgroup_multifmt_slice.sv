@@ -19,19 +19,19 @@ module fpnew_opgroup_multifmt_slice #(
   parameter fpnew_pkg::opgroup_e      OpGroup        = fpnew_pkg::CONV,
   parameter int unsigned              Width          = 64,
   // FPU configuration
-  parameter fpnew_pkg::fmt_logic_t    FpFmtConfig    = '1,
-  parameter fpnew_pkg::ifmt_logic_t   IntFmtConfig   = '1,
-  parameter fpnew_pkg::fmt_logic_t    MxFpFmtConfig  = '0,  // MX-specific FP formats
-  parameter fpnew_pkg::ifmt_logic_t   MxIntFmtConfig = '0,  // MX-specific INT formats
-  parameter logic                     EnableVectors  = 1'b1,
-  parameter fpnew_pkg::divsqrt_unit_t DivSqrtSel     = fpnew_pkg::THMULTI,
-  parameter int unsigned              NumPipeRegs    = 0,
-  parameter fpnew_pkg::pipe_config_t  PipeConfig     = fpnew_pkg::BEFORE,
-  parameter fpnew_pkg::pace_features_t PaceFeatures  = '{default: 0},
-  parameter int unsigned             PaceDataWidth = PaceFeatures.PaceDataWidth,
-  parameter fpnew_pkg::fmt_logic_t   PaceFmtConfig = PaceFeatures.FmtConfig,
-  parameter type                      TagType        = logic,
-  parameter fpnew_pkg::rsr_impl_t     StochasticRndImplementation = fpnew_pkg::DEFAULT_NO_RSR,
+  parameter fpnew_pkg::fmt_logic_t     FpFmtConfig    = '1,
+  parameter fpnew_pkg::ifmt_logic_t    IntFmtConfig   = '1,
+  parameter fpnew_pkg::fmt_logic_t     MxFpFmtConfig  = '0,  // MX-specific FP formats
+  parameter fpnew_pkg::ifmt_logic_t    MxIntFmtConfig = '0,  // MX-specific INT formats
+  parameter logic                      EnableVectors  = 1'b1,
+  parameter fpnew_pkg::divsqrt_unit_t  DivSqrtSel     = fpnew_pkg::THMULTI,
+  parameter int unsigned               NumPipeRegs    = 0,
+  parameter fpnew_pkg::pipe_config_t   PipeConfig     = fpnew_pkg::BEFORE,
+  parameter fpnew_pkg::pace_features_t PaceFeatures   = '{default: 0},
+  parameter int unsigned               PaceDataWidth  = PaceFeatures.PaceDataWidth,
+  parameter fpnew_pkg::fmt_logic_t     PaceFmtConfig  = PaceFeatures.FmtConfig,
+  parameter type                       TagType        = logic,
+  parameter fpnew_pkg::rsr_impl_t      StochasticRndImplementation = fpnew_pkg::DEFAULT_NO_RSR,
   // Do not change
   localparam int unsigned NUM_OPERANDS = fpnew_pkg::num_operands(OpGroup),
   localparam int unsigned NUM_FORMATS  = fpnew_pkg::NUM_FP_FORMATS,
@@ -56,6 +56,8 @@ module fpnew_opgroup_multifmt_slice #(
   input logic                                     vectorial_op_i,
   input TagType                                   tag_i,
   input MaskType                                  simd_mask_i,
+  input  logic [PaceParamMsb:0]                   pace_param_i,
+  input  fpnew_pkg::pace_mode_t                   pace_mode_i,
   // Input Handshake
   input  logic                                    in_valid_i,
   output logic                                    in_ready_o,
@@ -69,14 +71,8 @@ module fpnew_opgroup_multifmt_slice #(
   output logic                                    out_valid_o,
   input  logic                                    out_ready_i,
   // Indication of valid data in flight
-  output logic                                    busy_o,
-  input  logic [PaceParamMsb:0]                   pace_param_i,
-  input  fpnew_pkg::pace_mode_t                   pace_mode_i
+  output logic                                    busy_o
 );
-
-  fpnew_pkg::operation_e                    pace_op;
-
-  assign pace_op = op_i;
 
   if ((OpGroup == fpnew_pkg::DIVSQRT)) begin
     if ((DivSqrtSel == fpnew_pkg::TH32) && !((FpFmtConfig[0] == 1) && (FpFmtConfig[1:NUM_FORMATS-1] == '0))) begin
@@ -324,10 +320,12 @@ or on 16b inputs producing 32b outputs");
             .operands_i      ( local_operands  ),
             .is_boxed_i,
             .rnd_mode_i      ( rnd_mode        ),
-            .op_i            ( pace_op         ),
+            .op_i            ( op_i            ),
             .op_mod_i,
             .src_fmt_i,
             .dst_fmt_i,
+            .pace_param_i,
+            .pace_mode_i,
             .tag_i,
             .mask_i          ( simd_mask_i[lane]   ),
             .aux_i           ( aux_data            ),
@@ -342,9 +340,7 @@ or on 16b inputs producing 32b outputs");
             .aux_o           ( lane_aux[lane]      ),
             .out_valid_o     ( out_valid           ),
             .out_ready_i     ( out_ready           ),
-            .busy_o          ( lane_busy[lane]     ),
-            .pace_param_i    ( pace_param_i        ),
-            .pace_mode_i     ( pace_mode_i         )
+            .busy_o          ( lane_busy[lane]     )
           );
         end else begin : gen_fma_instance
           fpnew_fma_multi #(
@@ -363,8 +359,6 @@ or on 16b inputs producing 32b outputs");
             .op_mod_i,
             .src_fmt_i,
             .dst_fmt_i,
-            .pace_fmt_o      (                     ),
-            .pace_operand_o  (                     ),
             .tag_i,
             .mask_i          ( simd_mask_i[lane]   ),
             .aux_i           ( aux_data            ),
@@ -377,6 +371,8 @@ or on 16b inputs producing 32b outputs");
             .tag_o           ( lane_tags[lane]     ),
             .mask_o          ( lane_masks[lane]    ),
             .aux_o           ( lane_aux[lane]      ),
+            .pace_operand_o  (                     ),
+            .pace_fmt_o      (                     ),
             .out_valid_o     ( out_valid           ),
             .out_ready_i     ( out_ready           ),
             .busy_o          ( lane_busy[lane]     )

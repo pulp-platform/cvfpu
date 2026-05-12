@@ -21,7 +21,6 @@ module fpnew_pace_fma_multi #(
   parameter int unsigned                NumPipeRegs   = 0,
   parameter fpnew_pkg::pipe_config_t    PipeConfig    = fpnew_pkg::BEFORE,
   parameter fpnew_pkg::pace_features_t  PaceFeat      = '{default: 0},
-  parameter fpnew_pkg::fmt_logic_t      FmtConfig     = 6'h2F,
   parameter fpnew_pkg::fmt_logic_t      PaceFmtCfg    = PaceFeat.FmtConfig,
   parameter int unsigned                PaceDataW     = 0,
   parameter int unsigned                PaceManOff    = 0,
@@ -32,7 +31,7 @@ module fpnew_pace_fma_multi #(
   localparam int unsigned               Eps           = PaceFeat.PaceEps,
   localparam int unsigned               Bounds        = Parts - 1,
   localparam int unsigned               BoundStages   = $clog2(Bounds),
-  parameter int unsigned                PipeRegs      = PaceFeat.PacePipeDist,
+  localparam int unsigned               PipeRegs      = PaceFeat.PacePipeDist,
   localparam int unsigned               DegreesBits   = $clog2(Degrees + 1),
   localparam int unsigned               ParamWidth    = PaceFeat.PaceParamWidth,
   localparam int unsigned               ParamMsb      = (ParamWidth > 0) ? (ParamWidth - 1) : 0,
@@ -57,6 +56,8 @@ module fpnew_pace_fma_multi #(
   input  logic                        op_mod_i,
   input  fpnew_pkg::fp_format_e       src_fmt_i,
   input  fpnew_pkg::fp_format_e       dst_fmt_i,
+  input  logic [ParamMsb:0]           pace_param_i,
+  input  fpnew_pkg::pace_mode_t       pace_mode_i,
   input  TagType                      tag_i,
   input  logic                        mask_i,
   input  AuxType                      aux_i,
@@ -75,9 +76,7 @@ module fpnew_pace_fma_multi #(
   output logic                        out_valid_o,
   input  logic                        out_ready_i,
   // Indication of valid data in flight
-  output logic                        busy_o,
-  input  logic [ParamMsb:0]           pace_param_i,
-  input  fpnew_pkg::pace_mode_t       pace_mode_i
+  output logic                        busy_o
 );
 
   localparam int unsigned NumCoeffs = (Degrees + 1) * Parts;
@@ -465,14 +464,12 @@ module fpnew_pace_fma_multi #(
     .rst_ni,
     // Input signals
     .operands_i       ( fma_ops_in ),
-    .pace_operand_o   ( fma_bypass_op ),
     .is_boxed_i       ( fma_is_boxed ),
     .rnd_mode_i       ( fma_round_mode ),
     .op_i             ( fma_op ),
     .op_mod_i         ( fma_op_mod ),
     .src_fmt_i        ( fma_src_fmt ),
     .dst_fmt_i        ( fma_dst_fmt ),
-    .pace_fmt_o       ( pace_fmt ),
     .tag_i            ( in_tag ),
     .mask_i           ( fma_in_mask ),
     .aux_i            ( fma_in_aux ),
@@ -487,6 +484,9 @@ module fpnew_pace_fma_multi #(
     .tag_o            ( out_tag ),
     .mask_o           ( fma_output_mask ),
     .aux_o            ( fma_output_aux ),
+    // PACE bypass outputs
+    .pace_operand_o   ( fma_bypass_op ),
+    .pace_fmt_o       ( pace_fmt ),
     // Output handshake
     .out_valid_o      ( fma_vld ),
     .out_ready_i      ( fma_rdy ),
