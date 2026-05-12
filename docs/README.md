@@ -64,6 +64,8 @@ As the width of some input/output signals is defined by the configuration, it is
 | `vectorial_op_i` | in        | `logic`              | Vectorial operation select                                     |
 | `tag_i`          | in        | `TagType`            | Operation tag input                                            |
 | `simd_mask_i`    | in        | `MaskType`           | Vector mask input for the status flags                         |
+| `pace_param_i`   | in        | `logic [P-1:0]`      | Packed PACE polynomial parameters: coefficients and interval bounds. Width P = `PaceParamWidth` from `Features.PaceFeatures`. Tie to `'0` when PACE is disabled. |
+| `pace_mode_i`    | in        | `pace_mode_t`        | Runtime PACE mode: selects function (reciprocal, sqrt, rsqrt), polynomial degree, and enable. Tie to `'0` when PACE is disabled. |
 | `in_valid_i`     | in        | `logic`              | Input data valid (see [Handshake](#handshake-interface))       |
 | `in_ready_o`     | out       | `logic`              | Input interface ready (see [Handshake](#handshake-interface))  |
 | `flush_i`        | in        | `logic`              | Synchronous pipeline reset                                     |
@@ -129,6 +131,10 @@ Unless noted otherwise, the first operand `op[0]` is used for the operation.
 | `CPKAB`    | `1`      | Cast-and-pack `op[0]` and `op[1]` to entries 2, 3 of vector `op[2]`.                                                                                                                                             |
 | `CPKCD`    | `0`      | Cast-and-pack `op[0]` and `op[1]` to entries 4, 5 of vector `op[2]`.                                                                                                                                             |
 | `CPKCD`    | `1`      | Cast-and-pack `op[0]` and `op[1]` to entries 6, 7 of vector `op[2]`.                                                                                                                                             |
+| `PWPA`      | `0`      | Piecewise polynomial approximation via PACE; function selected at runtime by `pace_mode_i.inv/sqrt/rsqrt`. Requires PACE enabled in `Features.PaceFeatures`.                                                    |
+| `PACE_INV`  | `0`      | PACE reciprocal (1/op[0]).
+| `PACE_SQRT` | `0`      | PACE square root.                                  |
+| `PACE_RSQRT`| `0`      | PACE reciprocal square root (1/sqrt(op[0])).                |
 
 ##### `fp_format_e` - FP Formats
 
@@ -168,6 +174,20 @@ The following global parameters associated with integer formats are set in `fpne
 localparam int unsigned NUM_INT_FORMATS = 4;
 localparam int unsigned INT_FORMAT_BITS = $clog2(NUM_INT_FORMATS);
 ```
+
+##### `pace_mode_t` - PACE Runtime Mode
+
+Packed struct used to control PACE polynomial evaluation at runtime via `pace_mode_i`.
+All fields default to `0` (PACE disabled).
+
+| Field    | Type         | Description                                                     |
+|----------|--------------|-----------------------------------------------------------------|
+| `inv`    | `logic`      | Compute reciprocal (1/x)                                        |
+| `sqrt`   | `logic`      | Compute square root                                             |
+| `rsqrt`  | `logic`      | Compute reciprocal square root (1/sqrt(x))                      |
+| `extend` | `logic`      | Extend evaluation using partial result from a previous iteration |
+| `enable` | `logic`      | Enable PACE polynomial evaluation mode                          |
+| `degree` | `pace_deg_t` | Polynomial degree for this operation (≤ `MAX_PACE_DEGREE = 4`)  |
 
 ##### `status_t` - FP Status Flags
 
@@ -233,13 +253,15 @@ The `Features` parameter is used to configure the available formats and special 
 It is of type `fpu_features_t` which is defined as:
 ```SystemVerilog
 typedef struct packed {
-  int unsigned Width;
-  logic        EnableVectors;
-  logic        EnableNanBox;
-  fmt_logic_t  FpFmtMask;
-  ifmt_logic_t IntFmtMask;
+  int unsigned    Width;
+  logic           EnableVectors;
+  logic           EnableNanBox;
+  fmt_logic_t     FpFmtMask;    // Standard FP formats for all opgroups
+  ifmt_logic_t    IntFmtMask;   // Standard INT formats for all opgroups
+  fmt_logic_t     MxFpFmtMask;  // MX-specific FP formats
+  ifmt_logic_t    MxIntFmtMask; // MX-specific INT formats
+  pace_features_t PaceFeatures; // PACE configuration (set to '{default: 0} to disable)
 } fpu_features_t;
-
 ```
 The fields of this struct behave as follows:
 
@@ -287,6 +309,49 @@ If a bit in `IntFmtMask` is set, FPU hardware for the corresponding format is ge
 Otherwise, synthesis tools can optimize away any logic associated with this format and operations on the format yield undefined results.
 
 *Default*: `'1` (all enabled)
+
+##### `PaceFeatures` - PACE Configuration
+
+The `PaceFeatures` field enables and configures PACE.
+It is of type `pace_features_t`:
+```SystemVerilog
+typedef struct packed {
+  int unsigned PaceDegree;     // polynomial degree for Horner evaluation
+  int unsigned PaceParts;      // number of piecewise partitions
+  logic        PaceEps;        // enable epsilon thresholding
+  int unsigned PaceDataWidth;  // coefficient/bound data width in bits
+  int unsigned PaceParamWidth; // total parameter bus width in bits (= ((PaceDegree+1)*PaceParts + (PaceParts-1) + 2*PaceEps) * PaceDataWidth)
+  int unsigned PacePipeDist;   // pipeline stages in the partition detector
+  fmt_logic_t  FmtConfig;      // FP formats enabled for PACE (subset of FpFmtMask)
+} pace_features_t;
+```
+
+| Field           | Description                                                                                              |
+|-----------------|----------------------------------------------------------------------------------------------------------|
+| `PaceDegree`    | Degree of the piecewise polynomial (e.g. `2` for quadratic). Maximum is `MAX_PACE_DEGREE = 4`.          |
+| `PaceParts`     | Number of piecewise intervals. Maximum is `MAX_PACE_PARTS = 64`. Must be ≥ 2.                           |
+| `PaceEps`       | When set, two additional epsilon threshold entries are included in the parameter bus.                    |
+| `PaceDataWidth` | Bit width of each coefficient and bound value on the parameter bus.                                      |
+| `PaceParamWidth`| Total width of `pace_param_i`. Must be set to `((PaceDegree+1)*PaceParts + (PaceParts-1) + 2*PaceEps) * PaceDataWidth`. |
+| `PacePipeDist`  | Number of pipeline stages in the BST-based partition detector.                                           |
+| `FmtConfig`     | Bitmask of FP formats on which PACE operates. Must be a subset of `FpFmtMask`.                          |
+
+A ready-to-use reference configuration is provided:
+```SystemVerilog
+localparam pace_features_t DEFAULT_PACE_FEATURES = '{
+  PaceDegree    : 2,
+  PaceParts     : 16,
+  PaceEps       : 1'b1,
+  PaceDataWidth : 32,
+  PaceParamWidth: 2080,   // (3*16 + 15 + 2) * 32 = 65 * 32
+  PacePipeDist  : 4,
+  FmtConfig     : 9'b101010000  // FP32, FP16, FP16ALT
+};
+```
+
+**Constraint:** PACE requires the `ADDMUL` operation group to use the `MERGED` unit type. Setting `PaceFeatures.FmtConfig != 0` with `PARALLEL` units causes an elaboration-time `$fatal`.
+
+*Default*: `'{default: 0}` (PACE disabled)
 
 
 #### `Implementation` - Implementation Options
@@ -454,7 +519,7 @@ There are currently six operation groups in FPnew which are enumerated in `opgro
 
 | Enumerator |                  Description                  |         Associated Operations         |
 |------------|-----------------------------------------------|---------------------------------------|
-| `ADDMUL`   | Addition and Multiplication                   | `FMADD`, `FNMSUB`, `ADD`, `MUL`       |
+| `ADDMUL`   | Addition, Multiplication, and PACE            | `FMADD`, `FNMSUB`, `ADD`, `MUL`, `PWPA`, `PACE_INV`, `PACE_SQRT`, `PACE_RSQRT` |
 | `DIVSQRT`  | Division and Square Root                      | `DIV`, `SQRT`                         |
 | `NONCOMP`  | Non-Computational Operations like Comparisons | `SGNJ`, `MINMAX`, `CMP`, `CLASS`      |
 | `CONV`     | Conversions                                   | `F2I`, `I2F`, `F2F`, `CPKAB`, `CPKCD` |
