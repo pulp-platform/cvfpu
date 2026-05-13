@@ -393,7 +393,7 @@ package fpnew_pkg;
   };
 
   localparam fpu_implementation_t DEFAULT_SNITCH_PIPE = '{
-    PipeRegs:   '{'{default: 2},  // ADDMUL
+    PipeRegs:   '{'{default: 3},  // ADDMUL
                   '{default: 0},  // DIVSQRT
                   '{default: 0},  // NONCOMP
                   '{default: 2},  // CONV
