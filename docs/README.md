@@ -320,8 +320,8 @@ typedef struct packed {
   int unsigned PaceParts;      // number of piecewise partitions
   logic        PaceEps;        // enable epsilon thresholding
   int unsigned PaceDataWidth;  // coefficient/bound data width in bits
-  int unsigned PaceParamWidth; // total parameter bus width in bits (= ((PaceDegree+1)*PaceParts + (PaceParts-1) + 2*PaceEps) * PaceDataWidth)
-  int unsigned PacePipeDist;   // pipeline stages in the partition detector
+  int unsigned PaceParamWidth;  // total parameter bus width in bits (= ((PaceDegree+1)*PaceParts + (PaceParts-1) + 2*PaceEps) * PaceDataWidth)
+  pace_pipe_t  PaceBstPipeRegs; // per-stage pipeline register bitmask for BST partition detector
   fmt_logic_t  FmtConfig;      // FP formats enabled for PACE (subset of FpFmtMask)
 } pace_features_t;
 ```
@@ -333,7 +333,7 @@ typedef struct packed {
 | `PaceEps`       | When set, two additional epsilon threshold entries are included in the parameter bus.                    |
 | `PaceDataWidth` | Bit width of each coefficient and bound value on the parameter bus.                                      |
 | `PaceParamWidth`| Total width of `pace_param_i`. Must be set to `((PaceDegree+1)*PaceParts + (PaceParts-1) + 2*PaceEps) * PaceDataWidth`. |
-| `PacePipeDist`  | Number of pipeline stages in the BST-based partition detector.                                           |
+| `PaceBstPipeRegs` | Bitmask of pipeline registers in the BST partition detector: bit *i* inserts a register in BST stage *i*. |
 | `FmtConfig`     | Bitmask of FP formats on which PACE operates. Must be a subset of `FpFmtMask`.                          |
 
 A ready-to-use reference configuration is provided:
@@ -343,8 +343,8 @@ localparam pace_features_t DEFAULT_PACE_FEATURES = '{
   PaceParts     : 16,
   PaceEps       : 1'b1,
   PaceDataWidth : 32,
-  PaceParamWidth: 2080,   // (3*16 + 15 + 2) * 32 = 65 * 32
-  PacePipeDist  : 4,
+  PaceParamWidth  : 2080,       // (3*16 + 15 + 2) * 32 = 65 * 32
+  PaceBstPipeRegs : 4'b0100,   // register in BST stage 2 (3rd of 4 stages for 16 parts)
   FmtConfig     : 9'b101010000  // FP32, FP16, FP16ALT
 };
 ```

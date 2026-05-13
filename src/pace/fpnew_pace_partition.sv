@@ -16,7 +16,6 @@
 // Traverses the partition tree and returns the selected bound index.
 module fpnew_pace_partition #(
   parameter fpnew_pkg::fmt_logic_t    FpFmtConfig  = '1,
-  parameter int unsigned              NumPipeRegs  = 0,
   parameter fpnew_pkg::pipe_config_t  PipeConfig   = fpnew_pkg::BEFORE,
   parameter type                      TagType      = logic,
   parameter type                      AuxType      = logic,
@@ -171,7 +170,7 @@ module fpnew_pace_partition #(
 
     fpnew_pace_cmp #(
       .FpFmtConfig (FpFmtConfig),
-      .NumPipeRegs (PipeRegs[stage]),
+      .PipeEnable  (PipeRegs[stage]),
       .PipeConfig  (PipeConfig),
       .TagType     (part_tag_t)
     ) i_pace_gt_cmp (

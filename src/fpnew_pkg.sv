@@ -254,13 +254,13 @@ package fpnew_pkg;
   typedef logic [MAX_PACE_DEGREE_BITS-1:0] pace_deg_t;
 
   typedef struct packed {
-    int unsigned PaceDegree;     // polynomial degree for Horner evaluation
-    int unsigned PaceParts;      // number of piecewise partitions
-    logic        PaceEps;        // enable epsilon thresholding
-    int unsigned PaceDataWidth;  // coefficient/bound data width in bits
-    int unsigned PaceParamWidth; // total parameter bus width in bits
-    int unsigned PacePipeDist;   // pipeline stages in partition detector
-    fmt_logic_t  FmtConfig;      // FP formats enabled for PACE
+    int unsigned PaceDegree;      // polynomial degree for Horner evaluation
+    int unsigned PaceParts;       // number of piecewise partitions
+    logic        PaceEps;         // enable epsilon thresholding
+    int unsigned PaceDataWidth;   // coefficient/bound data width in bits
+    int unsigned PaceParamWidth;  // total parameter bus width in bits
+    pace_pipe_t  PaceBstPipeRegs; // per-stage pipeline register bitmask for BST partition detector
+    fmt_logic_t  FmtConfig;       // FP formats enabled for PACE
   } pace_features_t;
 
   typedef struct packed {
@@ -275,13 +275,13 @@ package fpnew_pkg;
   // Reference PACE configuration: degree-2 piecewise polynomial over 16 intervals on FP32/FP16/FP16ALT.
   // PaceParamWidth = ((PaceDegree+1)*PaceParts + (PaceParts-1) + 2*PaceEps) entries * PaceDataWidth bits.
   localparam pace_features_t DEFAULT_PACE_FEATURES = '{
-    PaceDegree    : 2,
-    PaceParts     : 16,
-    PaceEps       : 1'b1,
-    PaceDataWidth : 32,
-    PaceParamWidth: 2080,
-    PacePipeDist  : 4,
-    FmtConfig     : 9'b101010000
+    PaceDegree      : 2,
+    PaceParts       : 16,
+    PaceEps         : 1'b1,
+    PaceDataWidth   : 32,
+    PaceParamWidth  : 2080,
+    PaceBstPipeRegs : 4'b0100, // register after BST stage 2 (3rd of 4 stages for 16 parts)
+    FmtConfig       : 9'b101010000
   };
 
   // FPU configuration: features

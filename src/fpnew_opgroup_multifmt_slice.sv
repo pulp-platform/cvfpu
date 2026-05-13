@@ -296,13 +296,13 @@ or on 16b inputs producing 32b outputs");
       if (OpGroup == fpnew_pkg::ADDMUL) begin : gen_lane_instance
         if (EnablePace) begin : gen_pace_instance
           localparam fpnew_pkg::pace_features_t PaceLaneFeatures = '{
-            PaceDegree     : PaceFeatures.PaceDegree,
-            PaceParts      : PaceFeatures.PaceParts,
-            PaceEps        : PaceFeatures.PaceEps,
-            PaceDataWidth  : PaceFeatures.PaceDataWidth,
-            PaceParamWidth : PaceFeatures.PaceParamWidth,
-            PacePipeDist   : PaceFeatures.PacePipeDist,
-            FmtConfig      : PaceActiveFormats
+            PaceDegree      : PaceFeatures.PaceDegree,
+            PaceParts       : PaceFeatures.PaceParts,
+            PaceEps         : PaceFeatures.PaceEps,
+            PaceDataWidth   : PaceFeatures.PaceDataWidth,
+            PaceParamWidth  : PaceFeatures.PaceParamWidth,
+            PaceBstPipeRegs : PaceFeatures.PaceBstPipeRegs,
+            FmtConfig       : PaceActiveFormats
           };
 
           fpnew_pace_fma_multi #(
@@ -314,7 +314,7 @@ or on 16b inputs producing 32b outputs");
             .PaceFeat    ( PaceLaneFeatures     ),
             .PaceDataW   ( PaceMaxDataWidth     ),
             .PaceManOff  ( PaceMaxManWidth      )
-          ) i_pace_fma_multi (
+          ) i_fpnew_pace_fma_multi (
             .clk_i,
             .rst_ni,
             .operands_i      ( local_operands  ),
@@ -349,7 +349,7 @@ or on 16b inputs producing 32b outputs");
             .PipeConfig  ( PipeConfig              ),
             .TagType     ( TagType                 ),
             .AuxType     ( logic [AUX_BITS-1:0]    )
-          ) i_fma_multi (
+          ) i_fpnew_fma_multi (
             .clk_i,
             .rst_ni,
             .operands_i      ( local_operands      ),

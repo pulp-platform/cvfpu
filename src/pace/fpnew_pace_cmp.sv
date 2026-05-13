@@ -18,7 +18,7 @@
 // Compares two super-format operands and optionally pipelines the result.
 module fpnew_pace_cmp #(
   parameter fpnew_pkg::fmt_logic_t    FpFmtConfig  = '1,
-  parameter int unsigned              NumPipeRegs  = 0,
+  parameter logic                     PipeEnable       = 1'b0,
   parameter fpnew_pkg::pipe_config_t  PipeConfig   = fpnew_pkg::BEFORE,
   parameter type                      TagType      = logic,
   parameter type                      AuxType      = logic,
@@ -42,17 +42,9 @@ module fpnew_pace_cmp #(
   output logic                      busy_o
 );
 
-  localparam int unsigned NumInpRegs = (PipeConfig == fpnew_pkg::BEFORE
-                                     || PipeConfig == fpnew_pkg::INSIDE)
-                                       ? NumPipeRegs
-                                       : (PipeConfig == fpnew_pkg::DISTRIBUTED)
-                                           ? ((NumPipeRegs + 1) / 2)
-                                           : 0;
-  localparam int unsigned NumOutRegs = (PipeConfig == fpnew_pkg::AFTER)
-                                       ? NumPipeRegs
-                                       : (PipeConfig == fpnew_pkg::DISTRIBUTED)
-                                           ? (NumPipeRegs / 2)
-                                           : 0;
+  localparam int unsigned NumInpRegs = (PipeConfig == fpnew_pkg::BEFORE)  ? PipeEnable : 0;
+  localparam int unsigned NumOutRegs = (PipeConfig == fpnew_pkg::AFTER
+                                     || PipeConfig == fpnew_pkg::INSIDE) ? PipeEnable : 0;
 
   typedef struct packed {
     logic                    sign;

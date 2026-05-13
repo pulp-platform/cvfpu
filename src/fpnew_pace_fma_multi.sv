@@ -31,7 +31,7 @@ module fpnew_pace_fma_multi #(
   localparam int unsigned               Eps           = PaceFeat.PaceEps,
   localparam int unsigned               Bounds        = Parts - 1,
   localparam int unsigned               BoundStages   = $clog2(Bounds),
-  localparam int unsigned               PipeRegs      = PaceFeat.PacePipeDist,
+  localparam fpnew_pkg::pace_pipe_t     BstPipeRegs   = PaceFeat.PaceBstPipeRegs,
   localparam int unsigned               DegreesBits   = $clog2(Degrees + 1),
   localparam int unsigned               ParamWidth    = PaceFeat.PaceParamWidth,
   localparam int unsigned               ParamMsb      = (ParamWidth > 0) ? (ParamWidth - 1) : 0,
@@ -408,8 +408,9 @@ module fpnew_pace_fma_multi #(
   if (Parts > 1) begin : gen_part_detect
     fpnew_pace_partition #(
       .FpFmtConfig(PaceFmtCfg),
+      .PipeConfig (PipeConfig),
       .Bounds(Bounds),
-      .PipeRegs(PipeRegs),
+      .PipeRegs(BstPipeRegs),
       .NumCmpStages(BoundStages),
       .TagType(part_tag_t)
     ) i_partition_detector (
