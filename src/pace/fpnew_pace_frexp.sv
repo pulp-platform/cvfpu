@@ -27,12 +27,17 @@ module fpnew_pace_frexp #(
   input  logic                  clk_i,
   input  logic                  rst_ni,
   input  fpnew_pkg::fp_format_e src_fmt_i,
-  input  fpnew_pkg::pace_mode_t pace_mode_i,
+  input  fpnew_pkg::operation_e op_i,
   input  logic [Width-1:0]      eps_i,
   input  logic [Width-1:0]      operand_i,
   output logic [Width-1:0]      operand_o,
   output FrexpInfoType          frexp_info_o
 );
+
+  logic inv_op, sqrt_op, rsqrt_op;
+  assign inv_op   = (op_i == fpnew_pkg::PACE_INV);
+  assign sqrt_op  = (op_i == fpnew_pkg::PACE_SQRT);
+  assign rsqrt_op = (op_i == fpnew_pkg::PACE_RSQRT);
 
   logic                                    lt_eps;
   logic [NumFormats-1:0]                   fmt_sign;
@@ -84,13 +89,10 @@ module fpnew_pace_frexp #(
 
   // Extract the exponent term that downstream PACE stages consume.
   assign unbiased_exponent = {1'b0, fmt_exponent[src_fmt_i]} - fmt_bias[src_fmt_i];
-  assign pace_exponent     = pace_mode_i.inv
-                           ? fmt_bias[src_fmt_i]
-                           : (pace_mode_i.sqrt | pace_mode_i.rsqrt)
-                               ? fmt_bias[src_fmt_i] + unbiased_exponent[0]
-                               : fmt_exponent[src_fmt_i];
-  assign adjusted_exponent = pace_mode_i.inv
-                           ? unbiased_exponent
+  assign pace_exponent     = inv_op ? fmt_bias[src_fmt_i]
+                           : (sqrt_op | rsqrt_op) ? fmt_bias[src_fmt_i] + unbiased_exponent[0]
+                           : fmt_exponent[src_fmt_i];
+  assign adjusted_exponent = inv_op ? unbiased_exponent
                            : (unbiased_exponent - unbiased_exponent[0]) >> 1;
 
   assign operand_o = fmt_pace_operand[src_fmt_i];
@@ -128,12 +130,11 @@ module fpnew_pace_frexp #(
     .busy_o     ()
   );
 
-  assign frexp_info_o.inv        = pace_mode_i.inv;
-  assign frexp_info_o.sqrt       = pace_mode_i.sqrt;
-  assign frexp_info_o.rsqrt      = pace_mode_i.rsqrt;
-  assign frexp_info_o.exponent   = adjusted_exponent;
-  assign frexp_info_o.sign       = fmt_sign[src_fmt_i];
-  assign frexp_info_o.lt_eps = lt_eps
-                                 & (pace_mode_i.inv | pace_mode_i.sqrt | pace_mode_i.rsqrt);
+  assign frexp_info_o.inv      = inv_op;
+  assign frexp_info_o.sqrt     = sqrt_op;
+  assign frexp_info_o.rsqrt    = rsqrt_op;
+  assign frexp_info_o.exponent = adjusted_exponent;
+  assign frexp_info_o.sign     = fmt_sign[src_fmt_i];
+  assign frexp_info_o.lt_eps   = lt_eps & (inv_op | sqrt_op | rsqrt_op);
 
 endmodule

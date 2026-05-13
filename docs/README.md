@@ -65,7 +65,7 @@ As the width of some input/output signals is defined by the configuration, it is
 | `tag_i`          | in        | `TagType`            | Operation tag input                                            |
 | `simd_mask_i`    | in        | `MaskType`           | Vector mask input for the status flags                         |
 | `pace_param_i`   | in        | `logic [P-1:0]`      | Packed PACE polynomial parameters: coefficients and interval bounds. Width P = `PaceParamWidth` from `Features.PaceFeatures`. Tie to `'0` when PACE is disabled. |
-| `pace_mode_i`    | in        | `pace_mode_t`        | Runtime PACE mode: selects function (reciprocal, sqrt, rsqrt), polynomial degree, and enable. Tie to `'0` when PACE is disabled. |
+| `pace_mode_i`    | in        | `pace_mode_t`        | Runtime PACE mode: controls polynomial degree and enable. Tie to `'0` when PACE is disabled. |
 | `in_valid_i`     | in        | `logic`              | Input data valid (see [Handshake](#handshake-interface))       |
 | `in_ready_o`     | out       | `logic`              | Input interface ready (see [Handshake](#handshake-interface))  |
 | `flush_i`        | in        | `logic`              | Synchronous pipeline reset                                     |
@@ -131,7 +131,7 @@ Unless noted otherwise, the first operand `op[0]` is used for the operation.
 | `CPKAB`    | `1`      | Cast-and-pack `op[0]` and `op[1]` to entries 2, 3 of vector `op[2]`.                                                                                                                                             |
 | `CPKCD`    | `0`      | Cast-and-pack `op[0]` and `op[1]` to entries 4, 5 of vector `op[2]`.                                                                                                                                             |
 | `CPKCD`    | `1`      | Cast-and-pack `op[0]` and `op[1]` to entries 6, 7 of vector `op[2]`.                                                                                                                                             |
-| `PWPA`      | `0`      | Piecewise polynomial approximation via PACE; function selected at runtime by `pace_mode_i.inv/sqrt/rsqrt`. Requires PACE enabled in `Features.PaceFeatures`.                                                    |
+| `PWPA`      | `0`      | Piecewise polynomial approximation via PACE (no inv/sqrt/rsqrt scaling). Requires PACE enabled in `Features.PaceFeatures`.                                                                                      |
 | `PACE_INV`  | `0`      | PACE reciprocal (1/op[0]).
 | `PACE_SQRT` | `0`      | PACE square root.                                  |
 | `PACE_RSQRT`| `0`      | PACE reciprocal square root (1/sqrt(op[0])).                |
@@ -178,13 +178,11 @@ localparam int unsigned INT_FORMAT_BITS = $clog2(NUM_INT_FORMATS);
 ##### `pace_mode_t` - PACE Runtime Mode
 
 Packed struct used to control PACE polynomial evaluation at runtime via `pace_mode_i`.
+The operation function (reciprocal, sqrt, rsqrt) is determined by `op_i` (`PACE_INV`/`PACE_SQRT`/`PACE_RSQRT`), not by this struct.
 All fields default to `0` (PACE disabled).
 
 | Field    | Type         | Description                                                     |
 |----------|--------------|-----------------------------------------------------------------|
-| `inv`    | `logic`      | Compute reciprocal (1/x)                                        |
-| `sqrt`   | `logic`      | Compute square root                                             |
-| `rsqrt`  | `logic`      | Compute reciprocal square root (1/sqrt(x))                      |
 | `extend` | `logic`      | Extend evaluation using partial result from a previous iteration |
 | `enable` | `logic`      | Enable PACE polynomial evaluation mode                          |
 | `degree` | `pace_deg_t` | Polynomial degree for this operation (≤ `MAX_PACE_DEGREE = 4`)  |

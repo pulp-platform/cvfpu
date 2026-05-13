@@ -184,7 +184,6 @@ module fpnew_pace_fma_multi #(
   logic pout_vld, pout_rdy;
   inv_tag_t inv_info;
   inv_tag_t out_inv;
-  fpnew_pkg::pace_mode_t fr_mode;
 
   for (genvar deg = 0; deg <= Degrees; deg++) begin : gen_coeffs
     for (genvar part = 0; part < Parts; part++) begin : gen_coeff
@@ -235,14 +234,6 @@ module fpnew_pace_fma_multi #(
   assign rsqrt_op = (op_i == fpnew_pkg::PACE_RSQRT);
   assign pace_op = pwpa_op | rsqrt_op | inv_op | sqrt_op;
   assign do_inv = inv_op | sqrt_op | rsqrt_op;
-  assign fr_mode = '{
-    inv:    inv_op,
-    sqrt:   sqrt_op,
-    rsqrt:  rsqrt_op,
-    extend: pace_mode_i.extend,
-    enable: pace_mode_i.enable,
-    degree: pace_mode_i.degree
-  };
   assign horn_act = horn_fb ? 1'b1 : pout_vld;
 
   assign fma_flush       = flush_i;
@@ -380,7 +371,7 @@ module fpnew_pace_fma_multi #(
     .clk_i,
     .rst_ni,
     .src_fmt_i(src_fmt_i),
-    .pace_mode_i(fr_mode),
+    .op_i(op_i),
     .eps_i(eps_th),
     .operand_i(fr_in_op),
     .operand_o(red_in),

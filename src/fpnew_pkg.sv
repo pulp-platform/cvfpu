@@ -264,9 +264,6 @@ package fpnew_pkg;
   } pace_features_t;
 
   typedef struct packed {
-    logic inv;         // compute reciprocal (1/x)
-    logic sqrt;        // compute square root
-    logic rsqrt;       // compute reciprocal square root (1/sqrt(x))
     logic extend;      // extend evaluation using partial result from previous iteration
     logic enable;      // enable PACE polynomial evaluation mode
     pace_deg_t degree; // polynomial degree
