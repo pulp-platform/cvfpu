@@ -591,9 +591,8 @@ module fpnew_fma_multi #(
   assign sum_lower = sum_q[LOWER_SUM_WIDTH-1:0];
 
   // Leading zero counter for cancellations
-  lzc #(
-    .WIDTH ( LOWER_SUM_WIDTH ),
-    .MODE  ( 1               ) // MODE = 1 counts leading zeroes
+  cc_lzc #(
+    .Width ( LOWER_SUM_WIDTH )
   ) i_lzc (
     .in_i    ( sum_lower          ),
     .cnt_o   ( leading_zero_count ),

@@ -64,7 +64,7 @@ All IEEE 754-2008 status flags are supported, namely
 ### Dependencies
 
 FPnew currently depends on the following:
-- `lzc` and `rr_arb_tree` from the `common_cells` repository (https://github.com/pulp-platform/common_cells.git)
+- `cc_lzc` and `cc_rr_arb_tree` from the `common_cells` repository (https://github.com/pulp-platform/common_cells.git)
 - optional: Divider and square-root unit from the `fpu-div-sqrt-mvp` repository (https://github.com/pulp-platform/fpu_div_sqrt_mvp.git)
 
 These two repositories are included in the source code directory as git submodules, use
