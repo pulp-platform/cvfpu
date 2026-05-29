@@ -129,21 +129,38 @@ module fpnew_sdotp_multi #(
   localparam int unsigned SHIFT_AMOUNT_WIDTH = $clog2(2*DST_PRECISION_BITS+PRECISION_BITS+4);
   localparam int unsigned DST_SHIFT_AMOUNT_WIDTH = $clog2(2*DST_PRECISION_BITS+PRECISION_BITS+5);
   // Pipelines
-  localparam NUM_INP_REGS = PipeConfig == fpnew_pkg::BEFORE
-                            ? NumPipeRegs
-                            : (PipeConfig == fpnew_pkg::DISTRIBUTED
-                               ? ((NumPipeRegs + 1) / 3) // Second to get distributed regs
-                               : 0); // no regs here otherwise
-  localparam NUM_MID_REGS = PipeConfig == fpnew_pkg::INSIDE
-                          ? NumPipeRegs
-                          : (PipeConfig == fpnew_pkg::DISTRIBUTED
-                             ? ((NumPipeRegs + 2) / 3) // First to get distributed regs
-                             : 0); // no regs here otherwise
-  localparam NUM_OUT_REGS = PipeConfig == fpnew_pkg::AFTER
-                            ? NumPipeRegs
-                            : (PipeConfig == fpnew_pkg::DISTRIBUTED
-                               ? (NumPipeRegs / 3) // Last to get distributed regs
-                               : 0); // no regs here otherwise
+  localparam int unsigned NUM_INP_REGS =
+    (PipeConfig == fpnew_pkg::BEFORE)      ? NumPipeRegs :
+    (PipeConfig == fpnew_pkg::DISTRIBUTED) ? ((NumPipeRegs + 1) / 3) : // Second to get distributed regs
+    (PipeConfig == fpnew_pkg::INSIDE)      ? (NumPipeRegs > 3) :
+                                            0;
+
+  localparam int unsigned NUM_IM_EARLY_REGS =
+    (PipeConfig == fpnew_pkg::INSIDE)      ? ((NumPipeRegs == 3) || (NumPipeRegs > 4)) :
+                                            0;
+
+  localparam int unsigned NUM_IM_LATE_REGS =
+    (PipeConfig == fpnew_pkg::INSIDE)      ? ((NumPipeRegs == 2) || (NumPipeRegs == 4)) :
+                                            0;
+
+  localparam int unsigned NUM_MID_REGS =
+    (PipeConfig == fpnew_pkg::DISTRIBUTED) ? ((NumPipeRegs + 2) / 3) : // First to get distributed regs
+    (PipeConfig == fpnew_pkg::INSIDE)      ? ((NumPipeRegs > 4) ? (NumPipeRegs - 4) : ((NumPipeRegs == 1) || (NumPipeRegs == 3))) : // absorbs overflow beyond 4 stages
+                                            0;
+
+  localparam int unsigned NUM_MO_EARLY_REGS =
+    (PipeConfig == fpnew_pkg::INSIDE)      ? ((NumPipeRegs == 2) || (NumPipeRegs == 4)) :
+                                            0;
+
+  localparam int unsigned NUM_MO_LATE_REGS =
+    (PipeConfig == fpnew_pkg::INSIDE)      ? ((NumPipeRegs == 3) || (NumPipeRegs > 4)) :
+                                            0;
+
+  localparam int unsigned NUM_OUT_REGS =
+    (PipeConfig == fpnew_pkg::AFTER)       ? NumPipeRegs :
+    (PipeConfig == fpnew_pkg::DISTRIBUTED) ? (NumPipeRegs / 3) : // Last to get distributed regs
+    (PipeConfig == fpnew_pkg::INSIDE)      ? (NumPipeRegs > 3) :
+                                            0;
 
   // ----------------
   // Type definition
@@ -188,7 +205,7 @@ module fpnew_sdotp_multi #(
   AuxType                [0:NUM_INP_REGS]                       inp_pipe_aux_q;
   logic                  [0:NUM_INP_REGS]                       inp_pipe_valid_q;
   // Ready signal is combinatorial for all stages
-  logic [0:NUM_INP_REGS] inp_pipe_ready;
+  logic                  [0:NUM_INP_REGS]                       inp_pipe_ready;
 
   // Input stage: First element of pipeline is taken from inputs
   assign inp_pipe_operand_a_q[0]    = operand_a_i;
@@ -206,8 +223,8 @@ module fpnew_sdotp_multi #(
   assign inp_pipe_mask_q[0]         = mask_i;
   assign inp_pipe_aux_q[0]          = aux_i;
   assign inp_pipe_valid_q[0]        = in_valid_i;
-  // Input stage: Propagate pipeline ready signal to updtream circuitry
-  assign in_ready_o = inp_pipe_ready[0];
+  // Input stage: Propagate pipeline ready signal to upstream circuitry
+  assign in_ready_o                 = inp_pipe_ready[0];
   // Generate the register stages
   for (genvar i = 0; i < NUM_INP_REGS; i++) begin : gen_input_pipeline
     // Internal register enable for this stage
@@ -732,28 +749,343 @@ module fpnew_sdotp_multi #(
     end
   end
 
+  // --------------------------
+  // INP to MID EARLY pipeline
+  // --------------------------
+  // Pipeline output signals as non-arrays
+  fp_src_t             operand_a_q2, operand_b_q2, operand_c_q2, operand_d_q2;
+  fpnew_pkg::fp_info_t info_a_q2, info_b_q2, info_c_q2, info_d_q2;
+
+  // Internal pipeline signals, index i holds signal after i register stages
+  fpnew_pkg::operation_e [0:NUM_IM_EARLY_REGS]                         im_early_pipe_op_q;
+  fp_src_t               [0:NUM_IM_EARLY_REGS]                         im_early_pipe_operand_a_q;
+  fp_src_t               [0:NUM_IM_EARLY_REGS]                         im_early_pipe_operand_b_q;
+  fp_src_t               [0:NUM_IM_EARLY_REGS]                         im_early_pipe_operand_c_q;
+  fp_src_t               [0:NUM_IM_EARLY_REGS]                         im_early_pipe_operand_d_q;
+  fp_dst_t               [0:NUM_IM_EARLY_REGS]                         im_early_pipe_operand_e_q;
+  fp_dst_t               [0:NUM_IM_EARLY_REGS]                         im_early_pipe_operand_a_vsum_q;
+  fp_dst_t               [0:NUM_IM_EARLY_REGS]                         im_early_pipe_operand_c_vsum_q;
+  fpnew_pkg::fp_info_t   [0:NUM_IM_EARLY_REGS]                         im_early_pipe_info_a_q;
+  fpnew_pkg::fp_info_t   [0:NUM_IM_EARLY_REGS]                         im_early_pipe_info_b_q;
+  fpnew_pkg::fp_info_t   [0:NUM_IM_EARLY_REGS]                         im_early_pipe_info_c_q;
+  fpnew_pkg::fp_info_t   [0:NUM_IM_EARLY_REGS]                         im_early_pipe_info_d_q;
+  fpnew_pkg::fp_info_t   [0:NUM_IM_EARLY_REGS]                         im_early_pipe_info_e_q;
+  logic                  [0:NUM_IM_EARLY_REGS][SHIFT_AMOUNT_WIDTH-1:0] im_early_pipe_addend_shamt_q;
+  logic                  [0:NUM_IM_EARLY_REGS]                         im_early_pipe_eff_sub_first_q;
+  logic                  [0:NUM_IM_EARLY_REGS]                         im_early_pipe_tentative_sign_q;
+  logic signed           [0:NUM_IM_EARLY_REGS][DST_EXP_WIDTH-1:0]      im_early_pipe_tent_exp_q;
+  logic signed           [0:NUM_IM_EARLY_REGS][DST_EXP_WIDTH-1:0]      im_early_pipe_exp_int_q;
+  logic signed           [0:NUM_IM_EARLY_REGS][DST_EXP_WIDTH-1:0]      im_early_pipe_exp_min_q;
+  logic                  [0:NUM_IM_EARLY_REGS]                         im_early_pipe_info_min_is_zero_q;
+  logic                  [0:NUM_IM_EARLY_REGS]                         im_early_pipe_info_int_is_zero_q;
+  logic                  [0:NUM_IM_EARLY_REGS]                         im_early_pipe_info_max_is_zero_q;
+  logic                  [0:NUM_IM_EARLY_REGS]                         im_early_pipe_addend_min_sign_q;
+  logic                  [0:NUM_IM_EARLY_REGS]                         im_early_pipe_addend_int_sign_q;
+  logic                  [0:NUM_IM_EARLY_REGS]                         im_early_pipe_addend_max_sign_q;
+  logic                  [0:NUM_IM_EARLY_REGS][2:0]                    im_early_pipe_exp_cmp_q;
+  logic                  [0:NUM_IM_EARLY_REGS]                         im_early_pipe_a_sign_q;
+  logic                  [0:NUM_IM_EARLY_REGS]                         im_early_pipe_c_sign_q;
+  fpnew_pkg::roundmode_e [0:NUM_IM_EARLY_REGS]                         im_early_pipe_rnd_mode_q;
+  fpnew_pkg::fp_format_e [0:NUM_IM_EARLY_REGS]                         im_early_pipe_dst_fmt_q;
+  logic                  [0:NUM_IM_EARLY_REGS][DST_WIDTH-1:0]          im_early_pipe_special_result_q;
+  fpnew_pkg::status_t    [0:NUM_IM_EARLY_REGS]                         im_early_pipe_special_status_q;
+  logic                  [0:NUM_IM_EARLY_REGS]                         im_early_pipe_res_is_spec_q;
+  TagType                [0:NUM_IM_EARLY_REGS]                         im_early_pipe_tag_q;
+  logic                  [0:NUM_IM_EARLY_REGS]                         im_early_pipe_mask_q;
+  AuxType                [0:NUM_IM_EARLY_REGS]                         im_early_pipe_aux_q;
+  logic                  [0:NUM_IM_EARLY_REGS]                         im_early_pipe_valid_q;
+  // Ready signal is combinatorial for all stages
+  logic                  [0:NUM_IM_EARLY_REGS]                         im_early_pipe_ready;
+
+  // Input stage: First element of pipeline is taken from upstream logic
+  assign im_early_pipe_op_q[0]               = inp_pipe_op_q[NUM_INP_REGS];
+  assign im_early_pipe_operand_a_q[0]        = operand_a;
+  assign im_early_pipe_operand_b_q[0]        = operand_b;
+  assign im_early_pipe_operand_c_q[0]        = operand_c;
+  assign im_early_pipe_operand_d_q[0]        = operand_d;
+  assign im_early_pipe_operand_e_q[0]        = operand_e;
+  assign im_early_pipe_operand_a_vsum_q[0]   = operand_a_vsum;
+  assign im_early_pipe_operand_c_vsum_q[0]   = operand_c_vsum;
+  assign im_early_pipe_info_a_q[0]           = info_a;
+  assign im_early_pipe_info_b_q[0]           = info_b;
+  assign im_early_pipe_info_c_q[0]           = info_c;
+  assign im_early_pipe_info_d_q[0]           = info_d;
+  assign im_early_pipe_info_e_q[0]           = info_e;
+  assign im_early_pipe_addend_shamt_q[0]     = addend_shamt;
+  assign im_early_pipe_eff_sub_first_q[0]    = effective_subtraction_first;
+  assign im_early_pipe_tentative_sign_q[0]   = tentative_sign;
+  assign im_early_pipe_tent_exp_q[0]         = tentative_exponent;
+  assign im_early_pipe_exp_int_q[0]          = exponent_int;
+  assign im_early_pipe_exp_min_q[0]          = exponent_min;
+  assign im_early_pipe_info_min_is_zero_q[0] = info_min_is_zero;
+  assign im_early_pipe_info_int_is_zero_q[0] = info_int_is_zero;
+  assign im_early_pipe_info_max_is_zero_q[0] = info_max_is_zero;
+  assign im_early_pipe_addend_min_sign_q[0]  = addend_min_sign;
+  assign im_early_pipe_addend_int_sign_q[0]  = addend_int_sign;
+  assign im_early_pipe_addend_max_sign_q[0]  = addend_max_sign;
+  assign im_early_pipe_exp_cmp_q[0]          = exponent_cmp;
+  assign im_early_pipe_a_sign_q[0]           = a_sign;
+  assign im_early_pipe_c_sign_q[0]           = c_sign;
+  assign im_early_pipe_rnd_mode_q[0]         = inp_pipe_rnd_mode_q[NUM_INP_REGS];
+  assign im_early_pipe_dst_fmt_q[0]          = dst_fmt_q;
+  assign im_early_pipe_special_result_q[0]   = special_result;
+  assign im_early_pipe_special_status_q[0]   = special_status;
+  assign im_early_pipe_res_is_spec_q[0]      = result_is_special;
+  assign im_early_pipe_tag_q[0]              = inp_pipe_tag_q[NUM_INP_REGS];
+  assign im_early_pipe_mask_q[0]             = inp_pipe_mask_q[NUM_INP_REGS];
+  assign im_early_pipe_aux_q[0]              = inp_pipe_aux_q[NUM_INP_REGS];
+  assign im_early_pipe_valid_q[0]            = inp_pipe_valid_q[NUM_INP_REGS];
+  // Input stage: Propagate pipeline ready signal to input pipe
+  assign inp_pipe_ready[NUM_INP_REGS]        = im_early_pipe_ready[0];
+
+  // Generate the register stages
+  for (genvar i = 0; i < NUM_IM_EARLY_REGS; i++) begin : gen_input_mid_early_pipeline
+    // Internal register enable for this stage
+    logic reg_ena;
+    // Determine the ready signal of the current stage - advance the pipeline:
+    // 1. if the next stage is ready for our data
+    // 2. if the next stage only holds a bubble (not valid) -> we can pop it
+    assign im_early_pipe_ready[i] = im_early_pipe_ready[i+1] | ~im_early_pipe_valid_q[i+1];
+    // Valid: enabled by ready signal, synchronous clear with the flush signal
+    `FFLARNC(im_early_pipe_valid_q[i+1], im_early_pipe_valid_q[i], im_early_pipe_ready[i], flush_i, 1'b0, clk_i, rst_ni)
+    // Enable register if pipeline ready and a valid data item is present
+    assign reg_ena = im_early_pipe_ready[i] & im_early_pipe_valid_q[i];
+    // Generate the pipeline registers within the stages, use enable-registers
+    `FFL(im_early_pipe_op_q[i+1],               im_early_pipe_op_q[i],               reg_ena, fpnew_pkg::operation_e'('0))
+    `FFL(im_early_pipe_operand_a_q[i+1],        im_early_pipe_operand_a_q[i],        reg_ena, '0)
+    `FFL(im_early_pipe_operand_b_q[i+1],        im_early_pipe_operand_b_q[i],        reg_ena, '0)
+    `FFL(im_early_pipe_operand_c_q[i+1],        im_early_pipe_operand_c_q[i],        reg_ena, '0)
+    `FFL(im_early_pipe_operand_d_q[i+1],        im_early_pipe_operand_d_q[i],        reg_ena, '0)
+    `FFL(im_early_pipe_operand_e_q[i+1],        im_early_pipe_operand_e_q[i],        reg_ena, '0)
+    `FFL(im_early_pipe_operand_a_vsum_q[i+1],   im_early_pipe_operand_a_vsum_q[i],   reg_ena, '0)
+    `FFL(im_early_pipe_operand_c_vsum_q[i+1],   im_early_pipe_operand_c_vsum_q[i],   reg_ena, '0)
+    `FFL(im_early_pipe_info_a_q[i+1],           im_early_pipe_info_a_q[i],           reg_ena, fpnew_pkg::fp_info_t'('0))
+    `FFL(im_early_pipe_info_b_q[i+1],           im_early_pipe_info_b_q[i],           reg_ena, fpnew_pkg::fp_info_t'('0))
+    `FFL(im_early_pipe_info_c_q[i+1],           im_early_pipe_info_c_q[i],           reg_ena, fpnew_pkg::fp_info_t'('0))
+    `FFL(im_early_pipe_info_d_q[i+1],           im_early_pipe_info_d_q[i],           reg_ena, fpnew_pkg::fp_info_t'('0))
+    `FFL(im_early_pipe_info_e_q[i+1],           im_early_pipe_info_e_q[i],           reg_ena, fpnew_pkg::fp_info_t'('0))
+    `FFL(im_early_pipe_addend_shamt_q[i+1],     im_early_pipe_addend_shamt_q[i],     reg_ena, '0)
+    `FFL(im_early_pipe_eff_sub_first_q[i+1],    im_early_pipe_eff_sub_first_q[i],    reg_ena, 1'b0)
+    `FFL(im_early_pipe_tentative_sign_q[i+1],   im_early_pipe_tentative_sign_q[i],   reg_ena, 1'b0)
+    `FFL(im_early_pipe_tent_exp_q[i+1],         im_early_pipe_tent_exp_q[i],         reg_ena, '0)
+    `FFL(im_early_pipe_exp_int_q[i+1],          im_early_pipe_exp_int_q[i],          reg_ena, '0)
+    `FFL(im_early_pipe_exp_min_q[i+1],          im_early_pipe_exp_min_q[i],          reg_ena, '0)
+    `FFL(im_early_pipe_info_min_is_zero_q[i+1], im_early_pipe_info_min_is_zero_q[i], reg_ena, 1'b0)
+    `FFL(im_early_pipe_info_int_is_zero_q[i+1], im_early_pipe_info_int_is_zero_q[i], reg_ena, 1'b0)
+    `FFL(im_early_pipe_info_max_is_zero_q[i+1], im_early_pipe_info_max_is_zero_q[i], reg_ena, 1'b0)
+    `FFL(im_early_pipe_addend_min_sign_q[i+1],  im_early_pipe_addend_min_sign_q[i],  reg_ena, 1'b0)
+    `FFL(im_early_pipe_addend_int_sign_q[i+1],  im_early_pipe_addend_int_sign_q[i],  reg_ena, 1'b0)
+    `FFL(im_early_pipe_addend_max_sign_q[i+1],  im_early_pipe_addend_max_sign_q[i],  reg_ena, 1'b0)
+    `FFL(im_early_pipe_exp_cmp_q[i+1],          im_early_pipe_exp_cmp_q[i],          reg_ena, '0)
+    `FFL(im_early_pipe_a_sign_q[i+1],           im_early_pipe_a_sign_q[i],           reg_ena, 1'b0)
+    `FFL(im_early_pipe_c_sign_q[i+1],           im_early_pipe_c_sign_q[i],           reg_ena, 1'b0)
+    `FFL(im_early_pipe_rnd_mode_q[i+1],         im_early_pipe_rnd_mode_q[i],         reg_ena, fpnew_pkg::RNE)
+    `FFL(im_early_pipe_dst_fmt_q[i+1],          im_early_pipe_dst_fmt_q[i],          reg_ena, fpnew_pkg::fp_format_e'('0))
+    `FFL(im_early_pipe_special_result_q[i+1],   im_early_pipe_special_result_q[i],   reg_ena, '0)
+    `FFL(im_early_pipe_special_status_q[i+1],   im_early_pipe_special_status_q[i],   reg_ena, fpnew_pkg::status_t'('0))
+    `FFL(im_early_pipe_res_is_spec_q[i+1],      im_early_pipe_res_is_spec_q[i],      reg_ena, 1'b0)
+    `FFL(im_early_pipe_tag_q[i+1],              im_early_pipe_tag_q[i],              reg_ena, TagType'('0))
+    `FFL(im_early_pipe_mask_q[i+1],             im_early_pipe_mask_q[i],             reg_ena, '0)
+    `FFL(im_early_pipe_aux_q[i+1],              im_early_pipe_aux_q[i],              reg_ena, AuxType'('0))
+  end
+  // Output stage: assign selected pipe outputs to signals for later use
+  assign operand_a_q2 = im_early_pipe_operand_a_q[NUM_IM_EARLY_REGS];
+  assign operand_b_q2 = im_early_pipe_operand_b_q[NUM_IM_EARLY_REGS];
+  assign operand_c_q2 = im_early_pipe_operand_c_q[NUM_IM_EARLY_REGS];
+  assign operand_d_q2 = im_early_pipe_operand_d_q[NUM_IM_EARLY_REGS];
+  assign info_a_q2    = im_early_pipe_info_a_q[NUM_IM_EARLY_REGS];
+  assign info_b_q2    = im_early_pipe_info_b_q[NUM_IM_EARLY_REGS];
+  assign info_c_q2    = im_early_pipe_info_c_q[NUM_IM_EARLY_REGS];
+  assign info_d_q2    = im_early_pipe_info_d_q[NUM_IM_EARLY_REGS];
+
   // ------------------
   // Product data path
   // ------------------
   logic     [PRECISION_BITS-1:0] mantissa_a, mantissa_b, mantissa_c, mantissa_d;
-  logic [DST_PRECISION_BITS-1:0] mantissa_e;
-  logic [DST_PRECISION_BITS-1:0] mantissa_a_vsum, mantissa_c_vsum;
   logic   [2*PRECISION_BITS-1:0] product_x, product_y;  // the p*p product is 2p-bit wide
 
   // Add implicit bits to mantissae
-  assign mantissa_a = {info_a.is_normal, operand_a.mantissa};
-  assign mantissa_b = {info_b.is_normal, operand_b.mantissa};
-  assign mantissa_c = {info_c.is_normal, operand_c.mantissa};
-  assign mantissa_d = {info_d.is_normal, operand_d.mantissa};
-  assign mantissa_e = {info_e.is_normal, operand_e.mantissa};
-
-  assign mantissa_a_vsum = {info_a.is_normal, operand_a_vsum.mantissa};
-  assign mantissa_c_vsum = {info_c.is_normal, operand_c_vsum.mantissa};
-
+  assign mantissa_a = {info_a_q2.is_normal, operand_a_q2.mantissa};
+  assign mantissa_b = {info_b_q2.is_normal, operand_b_q2.mantissa};
+  assign mantissa_c = {info_c_q2.is_normal, operand_c_q2.mantissa};
+  assign mantissa_d = {info_d_q2.is_normal, operand_d_q2.mantissa};
   // Mantissa multiplier (a*b)
   assign product_x = mantissa_a * mantissa_b;
   // Mantissa multiplier (c*d)
   assign product_y = mantissa_c * mantissa_d;
+
+  // -------------------------
+  // INP to MID LATE pipeline
+  // -------------------------
+  // Pipeline output signals as non-arrays
+  logic   [2*PRECISION_BITS-1:0]   product_x_q, product_y_q;
+  logic   [DST_PRECISION_BITS-1:0] mantissa_e;
+  logic   [DST_PRECISION_BITS-1:0] mantissa_a_vsum, mantissa_c_vsum;
+  logic   [SHIFT_AMOUNT_WIDTH-1:0] addend_shamt_q;
+  logic                            effective_subtraction_first_q;
+  logic                            tentative_sign_q;
+  logic signed [DST_EXP_WIDTH-1:0] tentative_exponent_q;
+  logic signed [DST_EXP_WIDTH-1:0] exponent_int_q;
+  logic signed [DST_EXP_WIDTH-1:0] exponent_min_q;
+  logic                            info_min_is_zero_q;
+  logic                            info_int_is_zero_q;
+  logic                            info_max_is_zero_q;
+  logic                            addend_min_sign_q;
+  logic                            addend_int_sign_q;
+  logic                            addend_max_sign_q;
+  logic [2:0]                      exponent_cmp_q;
+  fpnew_pkg::roundmode_e           rnd_mode_q;
+
+  // Internal pipeline signals, index i holds signal after i register stages
+  logic                  [0:NUM_IM_LATE_REGS][2*PRECISION_BITS-1:0]   im_late_pipe_product_x_q;
+  logic                  [0:NUM_IM_LATE_REGS][2*PRECISION_BITS-1:0]   im_late_pipe_product_y_q;
+  fpnew_pkg::operation_e [0:NUM_IM_LATE_REGS]                         im_late_pipe_op_q;
+  fp_src_t               [0:NUM_IM_LATE_REGS]                         im_late_pipe_operand_b_q;
+  fp_src_t               [0:NUM_IM_LATE_REGS]                         im_late_pipe_operand_d_q;
+  fp_dst_t               [0:NUM_IM_LATE_REGS]                         im_late_pipe_operand_e_q;
+  fp_dst_t               [0:NUM_IM_LATE_REGS]                         im_late_pipe_operand_a_vsum_q;
+  fp_dst_t               [0:NUM_IM_LATE_REGS]                         im_late_pipe_operand_c_vsum_q;
+  fpnew_pkg::fp_info_t   [0:NUM_IM_LATE_REGS]                         im_late_pipe_info_a_q;
+  fpnew_pkg::fp_info_t   [0:NUM_IM_LATE_REGS]                         im_late_pipe_info_c_q;
+  fpnew_pkg::fp_info_t   [0:NUM_IM_LATE_REGS]                         im_late_pipe_info_e_q;
+  logic                  [0:NUM_IM_LATE_REGS][SHIFT_AMOUNT_WIDTH-1:0] im_late_pipe_addend_shamt_q;
+  logic                  [0:NUM_IM_LATE_REGS]                         im_late_pipe_eff_sub_first_q;
+  logic                  [0:NUM_IM_LATE_REGS]                         im_late_pipe_tentative_sign_q;
+  logic signed           [0:NUM_IM_LATE_REGS][DST_EXP_WIDTH-1:0]      im_late_pipe_tent_exp_q;
+  logic signed           [0:NUM_IM_LATE_REGS][DST_EXP_WIDTH-1:0]      im_late_pipe_exp_int_q;
+  logic signed           [0:NUM_IM_LATE_REGS][DST_EXP_WIDTH-1:0]      im_late_pipe_exp_min_q;
+  logic                  [0:NUM_IM_LATE_REGS]                         im_late_pipe_info_min_is_zero_q;
+  logic                  [0:NUM_IM_LATE_REGS]                         im_late_pipe_info_int_is_zero_q;
+  logic                  [0:NUM_IM_LATE_REGS]                         im_late_pipe_info_max_is_zero_q;
+  logic                  [0:NUM_IM_LATE_REGS]                         im_late_pipe_addend_min_sign_q;
+  logic                  [0:NUM_IM_LATE_REGS]                         im_late_pipe_addend_int_sign_q;
+  logic                  [0:NUM_IM_LATE_REGS]                         im_late_pipe_addend_max_sign_q;
+  logic                  [0:NUM_IM_LATE_REGS][2:0]                    im_late_pipe_exp_cmp_q;
+  logic                  [0:NUM_IM_LATE_REGS]                         im_late_pipe_a_sign_q;
+  logic                  [0:NUM_IM_LATE_REGS]                         im_late_pipe_c_sign_q;
+  fpnew_pkg::roundmode_e [0:NUM_IM_LATE_REGS]                         im_late_pipe_rnd_mode_q;
+  fpnew_pkg::fp_format_e [0:NUM_IM_LATE_REGS]                         im_late_pipe_dst_fmt_q;
+  logic                  [0:NUM_IM_LATE_REGS][DST_WIDTH-1:0]          im_late_pipe_special_result_q;
+  fpnew_pkg::status_t    [0:NUM_IM_LATE_REGS]                         im_late_pipe_special_status_q;
+  logic                  [0:NUM_IM_LATE_REGS]                         im_late_pipe_res_is_spec_q;
+  TagType                [0:NUM_IM_LATE_REGS]                         im_late_pipe_tag_q;
+  logic                  [0:NUM_IM_LATE_REGS]                         im_late_pipe_mask_q;
+  AuxType                [0:NUM_IM_LATE_REGS]                         im_late_pipe_aux_q;
+  logic                  [0:NUM_IM_LATE_REGS]                         im_late_pipe_valid_q;
+  // Ready signal is combinatorial for all stages
+  logic                  [0:NUM_IM_LATE_REGS]                         im_late_pipe_ready;
+
+  // Input stage: First element of pipeline is taken from upstream logic
+  assign im_late_pipe_product_x_q[0]            = product_x;
+  assign im_late_pipe_product_y_q[0]            = product_y;
+  assign im_late_pipe_op_q[0]                   = im_early_pipe_op_q[NUM_IM_EARLY_REGS];
+  assign im_late_pipe_operand_b_q[0]            = im_early_pipe_operand_b_q[NUM_IM_EARLY_REGS];
+  assign im_late_pipe_operand_d_q[0]            = im_early_pipe_operand_d_q[NUM_IM_EARLY_REGS];
+  assign im_late_pipe_operand_e_q[0]            = im_early_pipe_operand_e_q[NUM_IM_EARLY_REGS];
+  assign im_late_pipe_operand_a_vsum_q[0]       = im_early_pipe_operand_a_vsum_q[NUM_IM_EARLY_REGS];
+  assign im_late_pipe_operand_c_vsum_q[0]       = im_early_pipe_operand_c_vsum_q[NUM_IM_EARLY_REGS];
+  assign im_late_pipe_info_a_q[0]               = im_early_pipe_info_a_q[NUM_IM_EARLY_REGS];
+  assign im_late_pipe_info_c_q[0]               = im_early_pipe_info_c_q[NUM_IM_EARLY_REGS];
+  assign im_late_pipe_info_e_q[0]               = im_early_pipe_info_e_q[NUM_IM_EARLY_REGS];
+  assign im_late_pipe_addend_shamt_q[0]         = im_early_pipe_addend_shamt_q[NUM_IM_EARLY_REGS];
+  assign im_late_pipe_eff_sub_first_q[0]        = im_early_pipe_eff_sub_first_q[NUM_IM_EARLY_REGS];
+  assign im_late_pipe_tentative_sign_q[0]       = im_early_pipe_tentative_sign_q[NUM_IM_EARLY_REGS];
+  assign im_late_pipe_tent_exp_q[0]             = im_early_pipe_tent_exp_q[NUM_IM_EARLY_REGS];
+  assign im_late_pipe_exp_int_q[0]              = im_early_pipe_exp_int_q[NUM_IM_EARLY_REGS];
+  assign im_late_pipe_exp_min_q[0]              = im_early_pipe_exp_min_q[NUM_IM_EARLY_REGS];
+  assign im_late_pipe_info_min_is_zero_q[0]     = im_early_pipe_info_min_is_zero_q[NUM_IM_EARLY_REGS];
+  assign im_late_pipe_info_int_is_zero_q[0]     = im_early_pipe_info_int_is_zero_q[NUM_IM_EARLY_REGS];
+  assign im_late_pipe_info_max_is_zero_q[0]     = im_early_pipe_info_max_is_zero_q[NUM_IM_EARLY_REGS];
+  assign im_late_pipe_addend_min_sign_q[0]      = im_early_pipe_addend_min_sign_q[NUM_IM_EARLY_REGS];
+  assign im_late_pipe_addend_int_sign_q[0]      = im_early_pipe_addend_int_sign_q[NUM_IM_EARLY_REGS];
+  assign im_late_pipe_addend_max_sign_q[0]      = im_early_pipe_addend_max_sign_q[NUM_IM_EARLY_REGS];
+  assign im_late_pipe_exp_cmp_q[0]              = im_early_pipe_exp_cmp_q[NUM_IM_EARLY_REGS];
+  assign im_late_pipe_a_sign_q[0]               = im_early_pipe_a_sign_q[NUM_IM_EARLY_REGS];
+  assign im_late_pipe_c_sign_q[0]               = im_early_pipe_c_sign_q[NUM_IM_EARLY_REGS];
+  assign im_late_pipe_rnd_mode_q[0]             = im_early_pipe_rnd_mode_q[NUM_IM_EARLY_REGS];
+  assign im_late_pipe_dst_fmt_q[0]              = im_early_pipe_dst_fmt_q[NUM_IM_EARLY_REGS];
+  assign im_late_pipe_special_result_q[0]       = im_early_pipe_special_result_q[NUM_IM_EARLY_REGS];
+  assign im_late_pipe_special_status_q[0]       = im_early_pipe_special_status_q[NUM_IM_EARLY_REGS];
+  assign im_late_pipe_res_is_spec_q[0]          = im_early_pipe_res_is_spec_q[NUM_IM_EARLY_REGS];
+  assign im_late_pipe_tag_q[0]                  = im_early_pipe_tag_q[NUM_IM_EARLY_REGS];
+  assign im_late_pipe_mask_q[0]                 = im_early_pipe_mask_q[NUM_IM_EARLY_REGS];
+  assign im_late_pipe_aux_q[0]                  = im_early_pipe_aux_q[NUM_IM_EARLY_REGS];
+  assign im_late_pipe_valid_q[0]                = im_early_pipe_valid_q[NUM_IM_EARLY_REGS];
+  // Input stage: Propagate pipeline ready signal to im_early pipe
+  assign im_early_pipe_ready[NUM_IM_EARLY_REGS] = im_late_pipe_ready[0];
+
+  // Generate the register stages
+  for (genvar i = 0; i < NUM_IM_LATE_REGS; i++) begin : gen_input_mid_late_pipeline
+    // Internal register enable for this stage
+    logic reg_ena;
+    // Determine the ready signal of the current stage - advance the pipeline:
+    // 1. if the next stage is ready for our data
+    // 2. if the next stage only holds a bubble (not valid) -> we can pop it
+    assign im_late_pipe_ready[i] = im_late_pipe_ready[i+1] | ~im_late_pipe_valid_q[i+1];
+    // Valid: enabled by ready signal, synchronous clear with the flush signal
+    `FFLARNC(im_late_pipe_valid_q[i+1], im_late_pipe_valid_q[i], im_late_pipe_ready[i], flush_i, 1'b0, clk_i, rst_ni)
+    // Enable register if pipeline ready and a valid data item is present
+    assign reg_ena = im_late_pipe_ready[i] & im_late_pipe_valid_q[i];
+    // Generate the pipeline registers within the stages, use enable-registers
+    `FFL(im_late_pipe_product_x_q[i+1],        im_late_pipe_product_x_q[i],        reg_ena, '0)
+    `FFL(im_late_pipe_product_y_q[i+1],        im_late_pipe_product_y_q[i],        reg_ena, '0)
+    `FFL(im_late_pipe_op_q[i+1],               im_late_pipe_op_q[i],               reg_ena, fpnew_pkg::operation_e'('0))
+    `FFL(im_late_pipe_operand_b_q[i+1],        im_late_pipe_operand_b_q[i],        reg_ena, '0)
+    `FFL(im_late_pipe_operand_d_q[i+1],        im_late_pipe_operand_d_q[i],        reg_ena, '0)
+    `FFL(im_late_pipe_operand_e_q[i+1],        im_late_pipe_operand_e_q[i],        reg_ena, '0)
+    `FFL(im_late_pipe_operand_a_vsum_q[i+1],   im_late_pipe_operand_a_vsum_q[i],   reg_ena, '0)
+    `FFL(im_late_pipe_operand_c_vsum_q[i+1],   im_late_pipe_operand_c_vsum_q[i],   reg_ena, '0)
+    `FFL(im_late_pipe_info_a_q[i+1],           im_late_pipe_info_a_q[i],           reg_ena, fpnew_pkg::fp_info_t'('0))
+    `FFL(im_late_pipe_info_c_q[i+1],           im_late_pipe_info_c_q[i],           reg_ena, fpnew_pkg::fp_info_t'('0))
+    `FFL(im_late_pipe_info_e_q[i+1],           im_late_pipe_info_e_q[i],           reg_ena, fpnew_pkg::fp_info_t'('0))
+    `FFL(im_late_pipe_addend_shamt_q[i+1],     im_late_pipe_addend_shamt_q[i],     reg_ena, '0)
+    `FFL(im_late_pipe_eff_sub_first_q[i+1],    im_late_pipe_eff_sub_first_q[i],    reg_ena, 1'b0)
+    `FFL(im_late_pipe_tentative_sign_q[i+1],   im_late_pipe_tentative_sign_q[i],   reg_ena, 1'b0)
+    `FFL(im_late_pipe_tent_exp_q[i+1],         im_late_pipe_tent_exp_q[i],         reg_ena, '0)
+    `FFL(im_late_pipe_exp_int_q[i+1],          im_late_pipe_exp_int_q[i],          reg_ena, '0)
+    `FFL(im_late_pipe_exp_min_q[i+1],          im_late_pipe_exp_min_q[i],          reg_ena, '0)
+    `FFL(im_late_pipe_info_min_is_zero_q[i+1], im_late_pipe_info_min_is_zero_q[i], reg_ena, 1'b0)
+    `FFL(im_late_pipe_info_int_is_zero_q[i+1], im_late_pipe_info_int_is_zero_q[i], reg_ena, 1'b0)
+    `FFL(im_late_pipe_info_max_is_zero_q[i+1], im_late_pipe_info_max_is_zero_q[i], reg_ena, 1'b0)
+    `FFL(im_late_pipe_addend_min_sign_q[i+1],  im_late_pipe_addend_min_sign_q[i],  reg_ena, 1'b0)
+    `FFL(im_late_pipe_addend_int_sign_q[i+1],  im_late_pipe_addend_int_sign_q[i],  reg_ena, 1'b0)
+    `FFL(im_late_pipe_addend_max_sign_q[i+1],  im_late_pipe_addend_max_sign_q[i],  reg_ena, 1'b0)
+    `FFL(im_late_pipe_exp_cmp_q[i+1],          im_late_pipe_exp_cmp_q[i],          reg_ena, '0)
+    `FFL(im_late_pipe_a_sign_q[i+1],           im_late_pipe_a_sign_q[i],           reg_ena, 1'b0)
+    `FFL(im_late_pipe_c_sign_q[i+1],           im_late_pipe_c_sign_q[i],           reg_ena, 1'b0)
+    `FFL(im_late_pipe_rnd_mode_q[i+1],         im_late_pipe_rnd_mode_q[i],         reg_ena, fpnew_pkg::RNE)
+    `FFL(im_late_pipe_dst_fmt_q[i+1],          im_late_pipe_dst_fmt_q[i],          reg_ena, fpnew_pkg::fp_format_e'('0))
+    `FFL(im_late_pipe_special_result_q[i+1],   im_late_pipe_special_result_q[i],   reg_ena, '0)
+    `FFL(im_late_pipe_special_status_q[i+1],   im_late_pipe_special_status_q[i],   reg_ena, fpnew_pkg::status_t'('0))
+    `FFL(im_late_pipe_res_is_spec_q[i+1],      im_late_pipe_res_is_spec_q[i],      reg_ena, 1'b0)
+    `FFL(im_late_pipe_tag_q[i+1],              im_late_pipe_tag_q[i],              reg_ena, TagType'('0))
+    `FFL(im_late_pipe_mask_q[i+1],             im_late_pipe_mask_q[i],             reg_ena, '0)
+    `FFL(im_late_pipe_aux_q[i+1],              im_late_pipe_aux_q[i],              reg_ena, AuxType'('0))
+  end 
+  
+  // Output stage: assign selected pipe outputs to signals for later use
+  assign product_x_q                   = im_late_pipe_product_x_q[NUM_IM_LATE_REGS];
+  assign product_y_q                   = im_late_pipe_product_y_q[NUM_IM_LATE_REGS];
+  assign mantissa_e                    = {im_late_pipe_info_e_q[NUM_IM_LATE_REGS].is_normal,
+                                          im_late_pipe_operand_e_q[NUM_IM_LATE_REGS].mantissa};
+  assign mantissa_a_vsum               = {im_late_pipe_info_a_q[NUM_IM_LATE_REGS].is_normal,
+                                          im_late_pipe_operand_a_vsum_q[NUM_IM_LATE_REGS].mantissa};
+  assign mantissa_c_vsum               = {im_late_pipe_info_c_q[NUM_IM_LATE_REGS].is_normal,
+                                          im_late_pipe_operand_c_vsum_q[NUM_IM_LATE_REGS].mantissa};
+  assign addend_shamt_q                = im_late_pipe_addend_shamt_q[NUM_IM_LATE_REGS];
+  assign effective_subtraction_first_q = im_late_pipe_eff_sub_first_q[NUM_IM_LATE_REGS];
+  assign tentative_sign_q              = im_late_pipe_tentative_sign_q[NUM_IM_LATE_REGS];
+  assign tentative_exponent_q          = im_late_pipe_tent_exp_q[NUM_IM_LATE_REGS];
+  assign exponent_int_q                = im_late_pipe_exp_int_q[NUM_IM_LATE_REGS];
+  assign exponent_min_q                = im_late_pipe_exp_min_q[NUM_IM_LATE_REGS];
+  assign info_min_is_zero_q            = im_late_pipe_info_min_is_zero_q[NUM_IM_LATE_REGS];
+  assign info_int_is_zero_q            = im_late_pipe_info_int_is_zero_q[NUM_IM_LATE_REGS];
+  assign info_max_is_zero_q            = im_late_pipe_info_max_is_zero_q[NUM_IM_LATE_REGS];
+  assign addend_min_sign_q             = im_late_pipe_addend_min_sign_q[NUM_IM_LATE_REGS];
+  assign addend_int_sign_q             = im_late_pipe_addend_int_sign_q[NUM_IM_LATE_REGS];
+  assign addend_max_sign_q             = im_late_pipe_addend_max_sign_q[NUM_IM_LATE_REGS];
+  assign exponent_cmp_q                = im_late_pipe_exp_cmp_q[NUM_IM_LATE_REGS];
+  assign rnd_mode_q                    = im_late_pipe_rnd_mode_q[NUM_IM_LATE_REGS];
 
   // ------------------
   // Shift data path
@@ -775,15 +1107,15 @@ module fpnew_sdotp_multi #(
   // Bypass the multipliers in case of non-expanding VSUM
   // Place the products in the upper part of the addend in case of expanding operations (The addend
   // uses DST_PRECISION_BITS while 2*PRECISION_BITS might be narrower)
-  assign addend_x = (inp_pipe_op_q[NUM_INP_REGS] == fpnew_pkg::VSUM)
-                      ? mantissa_a_vsum : product_x << ADDITIONAL_PRECISION_BITS;
-  assign addend_y = (inp_pipe_op_q[NUM_INP_REGS] == fpnew_pkg::VSUM)
-                      ? mantissa_c_vsum : product_y << ADDITIONAL_PRECISION_BITS;
+  assign addend_x = (im_late_pipe_op_q[NUM_IM_LATE_REGS] == fpnew_pkg::VSUM)
+                      ? mantissa_a_vsum : product_x_q << ADDITIONAL_PRECISION_BITS;
+  assign addend_y = (im_late_pipe_op_q[NUM_IM_LATE_REGS] == fpnew_pkg::VSUM)
+                      ? mantissa_c_vsum : product_y_q << ADDITIONAL_PRECISION_BITS;
   assign addend_z = mantissa_e;
 
   // Sorting the addends
   always_comb begin : sort_addends
-    case (exponent_cmp)
+    case (exponent_cmp_q)
       // (x < y), (x < z), (y < z)
       3'b000  : {addend_max, addend_int, addend_min} = {addend_z, addend_y, addend_x};
       // (x < y), (x >= z), (y < z)
@@ -818,13 +1150,13 @@ module fpnew_sdotp_multi #(
   // | 000..........000 | addend_min | 000..................0GR |    sticky bits    |
   //  <- addend_shamt -> <- p_dst  -> <- p_dst+3-addend_shamt -> <-  up to p_dst  ->
   assign {addend_int_after_shift, addend_sticky_bits} =
-      (addend_int << (2*DST_PRECISION_BITS + 3)) >> addend_shamt;
+      (addend_int << (2*DST_PRECISION_BITS + 3)) >> addend_shamt_q;
 
   assign sticky_before_add     = (| addend_sticky_bits);
 
   // In case of a subtraction, the addend is inverted
-  assign addend_int_shifted  = (effective_subtraction_first) ? ~addend_int_after_shift : addend_int_after_shift;
-  assign inject_carry_in = effective_subtraction_first & ~sticky_before_add;
+  assign addend_int_shifted  = (effective_subtraction_first_q) ? ~addend_int_after_shift : addend_int_after_shift;
+  assign inject_carry_in = effective_subtraction_first_q & ~sticky_before_add;
 
   // ------
   // Adder
@@ -840,16 +1172,16 @@ module fpnew_sdotp_multi #(
   assign sum_carry = sum_raw[2*DST_PRECISION_BITS+3];
 
   // Complement negative sum (can only happen in subtraction -> overflows for positive results)
-  assign sum        = (effective_subtraction_first && ~sum_carry) ? -sum_raw : sum_raw;
+  assign sum        = (effective_subtraction_first_q && ~sum_carry) ? -sum_raw : sum_raw;
 
   // Check whether the result is an exact zero for rounding purposes (needed to set the sign of a
   // final result equal to zero)
-  assign sum_exact_zero = (sum == '0) && sum_carry && !sticky_before_add && effective_subtraction_first;
+  assign sum_exact_zero = (sum == '0) && sum_carry && !sticky_before_add && effective_subtraction_first_q;
   // In case of a mispredicted subtraction result, do a sign flip
-  assign final_sign = sum_exact_zero ? (inp_pipe_rnd_mode_q[NUM_INP_REGS] == fpnew_pkg::RDN)
-                                        : (effective_subtraction_first && (sum_carry == tentative_sign))
+  assign final_sign = sum_exact_zero ? (rnd_mode_q == fpnew_pkg::RDN)
+                                        : (effective_subtraction_first_q && (sum_carry == tentative_sign_q))
                                               ? 1'b1
-                                              : (effective_subtraction_first ? 1'b0 : tentative_sign);
+                                              : (effective_subtraction_first_q ? 1'b0 : tentative_sign_q);
 
   // -------------
   // Second Shift
@@ -859,9 +1191,9 @@ module fpnew_sdotp_multi #(
   logic signed [DST_EXP_WIDTH-1:0] tentative_exponent_z;
 
   // W comes from the first addition. Adding +1 to take into account the following shift
-  assign exponent_w = signed'(tentative_exponent + 1);
+  assign exponent_w = signed'(tentative_exponent_q + 1);
   // Exponent difference is the exponent of the first addition result (W) minus the minimum exponent
-  assign exponent_difference_z = exponent_w - exponent_min;
+  assign exponent_difference_z = exponent_w - exponent_min_q;
   // The tentative exponent will be the larger of W exponent or the minimum exponent
   assign tentative_exponent_z  = exponent_w;
 
@@ -897,23 +1229,23 @@ module fpnew_sdotp_multi #(
   // performed to select the right final sign.
   logic final_sign_zero;
   always_comb begin
-    final_sign_zero = addend_max_sign;
-    if (info_max_is_zero && !info_int_is_zero && !info_min_is_zero) begin
-      if (exponent_int > exponent_min) begin
-        final_sign_zero = addend_int_sign;
+    final_sign_zero = addend_max_sign_q;
+    if (info_max_is_zero_q && !info_int_is_zero_q && !info_min_is_zero_q) begin
+      if (exponent_int_q > exponent_min_q) begin
+        final_sign_zero = addend_int_sign_q;
       end else if (addend_int > addend_min) begin
-        final_sign_zero = addend_int_sign;
+        final_sign_zero = addend_int_sign_q;
       end else if (addend_int == addend_min) begin
-        final_sign_zero = (addend_max_sign) ? addend_int_sign | addend_min_sign : addend_int_sign & addend_min_sign;
+        final_sign_zero = (addend_max_sign_q) ? addend_int_sign_q | addend_min_sign_q : addend_int_sign_q & addend_min_sign_q;
       end else begin
-        final_sign_zero = addend_min_sign;
+        final_sign_zero = addend_min_sign_q;
       end
-    end else if (info_max_is_zero && info_int_is_zero && !info_min_is_zero) begin
-      final_sign_zero = addend_min_sign;
-    end else if (info_max_is_zero && info_int_is_zero && info_min_is_zero) begin
-      final_sign_zero = (addend_max_sign) ? addend_int_sign | addend_min_sign : addend_int_sign & addend_min_sign;
-    end else if (info_max_is_zero && !info_int_is_zero && info_min_is_zero) begin
-      final_sign_zero = addend_int_sign;
+    end else if (info_max_is_zero_q && info_int_is_zero_q && !info_min_is_zero_q) begin
+      final_sign_zero = addend_min_sign_q;
+    end else if (info_max_is_zero_q && info_int_is_zero_q && info_min_is_zero_q) begin
+      final_sign_zero = (addend_max_sign_q) ? addend_int_sign_q | addend_min_sign_q : addend_int_sign_q & addend_min_sign_q;
+    end else if (info_max_is_zero_q && !info_int_is_zero_q && info_min_is_zero_q) begin
+      final_sign_zero = addend_int_sign_q;
     end
   end
 
@@ -921,96 +1253,89 @@ module fpnew_sdotp_multi #(
   // Internal pipeline
   // -----------------
   // Pipeline output signals as non-arrays
-  logic                            effective_subtraction_first_q;
-  logic                            final_sign_zero_q;
-  logic                            info_min_is_zero_q;
-  logic                            info_max_is_zero_q;
-  logic                            addend_min_sign_q;
-  logic                            sum_exact_zero_q;
-  logic [DST_PRECISION_BITS-1:0]   addend_min_q;
-  logic signed [DST_EXP_WIDTH-1:0] exponent_w_q;
-  logic                            sticky_before_add_z_q;   // they are compressed into a single sticky bit
+  logic                                           effective_subtraction_first_q2;
+  logic                                           info_min_is_zero_q2;
+  logic                                           addend_min_sign_q2;
+  logic                                           sum_exact_zero_q;
+  logic [DST_PRECISION_BITS-1:0]                  addend_min_q;
+  logic signed [DST_EXP_WIDTH-1:0]                exponent_w_q;
+  logic                                           sticky_before_add_z_q;   // they are compressed into a single sticky bit
   logic [2*DST_PRECISION_BITS+PRECISION_BITS+3:0] addend_min_after_shift_q;
-  logic                            operand_e_sign_q;
-  logic                            product_x_sign_q;
-  logic                            product_y_sign_q;
-  logic [2:0]                      exponent_cmp_q;
-  logic signed [DST_EXP_WIDTH-1:0] exponent_min_q;
-  logic                            sticky_before_add_q;
-  logic [2*DST_PRECISION_BITS+2:0] sum_q;
-  logic                            final_sign_q;
-  fpnew_pkg::fp_format_e           dst_fmt_q2;
-  fpnew_pkg::roundmode_e           rnd_mode_q;
-  logic                            result_is_special_q;
-  fp_dst_t                         special_result_q;
-  fpnew_pkg::status_t              special_status_q;
-  logic                            sum_carry_q;
+  logic                                           operand_e_sign_q;
+  logic                                           product_x_sign_q;
+  logic                                           product_y_sign_q;
+  logic [2:0]                                     exponent_cmp_q2;
+  logic signed [DST_EXP_WIDTH-1:0]                exponent_min_q2;
+  logic [2*DST_PRECISION_BITS+2:0]                sum_q;
+  logic                                           final_sign_q;
+  logic                                           sum_carry_q;
+
   // Internal pipeline signals, index i holds signal after i register stages
-  logic                  [0:NUM_MID_REGS]                           mid_pipe_eff_sub_q;
-  logic                  [0:NUM_MID_REGS]                           mid_pipe_final_sign_zero_q;
-  logic                  [0:NUM_MID_REGS]                           mid_pipe_info_min_is_zero_q;
-  logic                  [0:NUM_MID_REGS]                           mid_pipe_info_max_is_zero_q;
-  logic                  [0:NUM_MID_REGS]                           mid_pipe_addend_min_sign_q;
-  logic                  [0:NUM_MID_REGS]                           mid_pipe_sum_exact_zero_q;
-  logic                  [0:NUM_MID_REGS][DST_PRECISION_BITS-1:0]   mid_pipe_addend_min_q;
-  logic signed           [0:NUM_MID_REGS][DST_EXP_WIDTH-1:0]        mid_pipe_exp_first_q;
-  logic                  [0:NUM_MID_REGS]                           mid_pipe_sticky_before_add_z_q;
+  logic                  [0:NUM_MID_REGS]                                          mid_pipe_eff_sub_q;
+  logic                  [0:NUM_MID_REGS]                                          mid_pipe_final_sign_zero_q;
+  logic                  [0:NUM_MID_REGS]                                          mid_pipe_info_min_is_zero_q;
+  logic                  [0:NUM_MID_REGS]                                          mid_pipe_info_max_is_zero_q;
+  logic                  [0:NUM_MID_REGS]                                          mid_pipe_addend_min_sign_q;
+  logic                  [0:NUM_MID_REGS]                                          mid_pipe_sum_exact_zero_q;
+  logic                  [0:NUM_MID_REGS][DST_PRECISION_BITS-1:0]                  mid_pipe_addend_min_q;
+  logic signed           [0:NUM_MID_REGS][DST_EXP_WIDTH-1:0]                       mid_pipe_exp_first_q;
+  logic                  [0:NUM_MID_REGS]                                          mid_pipe_sticky_before_add_z_q;
   logic                  [0:NUM_MID_REGS][2*DST_PRECISION_BITS+PRECISION_BITS+3:0] mid_pipe_add_min_after_shift_q;
-  logic                  [0:NUM_MID_REGS]                           mid_pipe_op_e_sign_q;
-  logic                  [0:NUM_MID_REGS]                           mid_pipe_prod_x_sign_q;
-  logic                  [0:NUM_MID_REGS]                           mid_pipe_prod_y_sign_q;
-  logic                  [0:NUM_MID_REGS][2:0]                      mid_pipe_exp_cmp_q;
-  logic signed           [0:NUM_MID_REGS][DST_EXP_WIDTH-1:0]        mid_pipe_exp_min_q;
-  logic                  [0:NUM_MID_REGS]                           mid_pipe_sticky_q;
-  logic                  [0:NUM_MID_REGS][2*DST_PRECISION_BITS+2:0] mid_pipe_sum_q;
-  logic                  [0:NUM_MID_REGS]                           mid_pipe_final_sign_q;
-  fpnew_pkg::fp_format_e [0:NUM_MID_REGS]                           mid_pipe_dst_fmt_q;
-  fpnew_pkg::roundmode_e [0:NUM_MID_REGS]                           mid_pipe_rnd_mode_q;
-  logic                  [0:NUM_MID_REGS]                           mid_pipe_res_is_spec_q;
-  fp_dst_t               [0:NUM_MID_REGS]                           mid_pipe_spec_res_q;
-  fpnew_pkg::status_t    [0:NUM_MID_REGS]                           mid_pipe_spec_stat_q;
-  TagType                [0:NUM_MID_REGS]                           mid_pipe_tag_q;
-  logic                  [0:NUM_MID_REGS]                           mid_pipe_mask_q;
-  AuxType                [0:NUM_MID_REGS]                           mid_pipe_aux_q;
-  logic                  [0:NUM_MID_REGS]                           mid_pipe_valid_q;
-  logic                  [0:NUM_MID_REGS]                           mid_pipe_sum_carry_q;
+  logic                  [0:NUM_MID_REGS]                                          mid_pipe_op_e_sign_q;
+  logic                  [0:NUM_MID_REGS]                                          mid_pipe_prod_x_sign_q;
+  logic                  [0:NUM_MID_REGS]                                          mid_pipe_prod_y_sign_q;
+  logic                  [0:NUM_MID_REGS][2:0]                                     mid_pipe_exp_cmp_q;
+  logic signed           [0:NUM_MID_REGS][DST_EXP_WIDTH-1:0]                       mid_pipe_exp_min_q;
+  logic                  [0:NUM_MID_REGS]                                          mid_pipe_sticky_q;
+  logic                  [0:NUM_MID_REGS][2*DST_PRECISION_BITS+2:0]                mid_pipe_sum_q;
+  logic                  [0:NUM_MID_REGS]                                          mid_pipe_final_sign_q;
+  fpnew_pkg::fp_format_e [0:NUM_MID_REGS]                                          mid_pipe_dst_fmt_q;
+  fpnew_pkg::roundmode_e [0:NUM_MID_REGS]                                          mid_pipe_rnd_mode_q;
+  logic                  [0:NUM_MID_REGS]                                          mid_pipe_res_is_spec_q;
+  fp_dst_t               [0:NUM_MID_REGS]                                          mid_pipe_spec_res_q;
+  fpnew_pkg::status_t    [0:NUM_MID_REGS]                                          mid_pipe_spec_stat_q;
+  TagType                [0:NUM_MID_REGS]                                          mid_pipe_tag_q;
+  logic                  [0:NUM_MID_REGS]                                          mid_pipe_mask_q;
+  AuxType                [0:NUM_MID_REGS]                                          mid_pipe_aux_q;
+  logic                  [0:NUM_MID_REGS]                                          mid_pipe_valid_q;
+  logic                  [0:NUM_MID_REGS]                                          mid_pipe_sum_carry_q;
   // Ready signal is combinatorial for all stages
   logic [0:NUM_MID_REGS] mid_pipe_ready;
 
   // Input stage: First element of pipeline is taken from upstream logic
-  assign mid_pipe_eff_sub_q[0]                = effective_subtraction_first;
+  assign mid_pipe_eff_sub_q[0]                = im_late_pipe_eff_sub_first_q[NUM_IM_LATE_REGS];
   assign mid_pipe_final_sign_zero_q[0]        = final_sign_zero;
-  assign mid_pipe_info_min_is_zero_q[0]       = info_min_is_zero;
-  assign mid_pipe_info_max_is_zero_q[0]       = info_max_is_zero;
-  assign mid_pipe_addend_min_sign_q[0]        = addend_min_sign;
+  assign mid_pipe_info_min_is_zero_q[0]       = im_late_pipe_info_min_is_zero_q[NUM_IM_LATE_REGS];
+  assign mid_pipe_info_max_is_zero_q[0]       = im_late_pipe_info_max_is_zero_q[NUM_IM_LATE_REGS];
+  assign mid_pipe_addend_min_sign_q[0]        = im_late_pipe_addend_min_sign_q[NUM_IM_LATE_REGS];
   assign mid_pipe_sum_exact_zero_q[0]         = sum_exact_zero;
   assign mid_pipe_addend_min_q[0]             = addend_min;
   assign mid_pipe_exp_first_q[0]              = exponent_w;
   assign mid_pipe_sticky_before_add_z_q[0]    = sticky_before_add_z;
   assign mid_pipe_add_min_after_shift_q[0]    = addend_min_after_shift;
-  assign mid_pipe_op_e_sign_q[0]              = operand_e.sign;
-  assign mid_pipe_prod_x_sign_q[0]            = (a_sign ^ operand_b.sign);
-  assign mid_pipe_prod_y_sign_q[0]            = (c_sign ^ operand_d.sign);
-  assign mid_pipe_exp_cmp_q[0]                = exponent_cmp;
-  assign mid_pipe_exp_min_q[0]                = exponent_min;
+  assign mid_pipe_op_e_sign_q[0]              = im_late_pipe_operand_e_q[NUM_IM_LATE_REGS].sign;
+  assign mid_pipe_prod_x_sign_q[0]            = im_late_pipe_a_sign_q[NUM_IM_LATE_REGS] ^ im_late_pipe_operand_b_q[NUM_IM_LATE_REGS].sign;
+  assign mid_pipe_prod_y_sign_q[0]            = im_late_pipe_c_sign_q[NUM_IM_LATE_REGS] ^ im_late_pipe_operand_d_q[NUM_IM_LATE_REGS].sign;
+  assign mid_pipe_exp_cmp_q[0]                = im_late_pipe_exp_cmp_q[NUM_IM_LATE_REGS];
+  assign mid_pipe_exp_min_q[0]                = im_late_pipe_exp_min_q[NUM_IM_LATE_REGS];
   assign mid_pipe_sticky_q[0]                 = sticky_before_add;
   assign mid_pipe_sum_q[0]                    = sum;
   assign mid_pipe_final_sign_q[0]             = final_sign;
-  assign mid_pipe_rnd_mode_q[0]               = inp_pipe_rnd_mode_q[NUM_INP_REGS];
-  assign mid_pipe_dst_fmt_q[0]                = dst_fmt_q;
-  assign mid_pipe_res_is_spec_q[0]            = result_is_special;
-  assign mid_pipe_spec_res_q[0]               = special_result;
-  assign mid_pipe_spec_stat_q[0]              = special_status;
-  assign mid_pipe_tag_q[0]                    = inp_pipe_tag_q[NUM_INP_REGS];
-  assign mid_pipe_mask_q[0]                   = inp_pipe_mask_q[NUM_INP_REGS];
-  assign mid_pipe_aux_q[0]                    = inp_pipe_aux_q[NUM_INP_REGS];
-  assign mid_pipe_valid_q[0]                  = inp_pipe_valid_q[NUM_INP_REGS];
+  assign mid_pipe_rnd_mode_q[0]               = im_late_pipe_rnd_mode_q[NUM_IM_LATE_REGS];
+  assign mid_pipe_dst_fmt_q[0]                = im_late_pipe_dst_fmt_q[NUM_IM_LATE_REGS];
+  assign mid_pipe_res_is_spec_q[0]            = im_late_pipe_res_is_spec_q[NUM_IM_LATE_REGS];
+  assign mid_pipe_spec_res_q[0]               = im_late_pipe_special_result_q[NUM_IM_LATE_REGS];
+  assign mid_pipe_spec_stat_q[0]              = im_late_pipe_special_status_q[NUM_IM_LATE_REGS];
+  assign mid_pipe_tag_q[0]                    = im_late_pipe_tag_q[NUM_IM_LATE_REGS];
+  assign mid_pipe_mask_q[0]                   = im_late_pipe_mask_q[NUM_IM_LATE_REGS];
+  assign mid_pipe_aux_q[0]                    = im_late_pipe_aux_q[NUM_IM_LATE_REGS];
+  assign mid_pipe_valid_q[0]                  = im_late_pipe_valid_q[NUM_IM_LATE_REGS];
   assign mid_pipe_sum_carry_q[0]              = sum_carry;
-  // Input stage: Propagate pipeline ready signal to input pipe
-  assign inp_pipe_ready[NUM_INP_REGS]         = mid_pipe_ready[0];
+  // Input stage: Propagate pipeline ready signal to im_late pipe
+  assign im_late_pipe_ready[NUM_IM_LATE_REGS] = mid_pipe_ready[0];
 
   // Generate the register stages
-  for (genvar i = 0; i < NUM_MID_REGS; i++) begin : gen_inside_pipeline
+  for (genvar i = 0; i < NUM_MID_REGS; i++) begin : gen_mid_pipeline
     // Internal register enable for this stage
     logic reg_ena;
     // Determine the ready signal of the current stage - advance the pipeline:
@@ -1051,30 +1376,22 @@ module fpnew_sdotp_multi #(
     `FFL(mid_pipe_sum_carry_q[i+1],           mid_pipe_sum_carry_q[i],           reg_ena, '0)
   end
   // Output stage: assign selected pipe outputs to signals for later use
-  assign sum_carry_q                   = mid_pipe_sum_carry_q[NUM_MID_REGS];
-  assign addend_min_q                  = mid_pipe_addend_min_q[NUM_MID_REGS];
-  assign final_sign_zero_q             = mid_pipe_final_sign_zero_q[NUM_MID_REGS];
-  assign info_min_is_zero_q            = mid_pipe_info_min_is_zero_q[NUM_MID_REGS];
-  assign info_max_is_zero_q            = mid_pipe_info_max_is_zero_q[NUM_MID_REGS];
-  assign addend_min_sign_q             = mid_pipe_addend_min_sign_q[NUM_MID_REGS];
-  assign sum_exact_zero_q              = mid_pipe_sum_exact_zero_q[NUM_MID_REGS];
-  assign effective_subtraction_first_q = mid_pipe_eff_sub_q[NUM_MID_REGS];
-  assign exponent_w_q                  = mid_pipe_exp_first_q[NUM_MID_REGS];
-  assign sticky_before_add_z_q         = mid_pipe_sticky_before_add_z_q[NUM_MID_REGS];
-  assign addend_min_after_shift_q      = mid_pipe_add_min_after_shift_q[NUM_MID_REGS];
-  assign operand_e_sign_q              = mid_pipe_op_e_sign_q[NUM_MID_REGS];
-  assign product_x_sign_q              = mid_pipe_prod_x_sign_q[NUM_MID_REGS];
-  assign product_y_sign_q              = mid_pipe_prod_y_sign_q[NUM_MID_REGS];
-  assign exponent_cmp_q                = mid_pipe_exp_cmp_q[NUM_MID_REGS];
-  assign exponent_min_q                = mid_pipe_exp_min_q[NUM_MID_REGS];
-  assign sticky_before_add_q           = mid_pipe_sticky_q[NUM_MID_REGS];
-  assign sum_q                         = mid_pipe_sum_q[NUM_MID_REGS];
-  assign final_sign_q                  = mid_pipe_final_sign_q[NUM_MID_REGS];
-  assign rnd_mode_q                    = mid_pipe_rnd_mode_q[NUM_MID_REGS];
-  assign dst_fmt_q2                    = mid_pipe_dst_fmt_q[NUM_MID_REGS];
-  assign result_is_special_q           = mid_pipe_res_is_spec_q[NUM_MID_REGS];
-  assign special_result_q              = mid_pipe_spec_res_q[NUM_MID_REGS];
-  assign special_status_q              = mid_pipe_spec_stat_q[NUM_MID_REGS];
+  assign sum_carry_q                    = mid_pipe_sum_carry_q[NUM_MID_REGS];
+  assign addend_min_q                   = mid_pipe_addend_min_q[NUM_MID_REGS];
+  assign info_min_is_zero_q2            = mid_pipe_info_min_is_zero_q[NUM_MID_REGS];
+  assign addend_min_sign_q2             = mid_pipe_addend_min_sign_q[NUM_MID_REGS];
+  assign sum_exact_zero_q               = mid_pipe_sum_exact_zero_q[NUM_MID_REGS];
+  assign effective_subtraction_first_q2 = mid_pipe_eff_sub_q[NUM_MID_REGS];
+  assign exponent_w_q                   = mid_pipe_exp_first_q[NUM_MID_REGS];
+  assign sticky_before_add_z_q          = mid_pipe_sticky_before_add_z_q[NUM_MID_REGS];
+  assign addend_min_after_shift_q       = mid_pipe_add_min_after_shift_q[NUM_MID_REGS];
+  assign operand_e_sign_q               = mid_pipe_op_e_sign_q[NUM_MID_REGS];
+  assign product_x_sign_q               = mid_pipe_prod_x_sign_q[NUM_MID_REGS];
+  assign product_y_sign_q               = mid_pipe_prod_y_sign_q[NUM_MID_REGS];
+  assign exponent_cmp_q2                = mid_pipe_exp_cmp_q[NUM_MID_REGS];
+  assign exponent_min_q2                = mid_pipe_exp_min_q[NUM_MID_REGS];
+  assign sum_q                          = mid_pipe_sum_q[NUM_MID_REGS];
+  assign final_sign_q                   = mid_pipe_final_sign_q[NUM_MID_REGS];
 
   // ----------------------------------
   // Second Step of the Three-way Adder
@@ -1085,7 +1402,7 @@ module fpnew_sdotp_multi #(
   // shifted in parallel with the first sum (i.e. if the minimum addend is much smaller than 0,
   // it might have been shifted out before knowning that the result of the first addition was 0)
   logic bypass_w;
-  assign bypass_w = sum_exact_zero_q && !info_min_is_zero_q && sticky_before_add_z_q;
+  assign bypass_w = sum_exact_zero_q && !info_min_is_zero_q2 && sticky_before_add_z_q;
 
   logic [2*DST_PRECISION_BITS+3:0] mantissa_w;
   logic [2*DST_PRECISION_BITS+PRECISION_BITS+3:0] mantissa_w_shifted;
@@ -1094,17 +1411,17 @@ module fpnew_sdotp_multi #(
   logic                            effective_subtraction_z;
   logic signed [DST_EXP_WIDTH-1:0] final_tentative_exponent;
 
-  assign final_tentative_exponent = (bypass_w) ? (exponent_min_q >= 0) ? exponent_min_q : 1'b0
+  assign final_tentative_exponent = (bypass_w) ? (exponent_min_q2 >= 0) ? exponent_min_q2 : 1'b0
                                                : exponent_w_q;
 
-  assign mantissa_w = {sum_carry_q && ~effective_subtraction_first_q, sum_q};
+  assign mantissa_w = {sum_carry_q && ~effective_subtraction_first_q2, sum_q};
   assign mantissa_w_shifted = mantissa_w << PRECISION_BITS;
 
   // The tentative sign shall be the sign of the first addition
-  assign tentative_sign_z = (bypass_w) ? addend_min_sign_q : final_sign_q;
+  assign tentative_sign_z = (bypass_w) ? addend_min_sign_q2 : final_sign_q;
 
   always_comb begin
-    case (exponent_cmp_q)
+    case (exponent_cmp_q2)
       3'b000  :  effective_subtraction_z = product_x_sign_q ^ tentative_sign_z;
       3'b001  :  effective_subtraction_z = product_x_sign_q ^ tentative_sign_z;
       3'b011  :  effective_subtraction_z = operand_e_sign_q ^ tentative_sign_z;
@@ -1131,9 +1448,9 @@ module fpnew_sdotp_multi #(
   logic                            final_sign_z;
 
   // Mantissa adder (W+Z)
-  assign sum_raw_z    = (bypass_w) ? (exponent_min_q > 0) ? addend_min_q << (DST_PRECISION_BITS+PRECISION_BITS+4)
+  assign sum_raw_z    = (bypass_w) ? (exponent_min_q2 > 0) ? addend_min_q << (DST_PRECISION_BITS+PRECISION_BITS+4)
                                                           : (addend_min_q << (DST_PRECISION_BITS+PRECISION_BITS+4))
-                                                            >> signed'(-exponent_min_q+1)
+                                                            >> signed'(-exponent_min_q2+1)
                                    : mantissa_w_shifted + addend_min_shifted + inject_carry_in_z;
   assign sum_carry_z  = sum_raw_z[2*DST_PRECISION_BITS +PRECISION_BITS+ 4];
 
@@ -1145,25 +1462,110 @@ module fpnew_sdotp_multi #(
                             ? 1'b1
                             : (effective_subtraction_z ? 1'b0 : tentative_sign_z);
 
-  // --------------
-  // Normalization
-  // --------------
+  // --------------------------
+  // MID to OUT EARLY pipeline
+  // --------------------------
+  logic [2*DST_PRECISION_BITS+PRECISION_BITS+3:0] sum_z_q;
+  logic                                           sum_carry_z_q;
+  logic                                           effective_subtraction_z_q;
+
+  // Internal pipeline signals, index i holds signal after i register stages
+  logic                  [0:NUM_MO_EARLY_REGS][2*DST_PRECISION_BITS+PRECISION_BITS+3:0] mo_early_pipe_sum_z_q;
+  logic                  [0:NUM_MO_EARLY_REGS]                                          mo_early_pipe_sum_carry_z_q;
+  logic signed           [0:NUM_MO_EARLY_REGS][DST_EXP_WIDTH-1:0]                       mo_early_pipe_final_tentative_exponent_q;
+  logic                  [0:NUM_MO_EARLY_REGS]                                          mo_early_pipe_sticky_before_add_z_q;
+  logic                  [0:NUM_MO_EARLY_REGS]                                          mo_early_pipe_sticky_before_add_q;
+  logic                  [0:NUM_MO_EARLY_REGS]                                          mo_early_pipe_eff_sub_first_q;
+  logic                  [0:NUM_MO_EARLY_REGS]                                          mo_early_pipe_eff_sub_z_q;
+  logic                  [0:NUM_MO_EARLY_REGS]                                          mo_early_pipe_bypass_w_q;
+  logic                  [0:NUM_MO_EARLY_REGS]                                          mo_early_pipe_info_min_is_zero_q;
+  logic                  [0:NUM_MO_EARLY_REGS]                                          mo_early_pipe_info_max_is_zero_q;
+  logic                  [0:NUM_MO_EARLY_REGS]                                          mo_early_pipe_final_sign_zero_q;
+  logic                  [0:NUM_MO_EARLY_REGS]                                          mo_early_pipe_final_sign_z_q;
+  fpnew_pkg::roundmode_e [0:NUM_MO_EARLY_REGS]                                          mo_early_pipe_rnd_mode_q;
+  fpnew_pkg::fp_format_e [0:NUM_MO_EARLY_REGS]                                          mo_early_pipe_dst_fmt_q;
+  logic                  [0:NUM_MO_EARLY_REGS]                                          mo_early_pipe_res_is_spec_q;
+  fp_dst_t               [0:NUM_MO_EARLY_REGS]                                          mo_early_pipe_spec_res_q;
+  fpnew_pkg::status_t    [0:NUM_MO_EARLY_REGS]                                          mo_early_pipe_spec_stat_q;
+  TagType                [0:NUM_MO_EARLY_REGS]                                          mo_early_pipe_tag_q;
+  logic                  [0:NUM_MO_EARLY_REGS]                                          mo_early_pipe_mask_q;
+  AuxType                [0:NUM_MO_EARLY_REGS]                                          mo_early_pipe_aux_q;
+  logic                  [0:NUM_MO_EARLY_REGS]                                          mo_early_pipe_valid_q;
+  // Ready signal is combinatorial for all stages
+  logic                  [0:NUM_MO_EARLY_REGS]                                          mo_early_pipe_ready;
+
+  // Input stage: First element of pipeline is taken from upstream logic
+  assign mo_early_pipe_sum_z_q[0]                    = sum_z;
+  assign mo_early_pipe_sum_carry_z_q[0]              = sum_carry_z;
+  assign mo_early_pipe_final_tentative_exponent_q[0] = final_tentative_exponent;
+  assign mo_early_pipe_sticky_before_add_z_q[0]      = sticky_before_add_z_q;
+  assign mo_early_pipe_sticky_before_add_q[0]        = mid_pipe_sticky_q[NUM_MID_REGS];
+  assign mo_early_pipe_eff_sub_first_q[0]            = effective_subtraction_first_q2;
+  assign mo_early_pipe_eff_sub_z_q[0]                = effective_subtraction_z;
+  assign mo_early_pipe_bypass_w_q[0]                 = bypass_w;
+  assign mo_early_pipe_info_min_is_zero_q[0]         = info_min_is_zero_q2;
+  assign mo_early_pipe_info_max_is_zero_q[0]         = mid_pipe_info_max_is_zero_q[NUM_MID_REGS];
+  assign mo_early_pipe_final_sign_zero_q[0]          = mid_pipe_final_sign_zero_q[NUM_MID_REGS];
+  assign mo_early_pipe_final_sign_z_q[0]             = final_sign_z;
+  assign mo_early_pipe_rnd_mode_q[0]                 = mid_pipe_rnd_mode_q[NUM_MID_REGS];
+  assign mo_early_pipe_dst_fmt_q[0]                  = mid_pipe_dst_fmt_q[NUM_MID_REGS];
+  assign mo_early_pipe_res_is_spec_q[0]              = mid_pipe_res_is_spec_q[NUM_MID_REGS];
+  assign mo_early_pipe_spec_res_q[0]                 = mid_pipe_spec_res_q[NUM_MID_REGS];
+  assign mo_early_pipe_spec_stat_q[0]                = mid_pipe_spec_stat_q[NUM_MID_REGS];
+  assign mo_early_pipe_tag_q[0]                      = mid_pipe_tag_q[NUM_MID_REGS];
+  assign mo_early_pipe_mask_q[0]                     = mid_pipe_mask_q[NUM_MID_REGS];
+  assign mo_early_pipe_aux_q[0]                      = mid_pipe_aux_q[NUM_MID_REGS];
+  assign mo_early_pipe_valid_q[0]                    = mid_pipe_valid_q[NUM_MID_REGS];
+  // Input stage: Propagate pipeline ready signal to mid pipe
+  assign mid_pipe_ready[NUM_MID_REGS]                = mo_early_pipe_ready[0];
+
+  // Generate the register stages
+  for (genvar i = 0; i < NUM_MO_EARLY_REGS; i++) begin : gen_mid_out_early_pipeline
+    // Internal register enable for this stage
+    logic reg_ena;
+    // Determine the ready signal of the current stage - advance the pipeline:
+    // 1. if the next stage is ready for our data
+    // 2. if the next stage only holds a bubble (not valid) -> we can pop it
+    assign mo_early_pipe_ready[i] = mo_early_pipe_ready[i+1] | ~mo_early_pipe_valid_q[i+1];
+    // Valid: enabled by ready signal, synchronous clear with the flush signal
+    `FFLARNC(mo_early_pipe_valid_q[i+1], mo_early_pipe_valid_q[i], mo_early_pipe_ready[i], flush_i, 1'b0, clk_i, rst_ni)
+    // Enable register if pipeline ready and a valid data item is present
+    assign reg_ena = mo_early_pipe_ready[i] & mo_early_pipe_valid_q[i];
+    // Generate the pipeline registers within the stages, use enable-registers
+    `FFL(mo_early_pipe_sum_z_q[i+1],                    mo_early_pipe_sum_z_q[i],                    reg_ena, '0)
+    `FFL(mo_early_pipe_sum_carry_z_q[i+1],              mo_early_pipe_sum_carry_z_q[i],              reg_ena, '0)
+    `FFL(mo_early_pipe_final_tentative_exponent_q[i+1], mo_early_pipe_final_tentative_exponent_q[i], reg_ena, '0)
+    `FFL(mo_early_pipe_sticky_before_add_z_q[i+1],      mo_early_pipe_sticky_before_add_z_q[i],      reg_ena, '0)
+    `FFL(mo_early_pipe_sticky_before_add_q[i+1],        mo_early_pipe_sticky_before_add_q[i],        reg_ena, '0)
+    `FFL(mo_early_pipe_eff_sub_first_q[i+1],            mo_early_pipe_eff_sub_first_q[i],            reg_ena, '0)
+    `FFL(mo_early_pipe_eff_sub_z_q[i+1],                mo_early_pipe_eff_sub_z_q[i],                reg_ena, '0)
+    `FFL(mo_early_pipe_bypass_w_q[i+1],                 mo_early_pipe_bypass_w_q[i],                 reg_ena, '0)
+    `FFL(mo_early_pipe_info_min_is_zero_q[i+1],         mo_early_pipe_info_min_is_zero_q[i],         reg_ena, '0)
+    `FFL(mo_early_pipe_info_max_is_zero_q[i+1],         mo_early_pipe_info_max_is_zero_q[i],         reg_ena, '0)
+    `FFL(mo_early_pipe_final_sign_zero_q[i+1],          mo_early_pipe_final_sign_zero_q[i],          reg_ena, '0)
+    `FFL(mo_early_pipe_final_sign_z_q[i+1],             mo_early_pipe_final_sign_z_q[i],             reg_ena, '0)
+    `FFL(mo_early_pipe_rnd_mode_q[i+1],                 mo_early_pipe_rnd_mode_q[i],                 reg_ena, fpnew_pkg::RNE)
+    `FFL(mo_early_pipe_dst_fmt_q[i+1],                  mo_early_pipe_dst_fmt_q[i],                  reg_ena, fpnew_pkg::fp_format_e'(0))
+    `FFL(mo_early_pipe_res_is_spec_q[i+1],              mo_early_pipe_res_is_spec_q[i],              reg_ena, '0)
+    `FFL(mo_early_pipe_spec_res_q[i+1],                 mo_early_pipe_spec_res_q[i],                 reg_ena, '0)
+    `FFL(mo_early_pipe_spec_stat_q[i+1],                mo_early_pipe_spec_stat_q[i],                reg_ena, '0)
+    `FFL(mo_early_pipe_tag_q[i+1],                      mo_early_pipe_tag_q[i],                      reg_ena, TagType'('0))
+    `FFL(mo_early_pipe_mask_q[i+1],                     mo_early_pipe_mask_q[i],                     reg_ena, '0)
+    `FFL(mo_early_pipe_aux_q[i+1],                      mo_early_pipe_aux_q[i],                      reg_ena, AuxType'('0))
+  end
+  // Output stage: assign selected pipe outputs to signals for later use
+  assign sum_z_q                   = mo_early_pipe_sum_z_q[NUM_MO_EARLY_REGS];
+  assign sum_carry_z_q             = mo_early_pipe_sum_carry_z_q[NUM_MO_EARLY_REGS];
+  assign effective_subtraction_z_q = mo_early_pipe_eff_sub_z_q[NUM_MO_EARLY_REGS];
+
+  // ----------------
+  // Normalization 1
+  // ----------------
   logic        [LZC_SUM_WIDTH-1:0]    sum_lower;              // LZC_SUM_WIDTH bits of sum are searched
   logic        [LZC_RESULT_WIDTH-1:0] leading_zero_count;     // the number of leading zeroes
-  logic signed [LZC_RESULT_WIDTH:0]   leading_zero_count_sgn; // signed leading-zero count
   logic                               lzc_zeroes;             // in case only zeroes found
 
-  logic        [DST_SHIFT_AMOUNT_WIDTH-1:0] norm_shamt; // Normalization shift amount
-  logic signed [DST_EXP_WIDTH-1:0]          normalized_exponent;
-
-  logic [2*DST_PRECISION_BITS+PRECISION_BITS+4:0] sum_shifted;       // result after first normalization shift
-  logic     [DST_PRECISION_BITS:0] final_mantissa;    // final mantissa before rounding with round bit
-  logic   [DST_PRECISION_BITS+PRECISION_BITS+2:0] sum_sticky_bits;   // remaining p_dst+3 sticky bits after normalization
-  logic                            sticky_after_norm; // sticky bit after normalization
-
-  logic signed [DST_EXP_WIDTH-1:0] final_exponent;
-
-  assign sum_lower = {(~effective_subtraction_z && sum_carry_z), sum_z};
+  assign sum_lower = {(~effective_subtraction_z_q && sum_carry_z_q), sum_z_q};
 
   // Leading zero counter for cancellations
   lzc #(
@@ -1175,32 +1577,176 @@ module fpnew_sdotp_multi #(
     .empty_o ( lzc_zeroes         )
   );
 
-  assign leading_zero_count_sgn = signed'({1'b0, leading_zero_count});
+  // -------------------------
+  // MID to OUT LATE pipeline
+  // -------------------------
+  logic                            lzc_zeroes_q;
+  logic [LZC_RESULT_WIDTH-1:0]     leading_zero_count_q;
+  logic signed [DST_EXP_WIDTH-1:0] final_tentative_exponent_q;
+  logic [LZC_SUM_WIDTH-1:0]        sum_lower_q;
+  logic                            sticky_before_add_z_q2;
+  logic                            bypass_w_q;
+  logic                            sticky_before_add_q2;
+  logic                            effective_subtraction_first_q3;
+  logic                            effective_subtraction_z_q2;
+  logic                            info_min_is_zero_q3;
+  logic                            info_max_is_zero_q2;
+  logic                            final_sign_zero_q;
+  logic                            final_sign_z_q;
+  fpnew_pkg::roundmode_e           rnd_mode_q2;
+  fpnew_pkg::fp_format_e           dst_fmt_q2;
+  logic                            result_is_special_q;
+  fp_dst_t                         special_result_q;
+  fpnew_pkg::status_t              special_status_q;
+
+  // Internal pipeline signals, index i holds signal after i register stages
+  logic                  [0:NUM_MO_LATE_REGS]                       mo_late_pipe_lzc_zeroes_q;
+  logic                  [0:NUM_MO_LATE_REGS][LZC_RESULT_WIDTH-1:0] mo_late_pipe_leading_zero_count_q;
+  logic signed           [0:NUM_MO_LATE_REGS][DST_EXP_WIDTH-1:0]    mo_late_pipe_final_tentative_exp_q;
+  logic                  [0:NUM_MO_LATE_REGS][LZC_SUM_WIDTH-1:0]    mo_late_pipe_sum_lower_q;
+  logic                  [0:NUM_MO_LATE_REGS]                       mo_late_pipe_sticky_before_add_z_q;
+  logic                  [0:NUM_MO_LATE_REGS]                       mo_late_pipe_bypass_w_q;
+  logic                  [0:NUM_MO_LATE_REGS]                       mo_late_pipe_sticky_before_add_q;
+  logic                  [0:NUM_MO_LATE_REGS]                       mo_late_pipe_eff_sub_first_q;
+  logic                  [0:NUM_MO_LATE_REGS]                       mo_late_pipe_eff_sub_z_q;
+  logic                  [0:NUM_MO_LATE_REGS]                       mo_late_pipe_info_min_is_zero_q;
+  logic                  [0:NUM_MO_LATE_REGS]                       mo_late_pipe_info_max_is_zero_q;
+  logic                  [0:NUM_MO_LATE_REGS]                       mo_late_pipe_final_sign_zero_q;
+  logic                  [0:NUM_MO_LATE_REGS]                       mo_late_pipe_final_sign_z_q;
+  fpnew_pkg::roundmode_e [0:NUM_MO_LATE_REGS]                       mo_late_pipe_rnd_mode_q;
+  fpnew_pkg::fp_format_e [0:NUM_MO_LATE_REGS]                       mo_late_pipe_dst_fmt_q;
+  logic                  [0:NUM_MO_LATE_REGS]                       mo_late_pipe_res_is_spec_q;
+  fp_dst_t               [0:NUM_MO_LATE_REGS]                       mo_late_pipe_spec_res_q;
+  fpnew_pkg::status_t    [0:NUM_MO_LATE_REGS]                       mo_late_pipe_spec_stat_q;
+  TagType                [0:NUM_MO_LATE_REGS]                       mo_late_pipe_tag_q;
+  logic                  [0:NUM_MO_LATE_REGS]                       mo_late_pipe_mask_q;
+  AuxType                [0:NUM_MO_LATE_REGS]                       mo_late_pipe_aux_q;
+  logic                  [0:NUM_MO_LATE_REGS]                       mo_late_pipe_valid_q;
+  // Ready signal is combinatorial for all stages
+  logic                  [0:NUM_MO_LATE_REGS]                       mo_late_pipe_ready;
+
+  // Input stage: First element of pipeline is taken from upstream logic
+  assign mo_late_pipe_lzc_zeroes_q[0]           = lzc_zeroes;
+  assign mo_late_pipe_leading_zero_count_q[0]   = leading_zero_count;
+  assign mo_late_pipe_final_tentative_exp_q[0]  = mo_early_pipe_final_tentative_exponent_q[NUM_MO_EARLY_REGS];
+  assign mo_late_pipe_sum_lower_q[0]            = sum_lower;
+  assign mo_late_pipe_sticky_before_add_z_q[0]  = mo_early_pipe_sticky_before_add_z_q[NUM_MO_EARLY_REGS];
+  assign mo_late_pipe_bypass_w_q[0]             = mo_early_pipe_bypass_w_q[NUM_MO_EARLY_REGS];
+  assign mo_late_pipe_sticky_before_add_q[0]    = mo_early_pipe_sticky_before_add_q[NUM_MO_EARLY_REGS];
+  assign mo_late_pipe_eff_sub_first_q[0]        = mo_early_pipe_eff_sub_first_q[NUM_MO_EARLY_REGS];
+  assign mo_late_pipe_eff_sub_z_q[0]            = mo_early_pipe_eff_sub_z_q[NUM_MO_EARLY_REGS];
+  assign mo_late_pipe_info_min_is_zero_q[0]     = mo_early_pipe_info_min_is_zero_q[NUM_MO_EARLY_REGS];
+  assign mo_late_pipe_info_max_is_zero_q[0]     = mo_early_pipe_info_max_is_zero_q[NUM_MO_EARLY_REGS];
+  assign mo_late_pipe_final_sign_zero_q[0]      = mo_early_pipe_final_sign_zero_q[NUM_MO_EARLY_REGS];
+  assign mo_late_pipe_final_sign_z_q[0]         = mo_early_pipe_final_sign_z_q[NUM_MO_EARLY_REGS];
+  assign mo_late_pipe_rnd_mode_q[0]             = mo_early_pipe_rnd_mode_q[NUM_MO_EARLY_REGS];
+  assign mo_late_pipe_dst_fmt_q[0]              = mo_early_pipe_dst_fmt_q[NUM_MO_EARLY_REGS];
+  assign mo_late_pipe_res_is_spec_q[0]          = mo_early_pipe_res_is_spec_q[NUM_MO_EARLY_REGS];
+  assign mo_late_pipe_spec_res_q[0]             = mo_early_pipe_spec_res_q[NUM_MO_EARLY_REGS];
+  assign mo_late_pipe_spec_stat_q[0]            = mo_early_pipe_spec_stat_q[NUM_MO_EARLY_REGS];
+  assign mo_late_pipe_tag_q[0]                  = mo_early_pipe_tag_q[NUM_MO_EARLY_REGS];
+  assign mo_late_pipe_mask_q[0]                 = mo_early_pipe_mask_q[NUM_MO_EARLY_REGS];
+  assign mo_late_pipe_aux_q[0]                  = mo_early_pipe_aux_q[NUM_MO_EARLY_REGS];
+  assign mo_late_pipe_valid_q[0]                = mo_early_pipe_valid_q[NUM_MO_EARLY_REGS];
+  // Input stage: Propagate pipeline ready signal to mo_early pipe
+  assign mo_early_pipe_ready[NUM_MO_EARLY_REGS] = mo_late_pipe_ready[0];
+
+  // Generate the register stages
+  for (genvar i = 0; i < NUM_MO_LATE_REGS; i++) begin : gen_mid_out_late_pipeline
+    // Internal register enable for this stage
+    logic reg_ena;
+    // Determine the ready signal of the current stage - advance the pipeline:
+    // 1. if the next stage is ready for our data
+    // 2. if the next stage only holds a bubble (not valid) -> we can pop it
+    assign mo_late_pipe_ready[i] = mo_late_pipe_ready[i+1] | ~mo_late_pipe_valid_q[i+1];
+    // Valid: enabled by ready signal, synchronous clear with the flush signal
+    `FFLARNC(mo_late_pipe_valid_q[i+1], mo_late_pipe_valid_q[i], mo_late_pipe_ready[i], flush_i, 1'b0, clk_i, rst_ni)
+    // Enable register if pipeline ready and a valid data item is present
+    assign reg_ena = mo_late_pipe_ready[i] & mo_late_pipe_valid_q[i];
+    // Generate the pipeline registers within the stages, use enable-registers
+    `FFL(mo_late_pipe_lzc_zeroes_q[i+1],          mo_late_pipe_lzc_zeroes_q[i],          reg_ena, '0)
+    `FFL(mo_late_pipe_leading_zero_count_q[i+1],  mo_late_pipe_leading_zero_count_q[i],  reg_ena, '0)
+    `FFL(mo_late_pipe_final_tentative_exp_q[i+1], mo_late_pipe_final_tentative_exp_q[i], reg_ena, '0)
+    `FFL(mo_late_pipe_sum_lower_q[i+1],           mo_late_pipe_sum_lower_q[i],           reg_ena, '0)
+    `FFL(mo_late_pipe_sticky_before_add_z_q[i+1], mo_late_pipe_sticky_before_add_z_q[i], reg_ena, '0)
+    `FFL(mo_late_pipe_bypass_w_q[i+1],            mo_late_pipe_bypass_w_q[i],            reg_ena, '0)
+    `FFL(mo_late_pipe_sticky_before_add_q[i+1],   mo_late_pipe_sticky_before_add_q[i],   reg_ena, '0)
+    `FFL(mo_late_pipe_eff_sub_first_q[i+1],       mo_late_pipe_eff_sub_first_q[i],       reg_ena, '0)
+    `FFL(mo_late_pipe_eff_sub_z_q[i+1],           mo_late_pipe_eff_sub_z_q[i],           reg_ena, '0)
+    `FFL(mo_late_pipe_info_min_is_zero_q[i+1],    mo_late_pipe_info_min_is_zero_q[i],    reg_ena, '0)
+    `FFL(mo_late_pipe_info_max_is_zero_q[i+1],    mo_late_pipe_info_max_is_zero_q[i],    reg_ena, '0)
+    `FFL(mo_late_pipe_final_sign_zero_q[i+1],     mo_late_pipe_final_sign_zero_q[i],     reg_ena, '0)
+    `FFL(mo_late_pipe_final_sign_z_q[i+1],        mo_late_pipe_final_sign_z_q[i],        reg_ena, '0)
+    `FFL(mo_late_pipe_rnd_mode_q[i+1],            mo_late_pipe_rnd_mode_q[i],            reg_ena, fpnew_pkg::RNE)
+    `FFL(mo_late_pipe_dst_fmt_q[i+1],             mo_late_pipe_dst_fmt_q[i],             reg_ena, fpnew_pkg::fp_format_e'(0))
+    `FFL(mo_late_pipe_res_is_spec_q[i+1],         mo_late_pipe_res_is_spec_q[i],         reg_ena, '0)
+    `FFL(mo_late_pipe_spec_res_q[i+1],            mo_late_pipe_spec_res_q[i],            reg_ena, '0)
+    `FFL(mo_late_pipe_spec_stat_q[i+1],           mo_late_pipe_spec_stat_q[i],           reg_ena, '0)
+    `FFL(mo_late_pipe_tag_q[i+1],                 mo_late_pipe_tag_q[i],                 reg_ena, TagType'('0))
+    `FFL(mo_late_pipe_mask_q[i+1],                mo_late_pipe_mask_q[i],                reg_ena, '0)
+    `FFL(mo_late_pipe_aux_q[i+1],                 mo_late_pipe_aux_q[i],                 reg_ena, AuxType'('0))
+  end
+  // Output stage: assign selected pipe outputs to signals for later use
+  assign lzc_zeroes_q                   = mo_late_pipe_lzc_zeroes_q[NUM_MO_LATE_REGS];
+  assign leading_zero_count_q           = mo_late_pipe_leading_zero_count_q[NUM_MO_LATE_REGS];
+  assign final_tentative_exponent_q     = mo_late_pipe_final_tentative_exp_q[NUM_MO_LATE_REGS];
+  assign sum_lower_q                    = mo_late_pipe_sum_lower_q[NUM_MO_LATE_REGS];
+  assign sticky_before_add_z_q2         = mo_late_pipe_sticky_before_add_z_q[NUM_MO_LATE_REGS];
+  assign bypass_w_q                     = mo_late_pipe_bypass_w_q[NUM_MO_LATE_REGS];
+  assign sticky_before_add_q2           = mo_late_pipe_sticky_before_add_q[NUM_MO_LATE_REGS];
+  assign effective_subtraction_first_q3 = mo_late_pipe_eff_sub_first_q[NUM_MO_LATE_REGS];
+  assign effective_subtraction_z_q2     = mo_late_pipe_eff_sub_z_q[NUM_MO_LATE_REGS];
+  assign info_min_is_zero_q3            = mo_late_pipe_info_min_is_zero_q[NUM_MO_LATE_REGS];
+  assign info_max_is_zero_q2            = mo_late_pipe_info_max_is_zero_q[NUM_MO_LATE_REGS];
+  assign final_sign_zero_q              = mo_late_pipe_final_sign_zero_q[NUM_MO_LATE_REGS];
+  assign final_sign_z_q                 = mo_late_pipe_final_sign_z_q[NUM_MO_LATE_REGS];
+  assign rnd_mode_q2                    = mo_late_pipe_rnd_mode_q[NUM_MO_LATE_REGS];
+  assign dst_fmt_q2                     = mo_late_pipe_dst_fmt_q[NUM_MO_LATE_REGS];
+  assign result_is_special_q            = mo_late_pipe_res_is_spec_q[NUM_MO_LATE_REGS];
+  assign special_result_q               = mo_late_pipe_spec_res_q[NUM_MO_LATE_REGS];
+  assign special_status_q               = mo_late_pipe_spec_stat_q[NUM_MO_LATE_REGS];
+
+  // ----------------
+  // Normalization 2
+  // ----------------
+  logic signed [LZC_RESULT_WIDTH:0] leading_zero_count_sgn;  // signed leading-zero count
+
+  logic [DST_SHIFT_AMOUNT_WIDTH-1:0] norm_shamt;  // Normalization shift amount
+  logic signed [DST_EXP_WIDTH-1:0] normalized_exponent;
+
+  logic [2*DST_PRECISION_BITS+PRECISION_BITS+4:0] sum_shifted;       // result after first normalization shift
+  logic [DST_PRECISION_BITS:0] final_mantissa;  // final mantissa before rounding with round bit
+  logic   [DST_PRECISION_BITS+PRECISION_BITS+2:0] sum_sticky_bits;   // remaining p_dst+3 sticky bits after normalization
+  logic sticky_after_norm;  // sticky bit after normalization
+
+  logic signed [DST_EXP_WIDTH-1:0] final_exponent;
+
+  assign leading_zero_count_sgn = signed'({1'b0, leading_zero_count_q});
 
   // Normalization shift amount based on exponents and LZC (unsigned as only left shifts)
   always_comb begin : norm_shift_amount
-   if ((final_tentative_exponent - leading_zero_count_sgn + 1 > 0) && !lzc_zeroes) begin
+    if ((final_tentative_exponent_q - leading_zero_count_sgn + 1 > 0) && !lzc_zeroes_q) begin
       // Remove the counted zeroes
-      if (leading_zero_count > 0) begin
-        norm_shamt          = leading_zero_count - 1;
-        normalized_exponent = final_tentative_exponent - leading_zero_count_sgn + 1; // account for shift
+      if (leading_zero_count_q > 0) begin
+        norm_shamt          = leading_zero_count_q - 1;
+        normalized_exponent = final_tentative_exponent_q - leading_zero_count_sgn + 1; // account for shift
       end else begin
         norm_shamt          = '0;
-        normalized_exponent = final_tentative_exponent;
+        normalized_exponent = final_tentative_exponent_q;
       end
     // Subnormal result
     end else begin
       // Cap the shift distance to align mantissa with minimum exponent
-      if (final_tentative_exponent > 0)
-        norm_shamt          = final_tentative_exponent - 1;
+      if (final_tentative_exponent_q > 0)
+        norm_shamt = final_tentative_exponent_q - 1;
       else
-        norm_shamt          = '0;
-      normalized_exponent = '0; // subnormals encoded as 0
+        norm_shamt = '0;
+      normalized_exponent = '0;
     end
   end
 
   // Do the large normalization shift
-  assign sum_shifted       = sum_lower << norm_shamt;
+  assign sum_shifted       = sum_lower_q << norm_shamt;
 
   // Further 1-bit normalization since the leading-one can be to the left or right of the (non-carry)
   // MSB of the sum.
@@ -1228,13 +1774,13 @@ module fpnew_sdotp_multi #(
 
   // Update the sticky bit with the shifted-out bits coming from the first addition
   always_comb begin
-    sticky_after_norm = (| {sum_sticky_bits}) | (sticky_before_add_z_q && ~bypass_w) | sticky_before_add_q;
-    if (sticky_before_add_q && !effective_subtraction_first_q && !sticky_before_add_z_q
-        && effective_subtraction_z && (sum_sticky_bits == '0) && !info_min_is_zero_q) begin
+    sticky_after_norm = (| {sum_sticky_bits}) | (sticky_before_add_z_q2 && ~bypass_w_q) | sticky_before_add_q2;
+    if (sticky_before_add_q2 && !effective_subtraction_first_q3 && !sticky_before_add_z_q2
+        && effective_subtraction_z_q2 && (sum_sticky_bits == '0) && !info_min_is_zero_q3) begin
       sticky_after_norm = 1'b0;
     end
-    if (sticky_before_add_q && effective_subtraction_first_q && !sticky_before_add_z_q
-       && !effective_subtraction_z && (sum_sticky_bits == '0) && !info_min_is_zero_q) begin
+    if (sticky_before_add_q2 && effective_subtraction_first_q3 && !sticky_before_add_z_q2
+       && !effective_subtraction_z_q2 && (sum_sticky_bits == '0) && !info_min_is_zero_q3) begin
       sticky_after_norm = 1'b0;
     end
   end
@@ -1310,12 +1856,12 @@ module fpnew_sdotp_multi #(
   // In case of overflow, the round and sticky bits are set for proper rounding
   assign stochastic_rounding_bits = fmt_stochastic_rounding_bits[dst_fmt_q2];
   assign round_sticky_bits  = fmt_round_sticky_bits[dst_fmt_q2];
-  assign pre_round_sign     = (info_max_is_zero_q && (pre_round_abs == '0) && (| round_sticky_bits))
-                              ? final_sign_zero_q : final_sign_z;
+  assign pre_round_sign     = (info_max_is_zero_q2 && (pre_round_abs == '0) && (| round_sticky_bits))
+                              ? final_sign_zero_q : final_sign_z_q;
 
   logic enable_rsr;
-  assign enable_rsr = (rnd_mode_q == fpnew_pkg::RSR) && (mid_pipe_ready[NUM_MID_REGS]
-                      && mid_pipe_valid_q[NUM_MID_REGS]);
+  assign enable_rsr = (rnd_mode_q2 == fpnew_pkg::RSR) && (mo_late_pipe_ready[NUM_MO_LATE_REGS]
+                      && mo_late_pipe_valid_q[NUM_MO_LATE_REGS]);
   // Perform the rounding
   fpnew_rounding #(
     .AbsWidth     ( SUPER_DST_EXP_BITS + SUPER_DST_MAN_BITS ),
@@ -1323,19 +1869,19 @@ module fpnew_sdotp_multi #(
     .RsrPrecision ( RSR_PRECISION_BITS ),
     .LfsrWidth    ( LFSR_WIDTH         )
   ) i_fpnew_rounding (
-    .clk_i                      ( clk_i                    ),
-    .rst_ni                     ( rst_ni                   ),
-    .id_i                       ( sdotp_hart_id_i          ),
-    .abs_value_i                ( pre_round_abs            ),
-    .en_rsr_i                   ( enable_rsr               ),
-    .sign_i                     ( pre_round_sign           ),
-    .round_sticky_bits_i        ( round_sticky_bits        ),
-    .stochastic_rounding_bits_i ( stochastic_rounding_bits ),
-    .rnd_mode_i                 ( rnd_mode_q               ),
-    .effective_subtraction_i    ( effective_subtraction_z  ),
-    .abs_rounded_o              ( rounded_abs              ),
-    .sign_o                     ( rounded_sign             ),
-    .exact_zero_o               ( result_zero              )
+    .clk_i                      ( clk_i                      ),
+    .rst_ni                     ( rst_ni                     ),
+    .id_i                       ( sdotp_hart_id_i            ),
+    .abs_value_i                ( pre_round_abs              ),
+    .en_rsr_i                   ( enable_rsr                 ),
+    .sign_i                     ( pre_round_sign             ),
+    .round_sticky_bits_i        ( round_sticky_bits          ),
+    .stochastic_rounding_bits_i ( stochastic_rounding_bits   ),
+    .rnd_mode_i                 ( rnd_mode_q2                ),
+    .effective_subtraction_i    ( effective_subtraction_z_q2 ),
+    .abs_rounded_o              ( rounded_abs                ),
+    .sign_o                     ( rounded_sign               ),
+    .exact_zero_o               ( result_zero                )
   );
 
   logic [NUM_FORMATS-1:0][DST_WIDTH-1:0] fmt_result;
@@ -1403,14 +1949,14 @@ module fpnew_sdotp_multi #(
   logic [0:NUM_OUT_REGS] out_pipe_ready;
 
   // Input stage: First element of pipeline is taken from inputs
-  assign out_pipe_result_q[0] = result_d;
-  assign out_pipe_status_q[0] = status_d;
-  assign out_pipe_tag_q[0]    = mid_pipe_tag_q[NUM_MID_REGS];
-  assign out_pipe_mask_q[0]   = mid_pipe_mask_q[NUM_MID_REGS];
-  assign out_pipe_aux_q[0]    = mid_pipe_aux_q[NUM_MID_REGS];
-  assign out_pipe_valid_q[0]  = mid_pipe_valid_q[NUM_MID_REGS];
-  // Input stage: Propagate pipeline ready signal to inside pipe
-  assign mid_pipe_ready[NUM_MID_REGS] = out_pipe_ready[0];
+  assign out_pipe_result_q[0]                 = result_d;
+  assign out_pipe_status_q[0]                 = status_d;
+  assign out_pipe_tag_q[0]                    = mo_late_pipe_tag_q[NUM_MO_LATE_REGS];
+  assign out_pipe_mask_q[0]                   = mo_late_pipe_mask_q[NUM_MO_LATE_REGS];
+  assign out_pipe_aux_q[0]                    = mo_late_pipe_aux_q[NUM_MO_LATE_REGS];
+  assign out_pipe_valid_q[0]                  = mo_late_pipe_valid_q[NUM_MO_LATE_REGS];
+  // Input stage: Propagate pipeline ready signal to mo_late pipe
+  assign mo_late_pipe_ready[NUM_MO_LATE_REGS] = out_pipe_ready[0];
   // Generate the register stages
   for (genvar i = 0; i < NUM_OUT_REGS; i++) begin : gen_output_pipeline
     // Internal register enable for this stage
@@ -1440,5 +1986,5 @@ module fpnew_sdotp_multi #(
   assign mask_o          = out_pipe_mask_q[NUM_OUT_REGS];
   assign aux_o           = out_pipe_aux_q[NUM_OUT_REGS];
   assign out_valid_o     = out_pipe_valid_q[NUM_OUT_REGS];
-  assign busy_o          = (| {inp_pipe_valid_q, mid_pipe_valid_q, out_pipe_valid_q});
+  assign busy_o          = (| {inp_pipe_valid_q, im_early_pipe_valid_q, im_late_pipe_valid_q, mid_pipe_valid_q, mo_early_pipe_valid_q, mo_late_pipe_valid_q, out_pipe_valid_q});
 endmodule

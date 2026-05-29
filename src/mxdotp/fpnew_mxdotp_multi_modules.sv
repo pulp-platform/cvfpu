@@ -28,13 +28,13 @@ module fpnew_mxdotp_classifier
   input logic [2*VectorSize-1:0][SRC_WIDTH-1:0] operands_post_inp_pipe,
   input logic [2*FP6VectorSize-1:0][SRC_WIDTH-1:0] fp6_operands_post_inp_pipe,
   input logic [2*FP4VectorSize-1:0][SRC_WIDTH-1:0] fp4_operands_post_inp_pipe,
-  input logic signed [1:0][SCALE_WIDTH-1:0] operands_c_q,
-  input logic [DST_WIDTH-1:0] operand_d_q,
-  input logic [0:NumInpRegs][NUM_FORMATS-1:0][NUM_OPERANDS-1:0] inp_pipe_is_boxed_q,
-  input fpnew_pkg::fp_format_e src_fmt_q,
+  input logic signed [1:0][SCALE_WIDTH-1:0] operands_c_in,
+  input logic [DST_WIDTH-1:0] operand_d_in,
+  input logic [0:NumInpRegs][NUM_FORMATS-1:0][NUM_OPERANDS-1:0] inp_pipe_is_boxed,
+  input fpnew_pkg::fp_format_e src_fmt,
   input logic src_is_int,
-  input fpnew_pkg::fp_format_e dst_fmt_q,
-  input logic [0:NumInpRegs] inp_pipe_op_mod_q,
+  input fpnew_pkg::fp_format_e dst_fmt,
+  input logic [0:NumInpRegs] inp_pipe_op_mod,
   // Output signals
   output fpnew_pkg::fp_info_t [VectorSize-1:0] info_a,
   output fpnew_pkg::fp_info_t [FP6VectorSize-1:0] fp6_info_a,
@@ -93,9 +93,9 @@ module fpnew_mxdotp_classifier
         .NumOperands ( 2*VectorSize                 ),
         .MX          ( 1                            )
       ) i_fpnew_classifier (
-        .operands_i  ( trimmed_ops                                            ),
-        .is_boxed_i  ( inp_pipe_is_boxed_q[NumInpRegs][fmt][2*VectorSize-1:0] ),
-        .info_o      ( info_q[fmt][2*VectorSize-1:0]                          )
+        .operands_i  ( trimmed_ops                                          ),
+        .is_boxed_i  ( inp_pipe_is_boxed[NumInpRegs][fmt][2*VectorSize-1:0] ),
+        .info_o      ( info_q[fmt][2*VectorSize-1:0]                        )
       );
       for (genvar op = 0; op < 2*VectorSize; op++) begin : gen_operands
         assign trimmed_ops[op]       = operands_post_inp_pipe[op][FP_WIDTH-1:0];
@@ -128,9 +128,9 @@ module fpnew_mxdotp_classifier
           .NumOperands ( 2*FP6VectorSize              ),
           .MX          ( 1                            )
         ) i_fpnew_classifier (
-          .operands_i  ( trimmed_ops                                               ),
-          .is_boxed_i  ( inp_pipe_is_boxed_q[NumInpRegs][fmt][2*FP6VectorSize-1:0] ),
-          .info_o      ( fp6_info_q[fmt][2*FP6VectorSize-1:0]                      )
+          .operands_i  ( trimmed_ops                                             ),
+          .is_boxed_i  ( inp_pipe_is_boxed[NumInpRegs][fmt][2*FP6VectorSize-1:0] ),
+          .info_o      ( fp6_info_q[fmt][2*FP6VectorSize-1:0]                    )
         );
         for (genvar op = 0; op < 2*FP6VectorSize; op++) begin : gen_operands
           assign trimmed_ops[op]           = fp6_operands_post_inp_pipe[op][FP_WIDTH-1:0];
@@ -164,9 +164,9 @@ module fpnew_mxdotp_classifier
           .NumOperands ( 2*FP4VectorSize              ),
           .MX          ( 1                            )
         ) i_fpnew_classifier (
-          .operands_i  ( trimmed_ops                                               ),
-          .is_boxed_i  ( inp_pipe_is_boxed_q[NumInpRegs][fmt][2*FP4VectorSize-1:0] ),
-          .info_o      ( fp4_info_q[fmt][2*FP4VectorSize-1:0]                           )
+          .operands_i  ( trimmed_ops                                             ),
+          .is_boxed_i  ( inp_pipe_is_boxed[NumInpRegs][fmt][2*FP4VectorSize-1:0] ),
+          .info_o      ( fp4_info_q[fmt][2*FP4VectorSize-1:0]                    )
         );
         for (genvar op = 0; op < 2*FP4VectorSize; op++) begin : gen_operands
           assign trimmed_ops[op]           = fp4_operands_post_inp_pipe[op][FP_WIDTH-1:0];
@@ -201,7 +201,7 @@ module fpnew_mxdotp_classifier
       logic [FP_WIDTH-1:0] trimmed_dst_ops;
       logic                dst_ops_is_boxed;
 
-      assign dst_ops_is_boxed = inp_pipe_is_boxed_q[NumInpRegs][fmt][NUM_OPERANDS-1];
+      assign dst_ops_is_boxed = inp_pipe_is_boxed[NumInpRegs][fmt][NUM_OPERANDS-1];
 
       // Classify input
       fpnew_classifier #(
@@ -212,10 +212,10 @@ module fpnew_mxdotp_classifier
         .is_boxed_i  ( dst_ops_is_boxed            ),
         .info_o      ( info_q[fmt][NUM_OPERANDS-1] )
       );
-      assign trimmed_dst_ops       = operand_d_q[FP_WIDTH-1:0];
-      assign fmt_dst_sign[fmt]     = operand_d_q[FP_WIDTH-1];
-      assign fmt_dst_exponent[fmt] = signed'({1'b0, operand_d_q[MAN_BITS+:EXP_BITS]});
-      assign fmt_dst_mantissa[fmt] = {info_q[fmt][NUM_OPERANDS-1].is_normal, operand_d_q[MAN_BITS-1:0]}
+      assign trimmed_dst_ops       = operand_d_in[FP_WIDTH-1:0];
+      assign fmt_dst_sign[fmt]     = operand_d_in[FP_WIDTH-1];
+      assign fmt_dst_exponent[fmt] = signed'({1'b0, operand_d_in[MAN_BITS+:EXP_BITS]});
+      assign fmt_dst_mantissa[fmt] = {info_q[fmt][NUM_OPERANDS-1].is_normal, operand_d_in[MAN_BITS-1:0]}
                                          << (SUPER_DST_MAN_BITS - MAN_BITS);
     end else begin : inactive_dst_format
       assign info_q[fmt][NUM_OPERANDS-1] = '{default: fpnew_pkg::DONT_CARE}; // format disabled
@@ -259,32 +259,32 @@ module fpnew_mxdotp_classifier
     end else begin : gen_fp_default_assignments
       // Floating-point operands
       for (int i = 0; i < VectorSize; i++) begin : gen_default_assignments_fp
-        operands_a[i] = {fmt_sign[src_fmt_q][i], fmt_exponent[src_fmt_q][i], fmt_mantissa[src_fmt_q][i]};
-        operands_b[i] = {fmt_sign[src_fmt_q][i+VectorSize], fmt_exponent[src_fmt_q][i+VectorSize], fmt_mantissa[src_fmt_q][i+VectorSize]};
-        info_a[i]     = info_q[src_fmt_q][i];
-        info_b[i]     = info_q[src_fmt_q][i+VectorSize];
+        operands_a[i] = {fmt_sign[src_fmt][i], fmt_exponent[src_fmt][i], fmt_mantissa[src_fmt][i]};
+        operands_b[i] = {fmt_sign[src_fmt][i+VectorSize], fmt_exponent[src_fmt][i+VectorSize], fmt_mantissa[src_fmt][i+VectorSize]};
+        info_a[i]     = info_q[src_fmt][i];
+        info_b[i]     = info_q[src_fmt][i+VectorSize];
       end
       for (int i = 0; i < FP6VectorSize; i++) begin : gen_default_assignments_fp6
         // FP6
-        fp6_operands_a[i] = {fp6_fmt_sign[src_fmt_q][i], fp6_fmt_exponent[src_fmt_q][i], fp6_fmt_mantissa[src_fmt_q][i]};
-        fp6_operands_b[i] = {fp6_fmt_sign[src_fmt_q][i+FP6VectorSize], fp6_fmt_exponent[src_fmt_q][i+FP6VectorSize], fp6_fmt_mantissa[src_fmt_q][i+FP6VectorSize]};
-        fp6_info_a[i]     = fp6_info_q[src_fmt_q][i];
-        fp6_info_b[i]     = fp6_info_q[src_fmt_q][i+FP6VectorSize];
+        fp6_operands_a[i] = {fp6_fmt_sign[src_fmt][i], fp6_fmt_exponent[src_fmt][i], fp6_fmt_mantissa[src_fmt][i]};
+        fp6_operands_b[i] = {fp6_fmt_sign[src_fmt][i+FP6VectorSize], fp6_fmt_exponent[src_fmt][i+FP6VectorSize], fp6_fmt_mantissa[src_fmt][i+FP6VectorSize]};
+        fp6_info_a[i]     = fp6_info_q[src_fmt][i];
+        fp6_info_b[i]     = fp6_info_q[src_fmt][i+FP6VectorSize];
       end
       for (int i = 0; i < FP4VectorSize; i++) begin : gen_default_assignments_fp4
         // FP4
-        fp4_operands_a[i] = {fp4_fmt_sign[src_fmt_q][i], fp4_fmt_exponent[src_fmt_q][i], fp4_fmt_mantissa[src_fmt_q][i]};
-        fp4_operands_b[i] = {fp4_fmt_sign[src_fmt_q][i+FP4VectorSize], fp4_fmt_exponent[src_fmt_q][i+FP4VectorSize], fp4_fmt_mantissa[src_fmt_q][i+FP4VectorSize]};
-        fp4_info_a[i]     = fp4_info_q[src_fmt_q][i];
-        fp4_info_b[i]     = fp4_info_q[src_fmt_q][i+FP4VectorSize];
+        fp4_operands_a[i] = {fp4_fmt_sign[src_fmt][i], fp4_fmt_exponent[src_fmt][i], fp4_fmt_mantissa[src_fmt][i]};
+        fp4_operands_b[i] = {fp4_fmt_sign[src_fmt][i+FP4VectorSize], fp4_fmt_exponent[src_fmt][i+FP4VectorSize], fp4_fmt_mantissa[src_fmt][i+FP4VectorSize]};
+        fp4_info_a[i]     = fp4_info_q[src_fmt][i];
+        fp4_info_b[i]     = fp4_info_q[src_fmt][i+FP4VectorSize];
       end
     end
     for (int i = 0; i < 2; i++) begin : gen_default_assignments_c
-      operands_c[i] = signed'(operands_c_q[i]) - 127; // signed scale, 127 = signed'(2**(SCALE_WIDTH-1)-1)
-      info_c[i] = '{is_normal: 1'b1, is_nan: operands_c_q[i] == 2**SCALE_WIDTH-1, is_boxed: 1'b1, default: 1'b0}; // normal, boxed value, scale can be NaN
+      operands_c[i] = signed'(operands_c_in[i]) - 127; // signed scale, 127 = signed'(2**(SCALE_WIDTH-1)-1)
+      info_c[i] = '{is_normal: 1'b1, is_nan: operands_c_in[i] == 2**SCALE_WIDTH-1, is_boxed: 1'b1, default: 1'b0}; // normal, boxed value, scale can be NaN
     end
-    operand_d = {fmt_dst_sign[dst_fmt_q], fmt_dst_exponent[dst_fmt_q], fmt_dst_mantissa[dst_fmt_q]};
-    info_d    = info_q[dst_fmt_q][NUM_OPERANDS-1];
+    operand_d = {fmt_dst_sign[dst_fmt], fmt_dst_exponent[dst_fmt], fmt_dst_mantissa[dst_fmt]};
+    info_d    = info_q[dst_fmt][NUM_OPERANDS-1];
   end
 endmodule
 
@@ -304,7 +304,7 @@ module fpnew_mxdotp_special_cases
   input  fpnew_pkg::fp_info_t [VectorSize-1:0] info_b,
   input  fpnew_pkg::fp_info_t [1:0]            info_c,
   input  fpnew_pkg::fp_info_t                  info_d,
-  input fpnew_pkg::fp_format_e                 dst_fmt_q,
+  input  fpnew_pkg::fp_format_e                dst_fmt,
   // Output signals: special_result, special_status, result_is_special
   output logic [DST_WIDTH-1:0]                 special_result,
   output fpnew_pkg::status_t                   special_status,
@@ -428,11 +428,11 @@ module fpnew_mxdotp_special_cases
   end
 
   // Detect special case from source format
-  assign result_is_special = fmt_result_is_special[dst_fmt_q];
+  assign result_is_special = fmt_result_is_special[dst_fmt];
   // Signalling input NaNs raise invalid flag, otherwise no flags set
-  assign special_status = fmt_special_status[dst_fmt_q];
+  assign special_status = fmt_special_status[dst_fmt];
   // Assemble result according to destination format
-  assign special_result = fmt_special_result[dst_fmt_q];
+  assign special_result = fmt_special_result[dst_fmt];
 endmodule
 
 // Adds two signed 8-bit scale values to produce a 9-bit combined scale.
@@ -492,8 +492,8 @@ module fpnew_mxdotp_signed_vector_multiplier
   // Input signals
   input  SrcType [LocalVectorSize-1:0] operands_a,
   input  SrcType [LocalVectorSize-1:0] operands_b,
-  input  fpnew_pkg::fp_format_e  src_fmt_q,
-  input  fpnew_pkg::int_format_e int_fmt_q,
+  input  fpnew_pkg::fp_format_e  src_fmt,
+  input  fpnew_pkg::int_format_e int_fmt,
   input  logic src_is_int,
   input  fpnew_pkg::fp_info_t [LocalVectorSize-1:0] info_a,
   input  fpnew_pkg::fp_info_t [LocalVectorSize-1:0] info_b,
@@ -506,7 +506,7 @@ module fpnew_mxdotp_signed_vector_multiplier
 
   for (genvar i = 0; i < LocalVectorSize; i++) begin : gen_mantissa_fp8
     always_comb begin
-      if (src_is_int && int_fmt_q == fpnew_pkg::INT8) begin : int8
+      if (src_is_int && int_fmt == fpnew_pkg::INT8) begin : int8
         // For INT8, we use the full 8-bit mantissa
         mantissa_a[i] = operands_a[i][7:0];
         mantissa_b[i] = operands_b[i][7:0];
@@ -545,8 +545,8 @@ module fpnew_mxdotp_product_shifter
   input  logic [LocalVectorSize-1:0][ProductBits-1:0] product_signed,
   input  fpnew_pkg::fp_info_t [LocalVectorSize-1:0] info_a,
   input  fpnew_pkg::fp_info_t [LocalVectorSize-1:0] info_b,
-  input  fpnew_pkg::fp_format_e src_fmt_q,
-  input  fpnew_pkg::int_format_e int_fmt_q,
+  input  fpnew_pkg::fp_format_e src_fmt,
+  input  fpnew_pkg::int_format_e int_fmt,
   input  logic src_is_int,
   output logic signed [LocalVectorSize-1:0][OutputWidth-1:0] shifted_product
 );
@@ -559,10 +559,10 @@ module fpnew_mxdotp_product_shifter
   for (genvar i = 0; i < LocalVectorSize; i++) begin : gen_exponent_adjustment
     assign exponent_product[i] = operands_a[i].exponent + info_a[i].is_subnormal
                                 + operands_b[i].exponent + info_b[i].is_subnormal
-                                - 2*signed'(bias_constant(src_fmt_q));
+                                - 2*signed'(bias_constant(src_fmt));
     if (SrcFmt == fpnew_pkg::FP8) begin
       always_comb begin // TODO: Generate only for INT8 vs FP8
-        if (src_is_int && int_fmt_q == fpnew_pkg::INT8) begin
+        if (src_is_int && int_fmt == fpnew_pkg::INT8) begin
           // INT8: shift to integer position
           shifted_product[i] = signed'(product_signed[i]) << ANCHOR;
         end else begin
@@ -638,11 +638,11 @@ module fpnew_mxdotp_accumulator_shift
   import fpnew_mxdotp_multi_pkg::*;
 (
   // Input signals
-  input  logic signed [FIXED_SUM_WIDTH-1:0] sum_product_q,
-  input  logic [SCALE_WIDTH:0] scale_q2,
-  input  fp_dst_t operand_d_q2,
-  input  fpnew_pkg::fp_info_t info_d_q,
-  input  fpnew_pkg::fp_format_e dst_fmt_q2,
+  input  logic signed [FIXED_SUM_WIDTH-1:0] sum_product,
+  input  logic [SCALE_WIDTH:0] scale,
+  input  fp_dst_t operand_d,
+  input  fpnew_pkg::fp_info_t info_d,
+  input  fpnew_pkg::fp_format_e dst_fmt,
   output logic result_is_accumulator,
   output logic accumulator_is_right_shifted,
   output logic signed [9:0] accumulator_right_shift_amount,
@@ -660,14 +660,14 @@ module fpnew_mxdotp_accumulator_shift
   logic [DST_PRECISION_BITS-1:0] mantissa_d;
 
   // Zero-extend exponents into signed container - implicit width extension
-  assign exponent_d = {1'b0, operand_d_q2.exponent};
-  assign mantissa_d = {info_d_q.is_normal, operand_d_q2.mantissa};
-  assign signed_mantissa_d = operand_d_q2.sign ? -mantissa_d : mantissa_d;
+  assign exponent_d = {1'b0, operand_d.exponent};
+  assign mantissa_d = {info_d.is_normal, operand_d.mantissa};
+  assign signed_mantissa_d = operand_d.sign ? -mantissa_d : mantissa_d;
 
   // Calculate the shift amount for the accumulator, range=[-370,394-9b -> signed 10b]
-  assign accumulator_shift_amount = signed'(ANCHOR - SUPER_DST_MAN_BITS) - signed'(scale_q2)
-                                     + signed'(exponent_d + info_d_q.is_subnormal)
-                                     - signed'(bias_constant(dst_fmt_q2));
+  assign accumulator_shift_amount = signed'(ANCHOR - SUPER_DST_MAN_BITS) - signed'(scale)
+                                     + signed'(exponent_d + info_d.is_subnormal)
+                                     - signed'(bias_constant(dst_fmt));
 
   always_comb begin : accumulator_shift
     result_is_accumulator = 1'b0;
@@ -686,7 +686,7 @@ module fpnew_mxdotp_accumulator_shift
       accumulator_right_shift_amount = -accumulator_shift_amount;
       accumulator_shifted = signed'(signed_mantissa_d) >>> accumulator_right_shift_amount;
       if (accumulator_right_shift_amount > DST_PRECISION_BITS) begin
-        result_is_accumulator = (sum_product_q == '0) ? 1'b1 : 1'b0;
+        result_is_accumulator = (sum_product == '0) ? 1'b1 : 1'b0;
         accumulator_remaining = signed'(signed_mantissa_d) >>> (accumulator_right_shift_amount - DST_PRECISION_BITS);
         accumulator_sticky = |(signed'(signed_mantissa_d) & ((1 << (accumulator_right_shift_amount - DST_PRECISION_BITS)) - 1));
       end else begin
@@ -702,7 +702,7 @@ module fpnew_mxdotp_add_accumulator_sop
   import fpnew_mxdotp_multi_pkg::*;
 (
   // Input signals
-  input  logic signed [FIXED_SUM_WIDTH-1:0] sum_product_q,
+  input  logic signed [FIXED_SUM_WIDTH-1:0] sum_product,
   input  logic signed [FIXED_SUM_WIDTH-1:0] accumulator_shifted,
   input  logic signed [DST_PRECISION_BITS-1:0] accumulator_remaining,
   output logic signed [LZC_SUM_WIDTH-1:0] sum_product_accumulator_extended
@@ -710,7 +710,7 @@ module fpnew_mxdotp_add_accumulator_sop
 
   logic signed [FIXED_SUM_WIDTH-1:0] sum_product_accumulator;
 
-  assign sum_product_accumulator = sum_product_q + accumulator_shifted;
+  assign sum_product_accumulator = sum_product + accumulator_shifted;
   assign sum_product_accumulator_extended = {sum_product_accumulator, accumulator_remaining};
 endmodule
 
@@ -723,14 +723,13 @@ module fpnew_mxdotp_twos_compl
   input  logic signed [DST_PRECISION_BITS :0] signed_mantissa_d,
   input  logic accumulator_is_right_shifted,
   input  logic signed [9:0] accumulator_right_shift_amount,
-  input  logic final_sign,
   input  logic accumulator_sticky,
   // Output signals
+  output logic final_sign,
   output logic [LZC_SUM_WIDTH-1:0] sum_magnitude
 );
-  // ------------------
-  // Two's complement
-  // ------------------
+  // If sum is negative, complement to feed into leading zero counter
+  assign final_sign = sum_product_accumulator_extended[LZC_SUM_WIDTH-1];
 
   always_comb begin : get_twos_complement
     if (final_sign) begin
@@ -762,61 +761,20 @@ module fpnew_mxdotp_norm_shift
   assign sum_shifted = sum_magnitude << norm_shamt;
 endmodule
 
-// Normalizes fixed-point sum to floating-point: computes LZC, determines shift amount, calculates
-// biased exponent (127 - anchor + scale + shift), and extracts mantissa. Handles subnormals.
-module fpnew_mxdotp_normalizer
+// Computes normalization shift amount and biased exponent from sign-magnitude sum via leading-zero
+// count. Handles subnormals (normalized_exponent = 0) and zero (lzc_zeroes path).
+module fpnew_mxdotp_norm_lzc
   import fpnew_mxdotp_multi_pkg::*;
 (
-  // Input signals
-  input  logic signed [LZC_SUM_WIDTH-1:0] sum_product_accumulator_extended,
-  input  logic accumulator_is_right_shifted,
-  input  logic signed [9:0] accumulator_right_shift_amount,
-  input  logic signed [DST_PRECISION_BITS :0] signed_mantissa_d,
-  input  logic accumulator_sticky,
-  input  logic [SCALE_WIDTH:0] scale_q2,
-  input  fpnew_pkg::fp_format_e dst_fmt_q2,
-  // Output signals
-  output logic final_sign,
-  output logic signed [DST_EXP_WIDTH-1:0] final_exponent,
-  output logic [DST_PRECISION_BITS-1:0] final_mantissa,
-  output logic sticky_after_norm,
-  output logic        [LZC_SUM_WIDTH-1:0]  sum_magnitude
+  input  logic [LZC_SUM_WIDTH-1:0] sum_magnitude,
+  output logic signed [LZC_RESULT_WIDTH:0] leading_zero_count_sgn,
+  output logic lzc_zeroes
 );
+  logic [LZC_RESULT_WIDTH-1:0] leading_zero_count;
 
-  // --------------
-  // Normalization
-  // --------------
-  logic        [LZC_SUM_WIDTH-1:0]  sum_shifted;
-  logic        [LZC_RESULT_WIDTH-1:0] leading_zero_count;     // the number of leading zeroes
-  logic signed [LZC_RESULT_WIDTH:0]   leading_zero_count_sgn; // signed leading-zero count
-  logic                               lzc_zeroes;             // in case only zeroes found
-
-  logic signed [DST_EXP_WIDTH-1:0]      final_tentative_exponent;
-
-  logic        [SHIFT_AMOUNT_WIDTH-1:0] norm_shamt; // Normalization shift amount
-  logic signed [DST_EXP_WIDTH-1:0]      normalized_exponent;
-
-  logic        [LZC_SUM_WIDTH-DST_PRECISION_BITS-1:0] sum_sticky_bits;
-
-  // Leading sign counter
-  // If sum is negative, complement to feed into leading zero counter
-  assign final_sign    = sum_product_accumulator_extended[LZC_SUM_WIDTH-1];
-
-  fpnew_mxdotp_twos_compl #(
-  ) i_twos_compl (
-    .sum_product_accumulator_extended ( sum_product_accumulator_extended ),
-    .final_sign                      ( final_sign                      ),
-    .signed_mantissa_d               ( signed_mantissa_d               ),
-    .accumulator_is_right_shifted    ( accumulator_is_right_shifted    ),
-    .accumulator_right_shift_amount  ( accumulator_right_shift_amount  ),
-    .accumulator_sticky              ( accumulator_sticky              ),
-    .sum_magnitude( sum_magnitude                  )
-  );
-
-  // Leading sign counter
   lzc #(
     .WIDTH ( LZC_SUM_WIDTH ),
-    .MODE  ( 1               ) // MODE = 1 counts leading zeroes
+    .MODE  ( 1             ) // MODE = 1 counts leading zeroes
   ) i_lzc (
     .in_i    ( sum_magnitude      ),
     .cnt_o   ( leading_zero_count ),
@@ -824,19 +782,42 @@ module fpnew_mxdotp_normalizer
   );
 
   assign leading_zero_count_sgn = signed'({1'b0, leading_zero_count});
+endmodule
+
+// Computes norm_shamt and normalized_exponent from LZC outputs and scale, then shifts
+// the sign-magnitude sum, extracts mantissa and sticky bits.
+// accumulator_sticky is OR'd into sticky_after_norm.
+module fpnew_mxdotp_norm_finalize
+  import fpnew_mxdotp_multi_pkg::*;
+(
+  input  logic [LZC_SUM_WIDTH-1:0]          sum_magnitude,
+  input  logic signed [LZC_RESULT_WIDTH:0]  leading_zero_count_sgn,
+  input  logic                              lzc_zeroes,
+  input  logic [SCALE_WIDTH:0]              scale,
+  input  logic                              accumulator_sticky,
+  output logic [DST_PRECISION_BITS-1:0]     final_mantissa,
+  output logic signed [DST_EXP_WIDTH-1:0]   final_exponent,
+  output logic                              sticky_after_norm
+);
+  logic signed [DST_EXP_WIDTH-1:0]      final_tentative_exponent;
+  logic        [SHIFT_AMOUNT_WIDTH-1:0] norm_shamt;
+  logic signed [DST_EXP_WIDTH-1:0]      normalized_exponent;
+
+  logic [LZC_SUM_WIDTH-1:0]                    sum_shifted;
+  logic [LZC_SUM_WIDTH-DST_PRECISION_BITS-1:0] sum_sticky_bits;
 
   // Calculate the biased exponent (excess-127 form)
   // The exponent-major is -scaled_anchor
   // exponent = 127 - scaled_anchor + (94-count-1) + increment_exponent [-195, 315 9b -> 10b signed]
-  assign final_tentative_exponent = 127 - (signed'(ANCHOR)-signed'(scale_q2)) + (signed'(FIXED_SUM_WIDTH) - leading_zero_count_sgn - 1); // 127 = signed'(fpnew_pkg::bias(dst_fmt_q2))
+  assign final_tentative_exponent = 127 - (signed'(ANCHOR) - signed'(scale))
+                                    + (signed'(FIXED_SUM_WIDTH) - leading_zero_count_sgn - 1); // 127 is bias of dst format
 
   // Normalization shift amount based on exponents and LZC (unsigned as only left shifts)
   always_comb begin : norm_shift_amount
-    // Subnormals
     if (final_tentative_exponent > 0 && !lzc_zeroes) begin
       norm_shamt          = leading_zero_count_sgn + 1;
       normalized_exponent = final_tentative_exponent;
-    end else begin // Subnormals and zero
+    end else begin
       norm_shamt          = leading_zero_count_sgn + final_tentative_exponent;
       normalized_exponent = '0; // subnormals encoded as 0
     end
@@ -844,9 +825,9 @@ module fpnew_mxdotp_normalizer
 
   fpnew_mxdotp_norm_shift #(
   ) i_norm_shift (
-    .sum_shifted          ( sum_shifted          ),
-    .sum_magnitude        ( sum_magnitude        ),
-    .norm_shamt           ( norm_shamt           )
+    .sum_shifted  ( sum_shifted  ),
+    .sum_magnitude( sum_magnitude),
+    .norm_shamt   ( norm_shamt   )
   );
 
   // LSB of final mantissa is the rounding bit
@@ -870,8 +851,8 @@ module fpnew_mxdotp_rounder
   input  logic [DST_PRECISION_BITS-1:0] final_mantissa,
   input  logic [LZC_SUM_WIDTH-1:0] sum_magnitude,
   input  logic sticky_after_norm,
-  input fpnew_pkg::fp_format_e dst_fmt_q2,
-  input fpnew_pkg::roundmode_e rnd_mode_q,
+  input fpnew_pkg::fp_format_e dst_fmt,
+  input fpnew_pkg::roundmode_e rnd_mode,
   // Output signals
   output logic [NUM_FORMATS-1:0][DST_WIDTH-1:0] fmt_result,
   output logic [1:0] round_sticky_bits,
@@ -897,7 +878,7 @@ module fpnew_mxdotp_rounder
   logic                                             result_zero;
 
   // Classification before round. RISC-V mandates checking underflow AFTER rounding
-  assign of_before_round = final_exponent >= 2**(fpnew_pkg::exp_bits(dst_fmt_q2))-1; // infinity exponent is all ones
+  assign of_before_round = final_exponent >= 2**(fpnew_pkg::exp_bits(dst_fmt))-1; // infinity exponent is all ones
 
   // Pack exponent and mantissa into proper rounding form
   for (genvar fmt = 0; fmt < int'(NUM_FORMATS); fmt++) begin : gen_res_assemble
@@ -934,10 +915,10 @@ module fpnew_mxdotp_rounder
   end
 
   // Assemble result before rounding. In case of overflow, the largest normal value is set.
-  assign pre_round_abs      = fmt_pre_round_abs[dst_fmt_q2];
+  assign pre_round_abs      = fmt_pre_round_abs[dst_fmt];
 
   // In case of overflow, the round and sticky bits are set for proper rounding
-  assign round_sticky_bits  = fmt_round_sticky_bits[dst_fmt_q2];
+  assign round_sticky_bits  = fmt_round_sticky_bits[dst_fmt];
   assign pre_round_sign     = final_sign;
 
   // Perform the rounding
@@ -952,7 +933,7 @@ module fpnew_mxdotp_rounder
     .sign_i                     ( pre_round_sign           ),
     .round_sticky_bits_i        ( round_sticky_bits        ),
     .stochastic_rounding_bits_i ( '0                       ),
-    .rnd_mode_i                 ( rnd_mode_q               ),
+    .rnd_mode_i                 ( rnd_mode                 ),
     .effective_subtraction_i    ( 1'b0 ), // Effective subtraction is not implemented as RNE is used
     .abs_rounded_o              ( rounded_abs              ),
     .sign_o                     ( rounded_sign             ),
@@ -984,6 +965,6 @@ module fpnew_mxdotp_rounder
   end
 
   // Classification after rounding select by destination format
-  assign uf_after_round = fmt_uf_after_round[dst_fmt_q2];
-  assign of_after_round = fmt_of_after_round[dst_fmt_q2];
+  assign uf_after_round = fmt_uf_after_round[dst_fmt];
+  assign of_after_round = fmt_of_after_round[dst_fmt];
 endmodule

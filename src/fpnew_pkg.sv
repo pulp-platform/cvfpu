@@ -346,6 +346,22 @@ package fpnew_pkg;
     PipeConfig: BEFORE
   };
 
+  localparam fpu_implementation_t DEFAULT_SNITCH_PIPE = '{
+    PipeRegs:   '{'{default: 2},  // ADDMUL
+                  '{default: 0},  // DIVSQRT
+                  '{default: 0},  // NONCOMP
+                  '{default: 2},  // CONV
+                  '{default: 3},  // DOTP
+                  '{default: 3}}, // MXDOTP
+    UnitTypes:  '{'{default: MERGED},   // ADDMUL
+                  '{default: MERGED},   // DIVSQRT
+                  '{default: PARALLEL}, // NONCOMP
+                  '{default: MERGED},   // CONV
+                  '{default: MERGED},   // DOTP
+                  '{default: MERGED}},  // MXDOTP
+    PipeConfig: INSIDE
+  };
+
   // Stochastic rounding only supported by DOTP operation group block
   typedef struct packed {
     logic        EnableRSR;             // Enable RSR adding an LFSR in the SDOTP rounding modules
