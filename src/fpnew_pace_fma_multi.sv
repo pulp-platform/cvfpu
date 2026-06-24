@@ -88,6 +88,12 @@ module fpnew_pace_fma_multi #(
   // Limit the local datapath width if FPNew supports formats wider than PACE needs.
   localparam int unsigned LocalW = (Width > PaceDataW) ? PaceDataW : Width;
 
+  // The Horner loopback feeds the FMA result back into the FMA input. At least one
+  // pipeline register inside the FMA is required to break this otherwise-combinational loop.
+  if (NumPipeRegs == 0) begin : gen_check_pace_pipe
+    $fatal(1, "fpnew_pace_fma_multi: PACE requires at least one ADDMUL pipeline register (NumPipeRegs >= 1) to break the Horner feedback loop.");
+  end
+
   logic [LocalW-1:0] red_in;
 
   typedef struct packed {
