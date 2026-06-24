@@ -78,6 +78,12 @@ module fpnew_opgroup_block #(
     $fatal(1, "fpnew_opgroup_block: PACE requires MERGED unit type for ADDMUL.");
   end
 
+  // PACE FmtConfig must be a subset of FpFmtMask; any format not enabled in the FPU
+  // would otherwise be silently masked out of the PACE datapath.
+  if (OpGroup == fpnew_pkg::ADDMUL && ((PaceFeatures.FmtConfig & ~FpFmtMask) != '0)) begin : gen_check_pace_subset
+    $fatal(1, "fpnew_opgroup_block: PACE FmtConfig must be a subset of FpFmtMask.");
+  end
+
   // ----------------
   // Type Definition
   // ----------------
