@@ -28,8 +28,6 @@ module fpnew_opgroup_multifmt_slice #(
   parameter int unsigned               NumPipeRegs    = 0,
   parameter fpnew_pkg::pipe_config_t   PipeConfig     = fpnew_pkg::BEFORE,
   parameter fpnew_pkg::pace_features_t PaceFeatures   = '{default: 0},
-  parameter int unsigned               PaceDataWidth  = PaceFeatures.PaceDataWidth,
-  parameter fpnew_pkg::fmt_logic_t     PaceFmtConfig  = PaceFeatures.FmtConfig,
   parameter type                       TagType        = logic,
   parameter fpnew_pkg::rsr_impl_t      StochasticRndImplementation = fpnew_pkg::DEFAULT_NO_RSR,
   // Do not change
@@ -37,6 +35,7 @@ module fpnew_opgroup_multifmt_slice #(
   localparam int unsigned NUM_FORMATS  = fpnew_pkg::NUM_FP_FORMATS,
   localparam int unsigned NUM_SIMD_LANES = fpnew_pkg::max_num_lanes(Width, FpFmtConfig, EnableVectors),
   localparam type         MaskType     = logic [NUM_SIMD_LANES-1:0],
+  localparam fpnew_pkg::fmt_logic_t PaceFmtConfig = PaceFeatures.FmtConfig,
   localparam int unsigned PaceParamWidth = PaceFeatures.PaceParamWidth,
   localparam int unsigned PaceParamMsb   = (PaceParamWidth > 0) ? (PaceParamWidth - 1) : 0
 
