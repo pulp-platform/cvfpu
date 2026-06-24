@@ -155,6 +155,8 @@ module fpnew_top #(
       .vectorial_op_i,
       .tag_i,
       .simd_mask_i     ( simd_mask             ),
+      .pace_param_i    ( pace_param_i          ),
+      .pace_mode_i     ( pace_mode_i           ),
       .in_valid_i      ( in_valid              ),
       .in_ready_o      ( opgrp_in_ready[opgrp] ),
       .flush_i,
@@ -164,10 +166,7 @@ module fpnew_top #(
       .tag_o           ( opgrp_outputs[opgrp].tag    ),
       .out_valid_o     ( opgrp_out_valid[opgrp]      ),
       .out_ready_i     ( opgrp_out_ready[opgrp]      ),
-      .busy_o          ( opgrp_busy[opgrp]           ),
-      .pace_param_i    ( pace_param_i                ),
-      .pace_mode_i     ( pace_mode_i                 )
-
+      .busy_o          ( opgrp_busy[opgrp]           )
     );
   end
 
