@@ -327,7 +327,7 @@ typedef struct packed {
 | Field           | Description                                                                                              |
 |-----------------|----------------------------------------------------------------------------------------------------------|
 | `PaceDegree`    | Degree of the piecewise polynomial (e.g. `2` for quadratic). Maximum is `MAX_PACE_DEGREE = 4`.          |
-| `PaceParts`     | Number of piecewise intervals. Maximum is `MAX_PACE_PARTS = 64`. Must be ≥ 2.                           |
+| `PaceParts`     | Number of piecewise intervals. The partition detector is a complete binary-search tree, so `PaceParts` **must be a power of two** in the range `4 … MAX_PACE_PARTS (= 64)`. |
 | `PaceEps`       | When set, two additional epsilon threshold entries are included in the parameter bus.                    |
 | `PaceDataWidth` | Bit width of each coefficient and bound value on the parameter bus.                                      |
 | `PaceParamWidth`| Total width of `pace_param_i`. Must be set to `((PaceDegree+1)*PaceParts + (PaceParts-1) + 2*PaceEps) * PaceDataWidth`. |
@@ -347,7 +347,9 @@ localparam pace_features_t DEFAULT_PACE_FEATURES = '{
 };
 ```
 
-**Constraint:** PACE requires the `ADDMUL` operation group to use the `MERGED` unit type. Setting `PaceFeatures.FmtConfig != 0` with `PARALLEL` units causes an elaboration-time `$fatal`.
+**Constraints:**
+- PACE requires the `ADDMUL` operation group to use the `MERGED` unit type. Setting `PaceFeatures.FmtConfig != 0` with `PARALLEL` units causes an elaboration-time `$fatal`.
+- PACE requires **at least one** `ADDMUL` pipeline register (`Implementation.PipeRegs[ADDMUL] >= 1`). The Horner evaluation feeds the FMA result back into the FMA input, and a register is needed to break the otherwise-combinational loop; a zero-register configuration causes an elaboration-time `$fatal`.
 
 *Default*: `'{default: 0}` (PACE disabled)
 
