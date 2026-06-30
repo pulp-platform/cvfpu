@@ -99,8 +99,39 @@ module fpnew_divsqrt_multi #(
   // Ready signal is combinatorial for all stages
   logic [0:NUM_INP_REGS] inp_pipe_ready;
 
+  // NaN-boxing sanitization. fpnew_divsqrt_multi declares is_boxed_i but never
+  // used it, so a single-precision fdiv.s / fsqrt.s reading a non-NaN-boxed
+  // register computed on the raw low 32 bits instead of returning the canonical
+  // qNaN the spec requires. Replace a badly boxed operand with the canonical
+  // qNaN of the destination format before the divsqrt pipeline.
+  // The localparam masks build the boxed canonical qNaN per format.
+  localparam logic [WIDTH-1:0] QNAN_FP32_BOXED    = {WIDTH{1'b1}} ^ 32'h803F_FFFF; // lower 32 = 7FC00000
+  localparam logic [WIDTH-1:0] QNAN_FP16_BOXED    = {WIDTH{1'b1}} ^ 16'h81FF;      // lower 16 = 7E00
+  localparam logic [WIDTH-1:0] QNAN_FP16ALT_BOXED = {WIDTH{1'b1}} ^ 16'h803F;      // lower 16 = 7FC0
+  localparam logic [WIDTH-1:0] QNAN_FP8_BOXED     = {WIDTH{1'b1}} ^ 8'h81;         // lower  8 = 7E
+
+  logic [1:0][WIDTH-1:0] nanbox_operands;
+  always_comb begin : sanitize_nanboxing
+    for (int unsigned op = 0; op < 2; op++) begin
+      // For SQRT, only operand[0] is consumed; substituting operand[1] would
+      // feed a qNaN into div_sqrt_top_mvp's NaN detection and corrupt sqrt.
+      if (op == 1 && op_i != fpnew_pkg::DIV) begin
+        nanbox_operands[op] = operands_i[op];
+      end else begin
+        unique case (dst_fmt_i)
+          fpnew_pkg::FP32:    nanbox_operands[op] = is_boxed_i[fpnew_pkg::FP32][op]    ? operands_i[op] : QNAN_FP32_BOXED;
+          fpnew_pkg::FP16:    nanbox_operands[op] = is_boxed_i[fpnew_pkg::FP16][op]    ? operands_i[op] : QNAN_FP16_BOXED;
+          fpnew_pkg::FP16ALT: nanbox_operands[op] = is_boxed_i[fpnew_pkg::FP16ALT][op] ? operands_i[op] : QNAN_FP16ALT_BOXED;
+          fpnew_pkg::FP8:     nanbox_operands[op] = is_boxed_i[fpnew_pkg::FP8][op]     ? operands_i[op] : QNAN_FP8_BOXED;
+          // FP64 fills WIDTH
+          default:            nanbox_operands[op] = operands_i[op];
+        endcase
+      end
+    end
+  end
+
   // Input stage: First element of pipeline is taken from inputs
-  assign inp_pipe_operands_q[0] = operands_i;
+  assign inp_pipe_operands_q[0] = nanbox_operands;
   assign inp_pipe_rnd_mode_q[0] = rnd_mode_i;
   assign inp_pipe_op_q[0]       = op_i;
   assign inp_pipe_dst_fmt_q[0]  = dst_fmt_i;
