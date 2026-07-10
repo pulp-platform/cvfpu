@@ -278,6 +278,22 @@ module fpnew_divsqrt_multi #(
   fpnew_pkg::status_t unit_status, held_status_q;
   logic               hold_en;
 
+  // Translate the fpnew RISC-V roundmode encoding into the legacy PULP
+  // div_sqrt_top_mvp RM_SI encoding. Nearest-even and truncate agree, but
+  // round-down and round-up are swapped, and the legacy unit has no
+  // ties-to-max mode, so map it to nearest-even.
+  logic [2:0] divsqrt_rm;
+  always_comb begin
+    unique case (rnd_mode_q)
+      fpnew_pkg::RNE: divsqrt_rm = 3'h0;
+      fpnew_pkg::RTZ: divsqrt_rm = 3'h1;
+      fpnew_pkg::RDN: divsqrt_rm = 3'h3;
+      fpnew_pkg::RUP: divsqrt_rm = 3'h2;
+      fpnew_pkg::RMM: divsqrt_rm = 3'h0;
+      default:        divsqrt_rm = 3'h0;
+    endcase
+  end
+
   div_sqrt_top_mvp i_divsqrt_lei (
    .Clk_CI           ( clk_i               ),
    .Rst_RBI          ( rst_ni              ),
@@ -285,7 +301,7 @@ module fpnew_divsqrt_multi #(
    .Sqrt_start_SI    ( sqrt_valid          ),
    .Operand_a_DI     ( divsqrt_operands[0] ),
    .Operand_b_DI     ( divsqrt_operands[1] ),
-   .RM_SI            ( rnd_mode_q          ),
+   .RM_SI            ( divsqrt_rm          ),
    .Precision_ctl_SI ( '0                  ),
    .Format_sel_SI    ( divsqrt_fmt         ),
    .Kill_SI          ( flush_i             ),
