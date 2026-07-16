@@ -13,7 +13,8 @@
 
 // Author: Arpan Suravi Prasad <prasadar@iis.ee.ethz.ch>
 
-// Selects the constant and degree-specific coefficients for one partition.
+// Selects the Horner-ordered coefficients for one partition:
+// coeffs_i[0] is the leading term and coeffs_i[degree_i] is the current addend.
 module fpnew_pace_coeff_select #(
   parameter int unsigned Bounds      = 7,
   parameter int unsigned Degrees     = 2,

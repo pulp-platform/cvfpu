@@ -64,7 +64,7 @@ As the width of some input/output signals is defined by the configuration, it is
 | `vectorial_op_i` | in        | `logic`              | Vectorial operation select                                     |
 | `tag_i`          | in        | `TagType`            | Operation tag input                                            |
 | `simd_mask_i`    | in        | `MaskType`           | Vector mask input for the status flags                         |
-| `pace_param_i`   | in        | `logic [P-1:0]`      | Packed PACE polynomial parameters: coefficients and interval bounds. Width P = `PaceParamWidth` from `Features.PaceFeatures`. Tie to `'0` when PACE is disabled. |
+| `pace_param_i`   | in        | `logic [P-1:0]`      | Packed PACE polynomial parameters: coefficients first, then interval bounds. Coefficients are packed in Horner order per partition, with stage `0` as the leading term and stage `PaceDegree` as the constant term. Width P = `PaceParamWidth` from `Features.PaceFeatures`. Tie to `'0` when PACE is disabled. |
 | `pace_mode_i`    | in        | `pace_mode_t`        | Runtime PACE mode: controls polynomial degree and enable. Tie to `'0` when PACE is disabled. |
 | `in_valid_i`     | in        | `logic`              | Input data valid (see [Handshake](#handshake-interface))       |
 | `in_ready_o`     | out       | `logic`              | Input interface ready (see [Handshake](#handshake-interface))  |
@@ -330,7 +330,7 @@ typedef struct packed {
 | `PaceParts`     | Number of piecewise intervals. The partition detector is a complete binary-search tree, so `PaceParts` **must be a power of two** in the range `4 … MAX_PACE_PARTS (= 64)`. |
 | `PaceEps`       | When set, two additional epsilon threshold entries are included in the parameter bus.                    |
 | `PaceDataWidth` | Bit width of each coefficient and bound value on the parameter bus.                                      |
-| `PaceParamWidth`| Total width of `pace_param_i`. Must be set to `((PaceDegree+1)*PaceParts + (PaceParts-1) + 2*PaceEps) * PaceDataWidth`. |
+| `PaceParamWidth`| Total width of `pace_param_i`. Must be set to `((PaceDegree+1)*PaceParts + (PaceParts-1) + 2*PaceEps) * PaceDataWidth`. The first `(PaceDegree+1)*PaceParts` entries are the Horner-ordered coefficients for each partition. |
 | `PaceBstPipeRegs` | Bitmask of pipeline registers in the BST partition detector: bit *i* inserts a register in BST stage *i*. |
 | `FmtConfig`     | Bitmask of FP formats on which PACE operates. Must be a subset of `FpFmtMask`.                          |
 

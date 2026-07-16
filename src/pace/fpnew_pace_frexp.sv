@@ -28,7 +28,7 @@ module fpnew_pace_frexp #(
   input  logic                  rst_ni,
   input  fpnew_pkg::fp_format_e src_fmt_i,
   input  fpnew_pkg::operation_e op_i,
-  input  logic [Width-1:0]      eps_i,
+  input  logic [SuperWidth-1:0] eps_i,
   input  logic [Width-1:0]      operand_i,
   output logic [Width-1:0]      operand_o,
   output FrexpInfoType          frexp_info_o

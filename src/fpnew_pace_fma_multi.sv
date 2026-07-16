@@ -32,7 +32,8 @@ module fpnew_pace_fma_multi #(
   localparam int unsigned               Bounds        = Parts - 1,
   localparam int unsigned               BoundStages   = $clog2(Bounds),
   localparam fpnew_pkg::pace_pipe_t     BstPipeRegs   = PaceFeat.PaceBstPipeRegs,
-  localparam int unsigned               DegreesBits   = $clog2(Degrees + 1),
+  localparam int unsigned               CoeffDegreeBits = $clog2(Degrees + 1),
+  localparam int unsigned               DegreesBits   = fpnew_pkg::MAX_PACE_DEGREE_BITS,
   localparam int unsigned               ParamWidth    = PaceFeat.PaceParamWidth,
   localparam int unsigned               ParamMsb      = (ParamWidth > 0) ? (ParamWidth - 1) : 0,
   localparam int unsigned               FmaScoreboardDepth =
@@ -166,10 +167,12 @@ module fpnew_pace_fma_multi #(
   logic [PaceW-1:0] scaled_result;
   logic [PaceW-1:0] ld_in_op;
 
-  // Polynomial coefficients and optional inverse/sqrt parameters.
+  // Polynomial coefficients are packed in Horner order:
+  // coeff_table[0] is the leading term and coeff_table[Degrees] is the constant term.
+  // The remaining PACE parameters are optional inverse/sqrt metadata.
   logic [Degrees:0][Bounds:0][LocalW-1:0] coeff_table;
   logic [Bounds-1:0][PaceFmtW-1:0]        partition_bounds;
-  logic [PaceW-1:0]                       eps_th;
+  logic [PaceFmtW-1:0]                    eps_th;
   logic [PaceW-1:0]                       eps_out;
 
   // ----------------
@@ -366,6 +369,14 @@ module fpnew_pace_fma_multi #(
   assign horn_fb =
       fma_vld & out_tag.active & (out_tag.degree < pace_mode_i.degree);
 
+`ifndef VERILATOR
+  pace_degree_in_range: assert property (
+    @(posedge clk_i) disable iff (!rst_ni)
+      (in_valid_i && pace_op) |-> (pace_mode_i.degree <= fpnew_pkg::pace_deg_t'(Degrees))
+  ) else $fatal(1,
+      "fpnew_pace_fma_multi: pace_mode_i.degree exceeds configured PaceFeat.PaceDegree.");
+`endif
+
   // Decompose and rescale data for inverse/sqrt-style PACE modes.
   assign fr_in_op = operands_i[0][LocalW-1:0];
   assign ld_in_op = fma_res[PaceW-1:0];
@@ -413,6 +424,7 @@ module fpnew_pace_fma_multi #(
     ) i_partition_detector (
       .clk_i(clk_i),
       .rst_ni(rst_ni),
+      .flush_i(flush_i),
       .bounds_i(partition_bounds),
       .operand_i(part_in_op),
       .operand_o(part_op),
@@ -447,7 +459,7 @@ module fpnew_pace_fma_multi #(
   ) i_coeff_selector (
     .coeffs_i ( coeff_table ),
     .bound_i  ( in_tag.part_id ),
-    .degree_i ( in_tag.degree ),
+    .degree_i ( in_tag.degree[CoeffDegreeBits-1:0] ),
     .coeffs_o ( coeff_pair )
   );
 

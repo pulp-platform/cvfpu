@@ -28,6 +28,7 @@ module fpnew_pace_partition #(
 ) (
   input  logic                              clk_i,
   input  logic                              rst_ni,
+  input  logic                              flush_i,
   input  logic [Bounds-1:0][SuperWidth-1:0] bounds_i,
   input  logic [Width-1:0]                  operand_i,
   output logic [Width-1:0]                  operand_o,
@@ -115,7 +116,9 @@ module fpnew_pace_partition #(
   assign in_ready_o                    = stage_in_ready[0];
 
   for (genvar stage = 0; stage < NumCmpStages; stage++) begin : gen_tag_flow
-    localparam int unsigned StageSelIdx = NumCmpStages - stage + 1;
+    localparam int unsigned StageSelIdx = (stage == 0)
+        ? NumCmpStages
+        : (NumCmpStages - stage + 1);
     localparam int unsigned BoundBitIdx = NumCmpStages - stage;
 
     assign stage_tag_in[stage].tag = (stage == 0) ? tag_i : stage_tag_out[stage-1].tag;
@@ -181,7 +184,7 @@ module fpnew_pace_partition #(
       .tag_i      (stage_tag_in[stage]),
       .in_valid_i (stage_in_valid[stage]),
       .in_ready_o (stage_in_ready[stage]),
-      .flush_i    (1'b0),
+      .flush_i    (flush_i),
       .result_o   (stage_compare_result[stage]),
       .tag_o      (stage_tag_out[stage]),
       .out_valid_o(stage_out_valid[stage]),
