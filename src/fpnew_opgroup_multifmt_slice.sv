@@ -19,21 +19,26 @@ module fpnew_opgroup_multifmt_slice #(
   parameter fpnew_pkg::opgroup_e      OpGroup        = fpnew_pkg::CONV,
   parameter int unsigned              Width          = 64,
   // FPU configuration
-  parameter fpnew_pkg::fmt_logic_t    FpFmtConfig    = '1,
-  parameter fpnew_pkg::ifmt_logic_t   IntFmtConfig   = '1,
-  parameter fpnew_pkg::fmt_logic_t    MxFpFmtConfig  = '0,  // MX-specific FP formats
-  parameter fpnew_pkg::ifmt_logic_t   MxIntFmtConfig = '0,  // MX-specific INT formats
-  parameter logic                     EnableVectors  = 1'b1,
-  parameter fpnew_pkg::divsqrt_unit_t DivSqrtSel     = fpnew_pkg::THMULTI,
-  parameter int unsigned              NumPipeRegs    = 0,
-  parameter fpnew_pkg::pipe_config_t  PipeConfig     = fpnew_pkg::BEFORE,
-  parameter type                      TagType        = logic,
-  parameter fpnew_pkg::rsr_impl_t     StochasticRndImplementation = fpnew_pkg::DEFAULT_NO_RSR,
+  parameter fpnew_pkg::fmt_logic_t     FpFmtConfig    = '1,
+  parameter fpnew_pkg::ifmt_logic_t    IntFmtConfig   = '1,
+  parameter fpnew_pkg::fmt_logic_t     MxFpFmtConfig  = '0,  // MX-specific FP formats
+  parameter fpnew_pkg::ifmt_logic_t    MxIntFmtConfig = '0,  // MX-specific INT formats
+  parameter logic                      EnableVectors  = 1'b1,
+  parameter fpnew_pkg::divsqrt_unit_t  DivSqrtSel     = fpnew_pkg::THMULTI,
+  parameter int unsigned               NumPipeRegs    = 0,
+  parameter fpnew_pkg::pipe_config_t   PipeConfig     = fpnew_pkg::BEFORE,
+  parameter fpnew_pkg::pace_features_t PaceFeatures   = '{default: 0},
+  parameter type                       TagType        = logic,
+  parameter fpnew_pkg::rsr_impl_t      StochasticRndImplementation = fpnew_pkg::DEFAULT_NO_RSR,
   // Do not change
   localparam int unsigned NUM_OPERANDS = fpnew_pkg::num_operands(OpGroup),
   localparam int unsigned NUM_FORMATS  = fpnew_pkg::NUM_FP_FORMATS,
   localparam int unsigned NUM_SIMD_LANES = fpnew_pkg::max_num_lanes(Width, FpFmtConfig, EnableVectors),
-  localparam type         MaskType     = logic [NUM_SIMD_LANES-1:0]
+  localparam type         MaskType     = logic [NUM_SIMD_LANES-1:0],
+  localparam fpnew_pkg::fmt_logic_t PaceFmtConfig = PaceFeatures.FmtConfig,
+  localparam int unsigned PaceParamWidth = PaceFeatures.PaceParamWidth,
+  localparam int unsigned PaceParamMsb   = (PaceParamWidth > 0) ? (PaceParamWidth - 1) : 0
+
 ) (
   input logic                                     clk_i,
   input logic                                     rst_ni,
@@ -50,6 +55,8 @@ module fpnew_opgroup_multifmt_slice #(
   input logic                                     vectorial_op_i,
   input TagType                                   tag_i,
   input MaskType                                  simd_mask_i,
+  input  logic [PaceParamMsb:0]                   pace_param_i,
+  input  fpnew_pkg::pace_mode_t                   pace_mode_i,
   // Input Handshake
   input  logic                                    in_valid_i,
   output logic                                    in_ready_o,
@@ -186,6 +193,9 @@ or on 16b inputs producing 32b outputs");
   // ---------------
   // Generate Lanes
   // ---------------
+  localparam int unsigned PaceMaxDataWidth = fpnew_pkg::max_fp_width(PaceFmtConfig);
+  localparam fpnew_pkg::fp_encoding_t PaceSuperFmt = fpnew_pkg::super_format(PaceFmtConfig);
+  localparam int unsigned PaceMaxManWidth = PaceSuperFmt.man_bits;
   for (genvar lane = 0; lane < int'(NUM_LANES); lane++) begin : gen_num_lanes
     localparam int unsigned LANE = unsigned'(lane); // unsigned to please the linter
     // Get a mask of active formats for this lane
@@ -194,7 +204,9 @@ or on 16b inputs producing 32b outputs");
     localparam fpnew_pkg::ifmt_logic_t ACTIVE_INT_FORMATS =
         fpnew_pkg::get_lane_int_formats(Width, FpFmtConfig, IntFmtConfig, LANE);
     localparam int unsigned MAX_WIDTH = fpnew_pkg::max_fp_width(ACTIVE_FORMATS);
-
+    localparam fpnew_pkg::fmt_logic_t PaceActiveFormats =
+        fpnew_pkg::get_pace_lane_formats(ACTIVE_FORMATS, PaceFmtConfig);
+    localparam int unsigned EnablePace = (PaceActiveFormats != 0);
     // Cast-specific parameters
     localparam fpnew_pkg::fmt_logic_t CONV_FORMATS =
         fpnew_pkg::get_conv_lane_formats(Width, FpFmtConfig, LANE);
@@ -280,39 +292,91 @@ or on 16b inputs producing 32b outputs");
       end
 
       // Instantiate the operation from the selected opgroup
-      if (OpGroup == fpnew_pkg::ADDMUL) begin : lane_instance
-        fpnew_fma_multi #(
-          .FpFmtConfig ( LANE_FORMATS         ),
-          .NumPipeRegs ( NumPipeRegs          ),
-          .PipeConfig  ( PipeConfig           ),
-          .TagType     ( TagType              ),
-          .AuxType     ( logic [AUX_BITS-1:0] )
-        ) i_fpnew_fma_multi (
-          .clk_i,
-          .rst_ni,
-          .operands_i      ( local_operands  ),
-          .is_boxed_i,
-          .rnd_mode_i      ( rnd_mode        ),
-          .op_i,
-          .op_mod_i,
-          .src_fmt_i,
-          .dst_fmt_i,
-          .tag_i,
-          .mask_i          ( simd_mask_i[lane]   ),
-          .aux_i           ( aux_data            ),
-          .in_valid_i      ( in_valid            ),
-          .in_ready_o      ( lane_in_ready[lane] ),
-          .flush_i,
-          .result_o        ( op_result           ),
-          .status_o        ( op_status           ),
-          .extension_bit_o ( lane_ext_bit[lane]  ),
-          .tag_o           ( lane_tags[lane]     ),
-          .mask_o          ( lane_masks[lane]    ),
-          .aux_o           ( lane_aux[lane]      ),
-          .out_valid_o     ( out_valid           ),
-          .out_ready_i     ( out_ready           ),
-          .busy_o          ( lane_busy[lane]     )
-        );
+      if (OpGroup == fpnew_pkg::ADDMUL) begin : gen_lane_instance
+        if (EnablePace) begin : gen_pace_instance
+          localparam fpnew_pkg::pace_features_t PaceLaneFeatures = '{
+            PaceDegree      : PaceFeatures.PaceDegree,
+            PaceParts       : PaceFeatures.PaceParts,
+            PaceEps         : PaceFeatures.PaceEps,
+            PaceDataWidth   : PaceFeatures.PaceDataWidth,
+            PaceParamWidth  : PaceFeatures.PaceParamWidth,
+            PaceBstPipeRegs : PaceFeatures.PaceBstPipeRegs,
+            FmtConfig       : PaceActiveFormats
+          };
+
+          fpnew_pace_fma_multi #(
+            .FpFmtConfig ( LANE_FORMATS         ),
+            .NumPipeRegs ( NumPipeRegs          ),
+            .PipeConfig  ( PipeConfig           ),
+            .TagType     ( TagType              ),
+            .AuxType     ( logic [AUX_BITS-1:0] ),
+            .PaceFeat    ( PaceLaneFeatures     ),
+            .PaceDataW   ( PaceMaxDataWidth     ),
+            .PaceManOff  ( PaceMaxManWidth      )
+          ) i_fpnew_pace_fma_multi (
+            .clk_i,
+            .rst_ni,
+            .operands_i      ( local_operands  ),
+            .is_boxed_i,
+            .rnd_mode_i      ( rnd_mode        ),
+            .op_i            ( op_i            ),
+            .op_mod_i,
+            .src_fmt_i,
+            .dst_fmt_i,
+            .pace_param_i,
+            .pace_mode_i,
+            .tag_i,
+            .mask_i          ( simd_mask_i[lane]   ),
+            .aux_i           ( aux_data            ),
+            .in_valid_i      ( in_valid            ),
+            .in_ready_o      ( lane_in_ready[lane] ),
+            .flush_i,
+            .result_o        ( op_result           ),
+            .status_o        ( op_status           ),
+            .extension_bit_o ( lane_ext_bit[lane]  ),
+            .tag_o           ( lane_tags[lane]     ),
+            .mask_o          ( lane_masks[lane]    ),
+            .aux_o           ( lane_aux[lane]      ),
+            .out_valid_o     ( out_valid           ),
+            .out_ready_i     ( out_ready           ),
+            .busy_o          ( lane_busy[lane]     )
+          );
+        end else begin : gen_fma_instance
+          fpnew_fma_multi #(
+            .FpFmtConfig ( LANE_FORMATS            ),
+            .NumPipeRegs ( NumPipeRegs             ),
+            .PipeConfig  ( PipeConfig              ),
+            .TagType     ( TagType                 ),
+            .AuxType     ( logic [AUX_BITS-1:0]    )
+          ) i_fpnew_fma_multi (
+            .clk_i,
+            .rst_ni,
+            .operands_i      ( local_operands      ),
+            .is_boxed_i,
+            .rnd_mode_i      ( rnd_mode            ),
+            .op_i            ( op_i                ),
+            .op_mod_i,
+            .src_fmt_i,
+            .dst_fmt_i,
+            .tag_i,
+            .mask_i          ( simd_mask_i[lane]   ),
+            .aux_i           ( aux_data            ),
+            .in_valid_i      ( in_valid            ),
+            .in_ready_o      ( lane_in_ready[lane] ),
+            .flush_i,
+            .result_o        ( op_result           ),
+            .status_o        ( op_status           ),
+            .extension_bit_o ( lane_ext_bit[lane]  ),
+            .tag_o           ( lane_tags[lane]     ),
+            .mask_o          ( lane_masks[lane]    ),
+            .aux_o           ( lane_aux[lane]      ),
+            .pace_operand_o  (                     ),
+            .pace_fmt_o      (                     ),
+            .out_valid_o     ( out_valid           ),
+            .out_ready_i     ( out_ready           ),
+            .busy_o          ( lane_busy[lane]     )
+          );
+        end
       end else if (OpGroup == fpnew_pkg::DOTP) begin : lane_instance
         fpnew_sdotp_multi_wrapper #(
           .LaneWidth   ( LANE_WIDTH           ),

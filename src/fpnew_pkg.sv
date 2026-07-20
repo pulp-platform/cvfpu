@@ -146,7 +146,7 @@ package fpnew_pkg;
   localparam int unsigned OP_BITS = 5;
 
   typedef enum logic [OP_BITS-1:0] {
-    FMADD, FNMSUB, ADD, MUL,     // ADDMUL operation group
+    FMADD, FNMSUB, ADD, MUL, PWPA, PACE_INV, PACE_SQRT, PACE_RSQRT, // ADDMUL operation group
     DIV, SQRT,                   // DIVSQRT operation group
     SGNJ, MINMAX, CMP, CLASSIFY, // NONCOMP operation group
     F2F, F2I, I2F, CPKAB, CPKCD, // CONV operation group
@@ -245,15 +245,52 @@ package fpnew_pkg;
   // same with unsigned
   typedef fmt_unsigned_t [0:NUM_OPGROUPS-1] opgrp_fmt_unsigned_t;
 
+  localparam int unsigned MAX_PACE_PARTS = 64;
+  localparam int unsigned MAX_PACE_DEGREE = 4;
+  localparam int unsigned MAX_PACE_DEGREE_BITS   = $clog2(MAX_PACE_DEGREE+1);
+  localparam int unsigned MAX_NUM_BST_STAGE = $clog2(MAX_PACE_PARTS);
+
+  typedef logic [MAX_NUM_BST_STAGE-1:0] pace_pipe_t;
+  typedef logic [MAX_PACE_DEGREE_BITS-1:0] pace_deg_t;
+
+  typedef struct packed {
+    int unsigned PaceDegree;      // polynomial degree for Horner evaluation
+    int unsigned PaceParts;       // number of piecewise partitions
+    logic        PaceEps;         // enable epsilon thresholding
+    int unsigned PaceDataWidth;   // coefficient/bound data width in bits
+    int unsigned PaceParamWidth;  // total parameter bus width in bits
+    pace_pipe_t  PaceBstPipeRegs; // per-stage pipeline register bitmask for BST partition detector
+    fmt_logic_t  FmtConfig;       // FP formats enabled for PACE
+  } pace_features_t;
+
+  typedef struct packed {
+    logic extend;      // extend evaluation using partial result from previous iteration
+    logic enable;      // enable PACE polynomial evaluation mode
+    pace_deg_t degree; // polynomial degree
+  } pace_mode_t;
+
+  // Reference PACE configuration: degree-2 piecewise polynomial over 16 intervals on FP32/FP16/FP16ALT.
+  // PaceParamWidth = ((PaceDegree+1)*PaceParts + (PaceParts-1) + 2*PaceEps) entries * PaceDataWidth bits.
+  localparam pace_features_t DEFAULT_PACE_FEATURES = '{
+    PaceDegree      : 2,
+    PaceParts       : 16,
+    PaceEps         : 1'b1,
+    PaceDataWidth   : 32,
+    PaceParamWidth  : 2080,
+    PaceBstPipeRegs : 4'b0100, // register after BST stage 2 (3rd of 4 stages for 16 parts)
+    FmtConfig       : 9'b101010000
+  };
+
   // FPU configuration: features
   typedef struct packed {
-    int unsigned Width;
-    logic        EnableVectors;
-    logic        EnableNanBox;
-    fmt_logic_t  FpFmtMask;    // Standard FP formats for all opgroups
-    ifmt_logic_t IntFmtMask;   // Standard INT formats for all opgroups
-    fmt_logic_t  MxFpFmtMask;  // MX-specific FP formats (FP6, FP6ALT, FP4, plus FP8/FP8ALT)
-    ifmt_logic_t MxIntFmtMask; // MX-specific INT formats (INT8)
+    int unsigned    Width;
+    logic           EnableVectors;
+    logic           EnableNanBox;
+    fmt_logic_t     FpFmtMask;    // Standard FP formats for all opgroups
+    ifmt_logic_t    IntFmtMask;   // Standard INT formats for all opgroups
+    fmt_logic_t     MxFpFmtMask;  // MX-specific FP formats (FP6, FP6ALT, FP4, plus FP8/FP8ALT)
+    ifmt_logic_t    MxIntFmtMask; // MX-specific INT formats (INT8)
+    pace_features_t PaceFeatures;
   } fpu_features_t;
 
   localparam fpu_features_t RV64D = '{
@@ -263,7 +300,8 @@ package fpnew_pkg;
     FpFmtMask:     9'b110000000,
     IntFmtMask:    4'b0011,
     MxFpFmtMask:   9'b0,         // No MX support
-    MxIntFmtMask:  4'b0
+    MxIntFmtMask:  4'b0,
+    PaceFeatures: '{default: 0}
   };
 
   localparam fpu_features_t RV32D = '{
@@ -273,7 +311,8 @@ package fpnew_pkg;
     FpFmtMask:     9'b110000000,
     IntFmtMask:    4'b0010,
     MxFpFmtMask:   9'b0,         // No MX support
-    MxIntFmtMask:  4'b0
+    MxIntFmtMask:  4'b0,
+    PaceFeatures: '{default: 0}
   };
 
   localparam fpu_features_t RV32F = '{
@@ -283,7 +322,8 @@ package fpnew_pkg;
     FpFmtMask:     9'b100000000,
     IntFmtMask:    4'b0010,
     MxFpFmtMask:   9'b0,         // No MX support
-    MxIntFmtMask:  4'b0
+    MxIntFmtMask:  4'b0,
+    PaceFeatures: '{default: 0}
   };
 
   localparam fpu_features_t RV64D_Xsflt = '{
@@ -293,7 +333,8 @@ package fpnew_pkg;
     FpFmtMask:     9'b111111000,  // Standard formats (not including FP6, FP6ALT, FP4)
     IntFmtMask:    4'b1111,
     MxFpFmtMask:   9'b000101111,  // MX formats: FP8, FP8ALT, FP6, FP6ALT, FP4
-    MxIntFmtMask:  4'b1000        // INT8 for MX operations
+    MxIntFmtMask:  4'b1000,       // INT8 for MX operations
+    PaceFeatures:  DEFAULT_PACE_FEATURES
   };
 
   localparam fpu_features_t RV32F_Xsflt = '{
@@ -303,7 +344,8 @@ package fpnew_pkg;
     FpFmtMask:     9'b101111000,
     IntFmtMask:    4'b1110,
     MxFpFmtMask:   9'b0,         // No MX support (32-bit width insufficient)
-    MxIntFmtMask:  4'b0
+    MxIntFmtMask:  4'b0,
+    PaceFeatures: '{default: 0}
   };
 
   localparam fpu_features_t RV32F_Xf16alt_Xfvec = '{
@@ -313,7 +355,8 @@ package fpnew_pkg;
     FpFmtMask:     9'b100010000,
     IntFmtMask:    4'b0110,
     MxFpFmtMask:   9'b0,         // No MX support
-    MxIntFmtMask:  4'b0
+    MxIntFmtMask:  4'b0,
+    PaceFeatures: '{default: 0}
   };
 
 
@@ -347,7 +390,7 @@ package fpnew_pkg;
   };
 
   localparam fpu_implementation_t DEFAULT_SNITCH_PIPE = '{
-    PipeRegs:   '{'{default: 2},  // ADDMUL
+    PipeRegs:   '{'{default: 3},  // ADDMUL
                   '{default: 0},  // DIVSQRT
                   '{default: 0},  // NONCOMP
                   '{default: 2},  // CONV
@@ -476,13 +519,13 @@ package fpnew_pkg;
   // Returns the operation group of the given operation
   function automatic opgroup_e get_opgroup(operation_e op);
     unique case (op)
-      FMADD, FNMSUB, ADD, MUL:     return ADDMUL;
-      DIV, SQRT:                   return DIVSQRT;
-      SGNJ, MINMAX, CMP, CLASSIFY: return NONCOMP;
-      F2F, F2I, I2F, CPKAB, CPKCD: return CONV;
-      SDOTP, EXVSUM, VSUM:         return DOTP;
-      MXDOTPF, MXDOTPI:            return MXDOTP;
-      default:                     return NONCOMP;
+      FMADD, FNMSUB, ADD, MUL, PWPA, PACE_INV, PACE_SQRT, PACE_RSQRT: return ADDMUL;
+      DIV, SQRT:                                                      return DIVSQRT;
+      SGNJ, MINMAX, CMP, CLASSIFY:                                    return NONCOMP;
+      F2F, F2I, I2F, CPKAB, CPKCD:                                    return CONV;
+      SDOTP, EXVSUM, VSUM:                                            return DOTP;
+      MXDOTPF, MXDOTPI:                                               return MXDOTP;
+      default:                                                        return NONCOMP;
     endcase
   endfunction
 
@@ -524,6 +567,15 @@ package fpnew_pkg;
     for (int unsigned fmt = 0; fmt < NUM_FP_FORMATS; fmt++)
       // Mask active formats with the number of lanes for that format
       res[fmt] = cfg[fmt] & (width / fp_width(fp_format_e'(fmt)) > lane_no);
+    return res;
+  endfunction
+
+  // Returns the intersection of FPU-enabled formats and PACE-enabled formats for a given lane
+  function automatic fmt_logic_t get_pace_lane_formats( fmt_logic_t cfg_fpu, fmt_logic_t cfg_pace);
+    automatic fmt_logic_t res;
+    for (int unsigned fmt = 0; fmt < NUM_FP_FORMATS; fmt++)
+      // Mask active formats with the number of lanes for that format
+      res[fmt] = cfg_fpu[fmt] & cfg_pace[fmt];
     return res;
   endfunction
 

@@ -15,11 +15,18 @@ Versions of the IP in the same major relase are "pin-compatible" with each other
   - Supports source formats: FP8, FP8ALT, FP6, FP6ALT, FP4, INT8
   - Supports destination formats: FP32, FP16ALT
   - Scaled dot-product and accumulation support with two 8-bit exponent scale factors
+- Add PACE (Polynomial Approximation Compute Engine) support in the `ADDMUL` group
+  - Evaluates transcendental functions (reciprocal, square root, reciprocal square root) via piecewise polynomial approximation using Horner's method on the FMA unit
+  - Requires `ADDMUL` to use the `MERGED` unit type
+  - Configurable degree, number of intervals, and target FP formats via `pace_features_t` in `fpu_features_t`
+  - Runtime control through new top-level ports `pace_param_i` (packed coefficient/bound bus) and `pace_mode_i`
+  - `DEFAULT_PACE_FEATURES` provided as a reference configuration (degree-2, 16 intervals, FP32/FP16/FP16ALT)
 
 ### Changed
 - Extend classifier to support MX-specific special cases for FP6, FP6ALT, FP4 formats
 - Increase number of supported FP formats from 6 to 9
 - Increase number of opgroups from 5 to 6
+- `fpu_features_t` extended with `MxFpFmtMask`, `MxIntFmtMask`, and `PaceFeatures` fields
 
 ### Notes
 - MXDOTP implementation tested with all element formats enabled, but not yet exhaustively tested with all possible combinations of enabled formats.

@@ -28,7 +28,10 @@ module fpnew_top #(
   localparam int unsigned NumLanes     = fpnew_pkg::max_num_lanes(Features.Width, Features.FpFmtMask, Features.EnableVectors),
   localparam type         MaskType     = logic [NumLanes-1:0],
   localparam int unsigned WIDTH        = Features.Width,
-  localparam int unsigned NUM_OPERANDS = 3
+  localparam int unsigned NUM_OPERANDS = 3,
+  localparam fpnew_pkg::pace_features_t PaceFeatures = Features.PaceFeatures,
+  localparam int unsigned PaceParamWidth = PaceFeatures.PaceParamWidth,
+  localparam int unsigned PaceParamMsb   = (PaceParamWidth > 0) ? (PaceParamWidth - 1) : 0
 ) (
   input logic                               clk_i,
   input logic                               rst_ni,
@@ -44,6 +47,8 @@ module fpnew_top #(
   input logic                               vectorial_op_i,
   input TagType                             tag_i,
   input MaskType                            simd_mask_i,
+  input  logic [PaceParamMsb:0]             pace_param_i,
+  input  fpnew_pkg::pace_mode_t             pace_mode_i,
   // Input Handshake
   input  logic                              in_valid_i,
   output logic                              in_ready_o,
@@ -132,6 +137,7 @@ module fpnew_top #(
       .PipeConfig    ( Implementation.PipeConfig       ),
       .TagType       ( TagType                         ),
       .TrueSIMDClass ( TrueSIMDClass                   ),
+      .PaceFeatures  ( PaceFeatures                    ),
       .CompressedVecCmpResult ( CompressedVecCmpResult ),
       .StochasticRndImplementation ( StochasticRndImplementation )
     ) i_opgroup_block (
@@ -149,6 +155,8 @@ module fpnew_top #(
       .vectorial_op_i,
       .tag_i,
       .simd_mask_i     ( simd_mask             ),
+      .pace_param_i    ( pace_param_i          ),
+      .pace_mode_i     ( pace_mode_i           ),
       .in_valid_i      ( in_valid              ),
       .in_ready_o      ( opgrp_in_ready[opgrp] ),
       .flush_i,
