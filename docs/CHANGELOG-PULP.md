@@ -7,6 +7,15 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 In this sense, we interpret the "Public API" of a hardware module as its port/parameter list.
 Versions of the IP in the same major relase are "pin-compatible" with each other. Minor relases are permitted to add new parameters as long as their default bindings ensure backwards compatibility.
 
+## [Unreleased]
+
+### Changed
+- **Breaking**: Bump `common_cells` from `1.21.0` to `2.0.0-beta.2`. No `fpnew_*` port or parameter changes, so instances stay pin-compatible, but integrators must move their own `common_cells` dependency to 2.x.
+  - `lzc` → `cc_lzc` (`WIDTH` → `Width`, `MODE` → `Mode` of type `cc_pkg::lzc_mode_e`)
+  - `rr_arb_tree` → `cc_rr_arb_tree` (`DataType` → `data_t`, `flush_i` → `clr_i`)
+  - Register macros in use (`FF`, `FFL`, `FFLARNC`, `FFLNR`) are unchanged in name and argument order
+- **Temporary**: `fpu_div_sqrt_mvp` is pinned by `rev` instead of `version`. Revert to a tagged `version` once `common_cells` 2.0.0 is released and `fpu_div_sqrt_mvp` cuts a tag including the v2 migration.
+
 ## [pulp-v0.3.0] - 2026-07-20
 
 ### Added

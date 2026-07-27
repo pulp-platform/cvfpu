@@ -807,9 +807,9 @@ module fpnew_mxdotp_norm_lzc
 );
   logic [LZC_RESULT_WIDTH-1:0] leading_zero_count;
 
-  lzc #(
-    .WIDTH ( LZC_SUM_WIDTH ),
-    .MODE  ( 1             ) // MODE = 1 counts leading zeroes
+  cc_lzc #(
+    .Width ( LZC_SUM_WIDTH                ),
+    .Mode  ( cc_pkg::LZC_LEADING_ZERO_CNT )
   ) i_lzc (
     .in_i    ( sum_magnitude      ),
     .cnt_o   ( leading_zero_count ),

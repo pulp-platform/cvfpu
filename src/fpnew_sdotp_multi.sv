@@ -1568,9 +1568,9 @@ module fpnew_sdotp_multi #(
   assign sum_lower = {(~effective_subtraction_z_q && sum_carry_z_q), sum_z_q};
 
   // Leading zero counter for cancellations
-  lzc #(
-    .WIDTH ( LZC_SUM_WIDTH   ),
-    .MODE  ( 1               ) // MODE = 1 counts leading zeroes
+  cc_lzc #(
+    .Width ( LZC_SUM_WIDTH                ),
+    .Mode  ( cc_pkg::LZC_LEADING_ZERO_CNT )
   ) i_lzc (
     .in_i    ( sum_lower          ),
     .cnt_o   ( leading_zero_count ),

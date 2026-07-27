@@ -279,9 +279,9 @@ module fpnew_cast_multi #(
   logic [LZC_RESULT_WIDTH:0]   renorm_shamt_sgn; // signed form for calculations
 
   // Leading-zero counter is needed for renormalization
-  lzc #(
-    .WIDTH ( INT_MAN_WIDTH ),
-    .MODE  ( 1             ) // MODE = 1 counts leading zeroes
+  cc_lzc #(
+    .Width ( INT_MAN_WIDTH                ),
+    .Mode  ( cc_pkg::LZC_LEADING_ZERO_CNT )
   ) i_lzc (
     .in_i    ( encoded_mant ),
     .cnt_o   ( renorm_shamt ),

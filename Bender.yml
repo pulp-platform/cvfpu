@@ -6,8 +6,8 @@ package:
   authors: ["Stefan Mach <smach@iis.ee.ethz.ch>"]
 
 dependencies:
-  common_cells: {git: "https://github.com/pulp-platform/common_cells.git",         version: 1.21.0}
-  fpu_div_sqrt_mvp: {git: "https://github.com/pulp-platform/fpu_div_sqrt_mvp.git", version: 1.0.4}
+  common_cells: {git: "https://github.com/pulp-platform/common_cells.git",         version: 2.0.0-beta.2}
+  fpu_div_sqrt_mvp: {git: "https://github.com/pulp-platform/fpu_div_sqrt_mvp.git", rev: "af8562ebfe4a18765ed7a4f059861e7985baa869"} # to be updated to a released version once available after common_cells v2 release
 
 sources:
   - src/fpnew_pkg.sv
