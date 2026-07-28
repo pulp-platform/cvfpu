@@ -22,13 +22,11 @@ package fpnew_mxdotp_multi_pkg;
   localparam fpnew_pkg::fmt_logic_t   MxdotpSrcFpFmtConfig  = 9'b000101111; // FP8, FP8ALT, FP6, FP6ALT, FP4
   localparam fpnew_pkg::ifmt_logic_t  MxdotpSrcIntFmtConfig = 4'b1000;      // INT8
   localparam fpnew_pkg::fmt_logic_t   MxdotpDstFpFmtConfig  = 9'b100010000; // FP32, FP16ALT
-  localparam int unsigned             VectorSize            = 8;
 
   // Do not change
   localparam int unsigned SRC_WIDTH    = fpnew_pkg::max_fp_width(MxdotpSrcFpFmtConfig);
   localparam int unsigned DST_WIDTH    = fpnew_pkg::max_fp_width(MxdotpDstFpFmtConfig);
   localparam int unsigned SCALE_WIDTH  = 8;
-  localparam int unsigned NUM_OPERANDS = 2*VectorSize+1; // Two input vectors + accumulator (scale handled separately)
   localparam int unsigned NUM_FORMATS  = fpnew_pkg::NUM_FP_FORMATS;
   // ----------
   // Constants
@@ -61,13 +59,7 @@ package fpnew_mxdotp_multi_pkg;
   // Algorithm constants
   localparam int unsigned ANCHOR               = 34; // Fractional point position
   localparam int unsigned INT_BITS             = 32;
-  localparam int unsigned VECTOR_BITS          = $clog2(VectorSize);
   localparam int unsigned PROD_SHIFT_WIDTH     = 1 + INT_BITS + ANCHOR;
-  localparam int unsigned SOP_FIXED_WIDTH      = VECTOR_BITS + PROD_SHIFT_WIDTH;
-  localparam int unsigned FIXED_SUM_WIDTH      = 1 + DST_PRECISION_BITS + 1 + (SOP_FIXED_WIDTH - 1); // |s|-Acc:24b-|R|-unsigned SoP:64+log2k-|
-  localparam int unsigned LZC_SUM_WIDTH        = FIXED_SUM_WIDTH + DST_PRECISION_BITS;
-  localparam int unsigned LZC_RESULT_WIDTH     = $clog2(LZC_SUM_WIDTH);
-  localparam int signed   MAX_ACC_SHIFT_AMOUNT = FIXED_SUM_WIDTH - DST_PRECISION_BITS - 1; // Maximum allowable shift, -1 for the sign bit
   localparam int unsigned SOP_SHIFT            = ANCHOR - 2*SUPER_MAN_BITS; // Constant left shift amount for the SOP to align the fractional point
 
   // FP6 specific
@@ -83,8 +75,6 @@ package fpnew_mxdotp_multi_pkg;
   // In most reasonable FP formats the internal exponent will be wider than the LZC result.
   localparam int unsigned EXP_WIDTH          = SUPER_EXP_BITS + 1;
   localparam int unsigned DST_EXP_WIDTH      = SUPER_DST_EXP_BITS + 2; // +2 for overflow handling
-  // Shift amount width: $clog2(DST_BIAS - ANCHOR + (scale_a+scale_b) + FIXED_SUM_WIDTH - 1)
-  localparam int unsigned SHIFT_AMOUNT_WIDTH = $clog2(fpnew_pkg::bias(fpnew_pkg::FP32) - ANCHOR + 2**(SCALE_WIDTH) - 1 + FIXED_SUM_WIDTH - 1);
 
   // ----------------
   // Type definition

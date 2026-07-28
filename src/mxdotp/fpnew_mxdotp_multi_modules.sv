@@ -20,9 +20,12 @@ module fpnew_mxdotp_classifier
 #(
   parameter fpnew_pkg::fmt_logic_t FpSrcFmtConfig = MxdotpSrcFpFmtConfig,
   parameter fpnew_pkg::fmt_logic_t FpDstFmtConfig = MxdotpDstFpFmtConfig,
+  parameter int unsigned           VectorSize     = 8,
   parameter int unsigned           FP6VectorSize  = 3,
   parameter int unsigned           FP4VectorSize  = 5,
-  parameter int unsigned           NumInpRegs     = 0
+  parameter int unsigned           NumInpRegs     = 0,
+  // Do not change the following parameters
+  localparam int unsigned          NUM_OPERANDS   = 2*VectorSize+1
 ) (
   // Input signals
   input logic [2*VectorSize-1:0][SRC_WIDTH-1:0] operands_post_inp_pipe,
@@ -293,7 +296,8 @@ endmodule
 module fpnew_mxdotp_special_cases
   import fpnew_mxdotp_multi_pkg::*;
 #(
-  parameter fpnew_pkg::fmt_logic_t FpDstFmtConfig = MxdotpDstFpFmtConfig
+  parameter fpnew_pkg::fmt_logic_t FpDstFmtConfig = MxdotpDstFpFmtConfig,
+  parameter int unsigned           VectorSize     = 8
 ) (
   // Input signals
   input  fp_src_t [VectorSize-1:0]             operands_a,
@@ -613,10 +617,13 @@ endmodule
 module fpnew_mxdotp_format_adder
   import fpnew_mxdotp_multi_pkg::*;
 #(
+  parameter int unsigned SoPFixedWidth = 70,
   parameter int unsigned Fp6SumWidth = FP6_PROD_SHIFT_WIDTH,
-  parameter int unsigned Fp4SumWidth = FP4_PROD_SHIFT_WIDTH
+  parameter int unsigned Fp4SumWidth = FP4_PROD_SHIFT_WIDTH,
+  // Do not change the following parameters
+  localparam int unsigned FIXED_SUM_WIDTH = 1 + DST_PRECISION_BITS + 1 + (SoPFixedWidth - 1) // |s|-Acc:24b-|R|-unsigned SoP:64+log2k-|
 ) (
-  input  logic signed [SOP_FIXED_WIDTH-1:0] sum_product_fp8,
+  input  logic signed [SoPFixedWidth-1:0] sum_product_fp8,
   input  logic signed [Fp6SumWidth-1:0]     sum_product_fp6,
   input  logic signed [Fp4SumWidth-1:0]     sum_product_fp4,
   output logic signed [FIXED_SUM_WIDTH-1:0] sum_product
@@ -636,7 +643,12 @@ endmodule
 // Computes shift amount, handles sticky bits, and detects if accumulator dominates the result.
 module fpnew_mxdotp_accumulator_shift
   import fpnew_mxdotp_multi_pkg::*;
-(
+#(
+  parameter int unsigned SoPFixedWidth = 70,
+  // Do not change the following parameters
+  localparam int unsigned FIXED_SUM_WIDTH = 1 + DST_PRECISION_BITS + 1 + (SoPFixedWidth - 1), // |s|-Acc:24b-|R|-unsigned SoP:64+log2k-|
+  localparam int signed MAX_ACC_SHIFT_AMOUNT = FIXED_SUM_WIDTH - DST_PRECISION_BITS - 1
+) (
   // Input signals
   input  logic signed [FIXED_SUM_WIDTH-1:0] sum_product,
   input  logic [SCALE_WIDTH:0] scale,
@@ -700,7 +712,12 @@ endmodule
 // Adds aligned accumulator to sum-of-products, extending with accumulator remainder bits.
 module fpnew_mxdotp_add_accumulator_sop
   import fpnew_mxdotp_multi_pkg::*;
-(
+#(
+  parameter int unsigned SoPFixedWidth = 70,
+  // Do not change the following parameters
+  localparam int unsigned FIXED_SUM_WIDTH = 1 + DST_PRECISION_BITS + 1 + (SoPFixedWidth - 1), // |s|-Acc:24b-|R|-unsigned SoP:64+log2k-|
+  localparam int unsigned LZC_SUM_WIDTH   = FIXED_SUM_WIDTH + DST_PRECISION_BITS
+) (
   // Input signals
   input  logic signed [FIXED_SUM_WIDTH-1:0] sum_product,
   input  logic signed [FIXED_SUM_WIDTH-1:0] accumulator_shifted,
@@ -717,7 +734,12 @@ endmodule
 // Converts results to sign-magnitude format using two's complement.
 module fpnew_mxdotp_twos_compl
   import fpnew_mxdotp_multi_pkg::*;
-(
+#(
+  parameter int unsigned SoPFixedWidth = 70,
+  // Do not change the following parameters
+  localparam int unsigned FIXED_SUM_WIDTH = 1 + DST_PRECISION_BITS + 1 + (SoPFixedWidth - 1), // |s|-Acc:24b-|R|-unsigned SoP:64+log2k-|
+  localparam int unsigned LZC_SUM_WIDTH   = FIXED_SUM_WIDTH + DST_PRECISION_BITS
+) (
   // Input signals
   input  logic [LZC_SUM_WIDTH-1:0] sum_product_accumulator_extended,
   input  logic signed [DST_PRECISION_BITS :0] signed_mantissa_d,
@@ -746,7 +768,14 @@ endmodule
 // Shifts magnitude left by normalization amount to align leading 1 to implicit bit position.
 module fpnew_mxdotp_norm_shift
   import fpnew_mxdotp_multi_pkg::*;
-(
+#(
+  parameter int unsigned SoPFixedWidth = 70,
+  // Do not change the following parameters
+  localparam int unsigned FIXED_SUM_WIDTH = 1 + DST_PRECISION_BITS + 1 + (SoPFixedWidth - 1), // |s|-Acc:24b-|R|-unsigned SoP:64+log2k-|
+  localparam int unsigned LZC_SUM_WIDTH   = FIXED_SUM_WIDTH + DST_PRECISION_BITS,
+  // Shift amount width: $clog2(DST_BIAS - ANCHOR + (scale_a+scale_b) + FIXED_SUM_WIDTH - 1)
+  localparam int unsigned SHIFT_AMOUNT_WIDTH = $clog2(fpnew_pkg::bias(fpnew_pkg::FP32) - ANCHOR + 2**(SCALE_WIDTH) - 1 + FIXED_SUM_WIDTH - 1)
+) (
   // Input signals
   input  logic [LZC_SUM_WIDTH-1:0] sum_magnitude,
   input  logic [SHIFT_AMOUNT_WIDTH-1:0] norm_shamt,
@@ -765,7 +794,13 @@ endmodule
 // count. Handles subnormals (normalized_exponent = 0) and zero (lzc_zeroes path).
 module fpnew_mxdotp_norm_lzc
   import fpnew_mxdotp_multi_pkg::*;
-(
+#(
+  parameter int unsigned SoPFixedWidth = 70,
+  // Do not change the following parameters
+  localparam int unsigned FIXED_SUM_WIDTH = 1 + DST_PRECISION_BITS + 1 + (SoPFixedWidth - 1), // |s|-Acc:24b-|R|-unsigned SoP:64+log2k-|
+  localparam int unsigned LZC_SUM_WIDTH   = FIXED_SUM_WIDTH + DST_PRECISION_BITS,
+  localparam int unsigned LZC_RESULT_WIDTH = $clog2(LZC_SUM_WIDTH)
+) (
   input  logic [LZC_SUM_WIDTH-1:0] sum_magnitude,
   output logic signed [LZC_RESULT_WIDTH:0] leading_zero_count_sgn,
   output logic lzc_zeroes
@@ -789,7 +824,15 @@ endmodule
 // accumulator_sticky is OR'd into sticky_after_norm.
 module fpnew_mxdotp_norm_finalize
   import fpnew_mxdotp_multi_pkg::*;
-(
+#(
+  parameter int unsigned SoPFixedWidth = 70,
+  // Do not change the following parameters
+  localparam int unsigned FIXED_SUM_WIDTH = 1 + DST_PRECISION_BITS + 1 + (SoPFixedWidth - 1), // |s|-Acc:24b-|R|-unsigned SoP:64+log2k-|
+  localparam int unsigned LZC_SUM_WIDTH   = FIXED_SUM_WIDTH + DST_PRECISION_BITS,
+  localparam int unsigned LZC_RESULT_WIDTH = $clog2(LZC_SUM_WIDTH),
+  // Shift amount width: $clog2(DST_BIAS - ANCHOR + (scale_a+scale_b) + FIXED_SUM_WIDTH - 1)
+  localparam int unsigned SHIFT_AMOUNT_WIDTH = $clog2(fpnew_pkg::bias(fpnew_pkg::FP32) - ANCHOR + 2**(SCALE_WIDTH) - 1 + FIXED_SUM_WIDTH - 1)
+) (
   input  logic [LZC_SUM_WIDTH-1:0]          sum_magnitude,
   input  logic signed [LZC_RESULT_WIDTH:0]  leading_zero_count_sgn,
   input  logic                              lzc_zeroes,
@@ -824,6 +867,7 @@ module fpnew_mxdotp_norm_finalize
   end
 
   fpnew_mxdotp_norm_shift #(
+    .SoPFixedWidth  ( SoPFixedWidth )
   ) i_norm_shift (
     .sum_shifted  ( sum_shifted  ),
     .sum_magnitude( sum_magnitude),
@@ -841,7 +885,11 @@ endmodule
 module fpnew_mxdotp_rounder
   import fpnew_mxdotp_multi_pkg::*;
 #(
-  parameter fpnew_pkg::fmt_logic_t FpDstFmtConfig = MxdotpDstFpFmtConfig
+  parameter fpnew_pkg::fmt_logic_t FpDstFmtConfig = MxdotpDstFpFmtConfig,
+  parameter int unsigned SoPFixedWidth = 70,
+  // Do not change the following parameters
+  localparam int unsigned FIXED_SUM_WIDTH = 1 + DST_PRECISION_BITS + 1 + (SoPFixedWidth - 1), // |s|-Acc:24b-|R|-unsigned SoP:64+log2k-|
+  localparam int unsigned LZC_SUM_WIDTH   = FIXED_SUM_WIDTH + DST_PRECISION_BITS
 ) (
   // Input signals
   input  logic clk_i,
