@@ -17,6 +17,7 @@ module fpnew_mxdotp_multi_wrapper
   import fpnew_mxdotp_multi_pkg::*;
 #(
   parameter int unsigned             LaneWidth       = 64,
+  parameter int unsigned             VectorSize      = 8,
   parameter fpnew_pkg::fmt_logic_t   FpSrcFmtConfig  = '1,  // Supported FP source formats (FP8, FP8ALT, FP6, FP6ALT, FP4)
   parameter fpnew_pkg::ifmt_logic_t  IntSrcFmtConfig = '1,  // Supported INT formats (INT8)
   parameter fpnew_pkg::fmt_logic_t   FpDstFmtConfig  = '1,  // Supported FP destination formats (FP32, FP16ALT)
@@ -28,7 +29,8 @@ module fpnew_mxdotp_multi_wrapper
   parameter fpnew_pkg::rsr_impl_t    StochasticRndImplementation = fpnew_pkg::DEFAULT_NO_RSR,
   // Do not change
   localparam int                     OPERAND_WIDTH    = LaneWidth,
-  localparam int                     UNROLL_IDX_WIDTH = (Unroll > 1) ? $clog2(Unroll) : 1
+  localparam int                     UNROLL_IDX_WIDTH = (Unroll > 1) ? $clog2(Unroll) : 1,
+  localparam int unsigned            NUM_OPERANDS     = 2*VectorSize+1
 ) (
   input logic                          clk_i,
   input logic                          rst_ni,
@@ -200,6 +202,8 @@ module fpnew_mxdotp_multi_wrapper
     .FpSrcFmtConfig     ( FpSrcFmtConfig  ),
     .IntSrcFmtConfig    ( IntSrcFmtConfig ),
     .FpDstFmtConfig     ( FpDstFmtConfig  ),
+    .LaneWidth          ( LaneWidth       ),
+    .VectorSize         ( VectorSize      ),
     .NumPipeRegs        ( NumPipeRegs     ),
     .PipeConfig         ( PipeConfig      ),
     .TagType            ( TagType         ),
