@@ -22,6 +22,7 @@ module fpnew_mxdotp_multi
   parameter fpnew_pkg::fmt_logic_t   FpSrcFmtConfig  = MxdotpSrcFpFmtConfig,
   parameter fpnew_pkg::ifmt_logic_t  IntSrcFmtConfig = MxdotpSrcIntFmtConfig,
   parameter fpnew_pkg::fmt_logic_t   FpDstFmtConfig  = MxdotpDstFpFmtConfig,
+  parameter int unsigned             LaneWidth   = 64,
   parameter int unsigned             VectorSize  = 8,
   parameter int unsigned             NumPipeRegs = 4,
   parameter fpnew_pkg::pipe_config_t PipeConfig  = fpnew_pkg::BEFORE,
@@ -67,6 +68,10 @@ module fpnew_mxdotp_multi
   output logic                        busy_o
 );
 
+  if (LaneWidth != VectorSize*SRC_WIDTH) begin
+    $fatal(1, "MXDOTP requires LaneWidth to be VectorSize*SRC_WIDTH, got LaneWidth=%0d and VectorSize=%0d", LaneWidth, VectorSize);
+  end
+
   // ----------------
   // Pipeline stages
   // ----------------
@@ -105,7 +110,7 @@ module fpnew_mxdotp_multi
   // -----------------------------------------
   // Computed from module parameters instead of package constants
   localparam int unsigned FP6_VECTOR_SIZE = ((FpSrcFmtConfig[fpnew_pkg::FP6] || FpSrcFmtConfig[fpnew_pkg::FP6ALT]) == 1) ?
-                                            (((FpSrcFmtConfig[fpnew_pkg::FP8] || FpSrcFmtConfig[fpnew_pkg::FP8ALT]) == 1) ? cf_math_pkg::ceil_div(VectorSize * SRC_WIDTH, 6) - VectorSize : (VectorSize * 8 + 2) / 6) : 0;
+                                            (((FpSrcFmtConfig[fpnew_pkg::FP8] || FpSrcFmtConfig[fpnew_pkg::FP8ALT]) == 1) ? cf_math_pkg::ceil_div(LaneWidth, 6) - VectorSize : cf_math_pkg::ceil_div(LaneWidth, 6)) : 0;
   localparam int unsigned FP4_VECTOR_SIZE = (FpSrcFmtConfig[fpnew_pkg::FP4] == 1) ?
                                             (((FpSrcFmtConfig[fpnew_pkg::FP8] || FpSrcFmtConfig[fpnew_pkg::FP8ALT]) == 1) ?
                                             (((FpSrcFmtConfig[fpnew_pkg::FP6] || FpSrcFmtConfig[fpnew_pkg::FP6ALT]) == 1) ? (VectorSize - FP6_VECTOR_SIZE) : VectorSize) : 2*VectorSize) : 0;

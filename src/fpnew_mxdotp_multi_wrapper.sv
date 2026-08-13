@@ -202,6 +202,7 @@ module fpnew_mxdotp_multi_wrapper
     .FpSrcFmtConfig     ( FpSrcFmtConfig  ),
     .IntSrcFmtConfig    ( IntSrcFmtConfig ),
     .FpDstFmtConfig     ( FpDstFmtConfig  ),
+    .LaneWidth          ( LaneWidth       ),
     .VectorSize         ( VectorSize      ),
     .NumPipeRegs        ( NumPipeRegs     ),
     .PipeConfig         ( PipeConfig      ),
