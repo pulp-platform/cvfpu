@@ -115,7 +115,7 @@ module fpnew_mxdotp_classifier
     end
   end
 
-  if (FP6VectorSize != 0) begin : fp6_classifier
+  if (FpSrcFmtConfig[fpnew_pkg::FP6] || FpSrcFmtConfig[fpnew_pkg::FP6ALT]) begin : fp6_classifier
     for (genvar fmt = 0; fmt < int'(NUM_FORMATS); fmt++) begin : fp6_fmt_src_init_inputs
       // Set up some constants
       localparam int unsigned FP_WIDTH = fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(fmt));
@@ -151,7 +151,7 @@ module fpnew_mxdotp_classifier
     end
   end
 
-  if (FP4VectorSize != 0) begin : fp4_classifier
+  if (FpSrcFmtConfig[fpnew_pkg::FP4]) begin : fp4_classifier
     for (genvar fmt = 0; fmt < int'(NUM_FORMATS); fmt++) begin : fp4_fmt_src_init_inputs
       // Set up some constants
       localparam int unsigned FP_WIDTH = fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(fmt));

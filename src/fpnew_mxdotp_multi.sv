@@ -111,9 +111,11 @@ module fpnew_mxdotp_multi
   // Computed from module parameters instead of package constants
   localparam int unsigned FP6_VECTOR_SIZE = ((FpSrcFmtConfig[fpnew_pkg::FP6] || FpSrcFmtConfig[fpnew_pkg::FP6ALT]) == 1) ?
                                             (((FpSrcFmtConfig[fpnew_pkg::FP8] || FpSrcFmtConfig[fpnew_pkg::FP8ALT]) == 1) ? cc_pkg::ceil_div(LaneWidth, 6) - VectorSize : cc_pkg::ceil_div(LaneWidth, 6)) : 0;
+  localparam int unsigned FP6_VECTOR_SIZE_GUARDED = (FP6_VECTOR_SIZE > 0) ? FP6_VECTOR_SIZE : 1;
   localparam int unsigned FP4_VECTOR_SIZE = (FpSrcFmtConfig[fpnew_pkg::FP4] == 1) ?
                                             (((FpSrcFmtConfig[fpnew_pkg::FP8] || FpSrcFmtConfig[fpnew_pkg::FP8ALT]) == 1) ?
                                             (((FpSrcFmtConfig[fpnew_pkg::FP6] || FpSrcFmtConfig[fpnew_pkg::FP6ALT]) == 1) ? (VectorSize - FP6_VECTOR_SIZE) : VectorSize) : 2*VectorSize) : 0;
+  localparam int unsigned FP4_VECTOR_SIZE_GUARDED = (FP4_VECTOR_SIZE > 0) ? FP4_VECTOR_SIZE : 1;
 
   localparam int unsigned INT_SUPER_BITS = fpnew_pkg::max_int_width(IntSrcFmtConfig);
 
@@ -231,8 +233,8 @@ module fpnew_mxdotp_multi
   // Operand unpacking
   // ------------------
   logic [2*VectorSize-1:0][SRC_WIDTH-1:0] operands_post_inp_pipe;
-  logic [2*FP6_VECTOR_SIZE-1:0][SRC_WIDTH-1:0] fp6_operands_post_inp_pipe;
-  logic [2*FP4_VECTOR_SIZE-1:0][SRC_WIDTH-1:0] fp4_operands_post_inp_pipe;
+  logic [2*FP6_VECTOR_SIZE_GUARDED-1:0][SRC_WIDTH-1:0] fp6_operands_post_inp_pipe;
+  logic [2*FP4_VECTOR_SIZE_GUARDED-1:0][SRC_WIDTH-1:0] fp4_operands_post_inp_pipe;
 
   logic [VectorSize*SRC_WIDTH-1:0] flat_operands_a_q;
   logic [VectorSize*SRC_WIDTH-1:0] flat_operands_b_q;
@@ -284,18 +286,18 @@ module fpnew_mxdotp_multi
   fpnew_pkg::fp_info_t [1:0] info_c;
   fpnew_pkg::fp_info_t info_d;
 
-  fp6_src_t [FP6_VECTOR_SIZE-1:0] fp6_operands_a, fp6_operands_b;
-  fpnew_pkg::fp_info_t [FP6_VECTOR_SIZE-1:0] fp6_info_a, fp6_info_b;
+  fp6_src_t [FP6_VECTOR_SIZE_GUARDED-1:0] fp6_operands_a, fp6_operands_b;
+  fpnew_pkg::fp_info_t [FP6_VECTOR_SIZE_GUARDED-1:0] fp6_info_a, fp6_info_b;
 
-  fp4_src_t [FP4_VECTOR_SIZE-1:0] fp4_operands_a, fp4_operands_b;
-  fpnew_pkg::fp_info_t [FP4_VECTOR_SIZE-1:0] fp4_info_a, fp4_info_b;
+  fp4_src_t [FP4_VECTOR_SIZE_GUARDED-1:0] fp4_operands_a, fp4_operands_b;
+  fpnew_pkg::fp_info_t [FP4_VECTOR_SIZE_GUARDED-1:0] fp4_info_a, fp4_info_b;
 
   fpnew_mxdotp_classifier #(
     .FpSrcFmtConfig ( FpSrcFmtConfig  ),
     .FpDstFmtConfig ( FpDstFmtConfig  ),
     .VectorSize     ( VectorSize      ),
-    .FP6VectorSize  ( FP6_VECTOR_SIZE ),
-    .FP4VectorSize  ( FP4_VECTOR_SIZE ),
+    .FP6VectorSize  ( FP6_VECTOR_SIZE_GUARDED ),
+    .FP4VectorSize  ( FP4_VECTOR_SIZE_GUARDED ),
     .NumInpRegs     ( NUM_INP_REGS    )
   ) i_classifier (
     .operands_post_inp_pipe(operands_post_inp_pipe),
@@ -373,8 +375,8 @@ module fpnew_mxdotp_multi
   // Product data path
   // ------------------
   logic signed [VectorSize-1:0][PROD_BITS-1:0] product_signed;  // two's complement product, already signed
-  logic signed [FP6_VECTOR_SIZE-1:0][2*FP6_PREC_BITS:0] fp6_product_signed;  // two's complement product, +1 for sign bit
-  logic signed [FP4_VECTOR_SIZE-1:0][2*FP4_PREC_BITS:0] fp4_product_signed;  // two's complement product, +1 for sign bit
+  logic signed [FP6_VECTOR_SIZE_GUARDED-1:0][2*FP6_PREC_BITS:0] fp6_product_signed;  // two's complement product, +1 for sign bit
+  logic signed [FP4_VECTOR_SIZE_GUARDED-1:0][2*FP4_PREC_BITS:0] fp4_product_signed;  // two's complement product, +1 for sign bit
 
   if (IntSrcFmtConfig[fpnew_pkg::INT8]) begin : int8_multiplier
     fpnew_mxdotp_signed_vector_multiplier #(
@@ -442,8 +444,8 @@ module fpnew_mxdotp_multi
   // Shift data path
   // ------------------
   logic signed [VectorSize-1:0][PROD_SHIFT_WIDTH-1:0] shifted_product;
-  logic signed [FP6_VECTOR_SIZE-1:0][FP6_PROD_SHIFT_WIDTH-1:0] fp6_shifted_product;
-  logic signed [FP4_VECTOR_SIZE-1:0][FP4_PROD_SHIFT_WIDTH-1:0] fp4_shifted_product;
+  logic signed [FP6_VECTOR_SIZE_GUARDED-1:0][FP6_PROD_SHIFT_WIDTH-1:0] fp6_shifted_product;
+  logic signed [FP4_VECTOR_SIZE_GUARDED-1:0][FP4_PROD_SHIFT_WIDTH-1:0] fp4_shifted_product;
 
   if (FpSrcFmtConfig[fpnew_pkg::FP8] || FpSrcFmtConfig[fpnew_pkg::FP8ALT]) begin : fp8_product_shifter
     fpnew_mxdotp_product_shifter #(
@@ -518,13 +520,13 @@ module fpnew_mxdotp_multi
   // --------------------
   // Selected pipeline output signals as non-arrays
   logic signed [VectorSize-1:0][PROD_SHIFT_WIDTH-1:0]          shifted_product_q;
-  logic signed [FP6_VECTOR_SIZE-1:0][FP6_PROD_SHIFT_WIDTH-1:0] fp6_shifted_product_q;
-  logic signed [FP4_VECTOR_SIZE-1:0][FP4_PROD_SHIFT_WIDTH-1:0] fp4_shifted_product_q;
+  logic signed [FP6_VECTOR_SIZE_GUARDED-1:0][FP6_PROD_SHIFT_WIDTH-1:0] fp6_shifted_product_q;
+  logic signed [FP4_VECTOR_SIZE_GUARDED-1:0][FP4_PROD_SHIFT_WIDTH-1:0] fp4_shifted_product_q;
 
   // Inp-mid pipeline signals, index i holds signal after i register stages
   logic signed           [0:NUM_IM_REGS][VectorSize-1:0][PROD_SHIFT_WIDTH-1:0]          inp_mid_pipe_shifted_product_q;
-  logic signed           [0:NUM_IM_REGS][FP6_VECTOR_SIZE-1:0][FP6_PROD_SHIFT_WIDTH-1:0] inp_mid_pipe_fp6_shifted_product_q;
-  logic signed           [0:NUM_IM_REGS][FP4_VECTOR_SIZE-1:0][FP4_PROD_SHIFT_WIDTH-1:0] inp_mid_pipe_fp4_shifted_product_q;
+  logic signed           [0:NUM_IM_REGS][FP6_VECTOR_SIZE_GUARDED-1:0][FP6_PROD_SHIFT_WIDTH-1:0] inp_mid_pipe_fp6_shifted_product_q;
+  logic signed           [0:NUM_IM_REGS][FP4_VECTOR_SIZE_GUARDED-1:0][FP4_PROD_SHIFT_WIDTH-1:0] inp_mid_pipe_fp4_shifted_product_q;
   fpnew_pkg::fp_format_e [0:NUM_IM_REGS]                                                inp_mid_pipe_dst_fmt_q;
   logic                  [0:NUM_IM_REGS][SCALE_WIDTH:0]                                 inp_mid_pipe_scale_q;
   fp_dst_t               [0:NUM_IM_REGS]                                                inp_mid_pipe_operand_d_q;
