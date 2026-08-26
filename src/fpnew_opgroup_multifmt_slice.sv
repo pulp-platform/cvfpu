@@ -73,6 +73,7 @@ module fpnew_opgroup_multifmt_slice #(
   output logic                                    busy_o
 );
 
+`ifndef SYNTHESIS
   if ((OpGroup == fpnew_pkg::DIVSQRT)) begin
     if ((DivSqrtSel == fpnew_pkg::TH32) && !((FpFmtConfig[0] == 1) && (FpFmtConfig[1:NUM_FORMATS-1] == '0))) begin
       $fatal(1, "T-Head-based DivSqrt unit supported only in FP32-only configurations. \
@@ -100,6 +101,7 @@ or on 16b inputs producing 32b outputs");
       $fatal(1, "MXDOTP requires FP8 to be enabled as a source format. Please enable FP8 in MxFpFmtConfig.");
     end
   end
+`endif
 
   localparam int unsigned MAX_FP_WIDTH   = fpnew_pkg::max_fp_width(FpFmtConfig);
   localparam int unsigned MAX_INT_WIDTH  = fpnew_pkg::max_int_width(IntFmtConfig);
@@ -206,7 +208,7 @@ or on 16b inputs producing 32b outputs");
     localparam int unsigned MAX_WIDTH = fpnew_pkg::max_fp_width(ACTIVE_FORMATS);
     localparam fpnew_pkg::fmt_logic_t PaceActiveFormats =
         fpnew_pkg::get_pace_lane_formats(ACTIVE_FORMATS, PaceFmtConfig);
-    localparam int unsigned EnablePace = (PaceActiveFormats != 0);
+    localparam bit EnablePace = (PaceActiveFormats != 0);
     // Cast-specific parameters
     localparam fpnew_pkg::fmt_logic_t CONV_FORMATS =
         fpnew_pkg::get_conv_lane_formats(Width, FpFmtConfig, LANE);
