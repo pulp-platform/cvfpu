@@ -378,8 +378,8 @@ module fpnew_pace_fma_multi #(
 `endif
 
   // Decompose and rescale data for inverse/sqrt-style PACE modes.
-  assign fr_in_op = operands_i[0][LocalW-1:0];
-  assign ld_in_op = fma_res[PaceW-1:0];
+  assign fr_in_op = pace_op ? operands_i[0][LocalW-1:0] : '0;
+  assign ld_in_op = out_tag.active ? fma_res[PaceW-1:0] : '0;
 
   fpnew_pace_frexp #(
     .FpFmtConfig(PaceFmtCfg),
@@ -411,7 +411,7 @@ module fpnew_pace_fma_multi #(
     .operand_o(scaled_result)
   );
 
-  assign part_in_op = do_inv ? red_in : operands_i[0][LocalW-1:0];
+  assign part_in_op = pace_op ? (do_inv ? red_in : operands_i[0][LocalW-1:0]) : '0;
 
   if (Parts > 1) begin : gen_part_detect
     fpnew_pace_partition #(

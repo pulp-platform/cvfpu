@@ -233,6 +233,7 @@ module fpnew_fma_multi #(
 
   fp_t                 operand_a, operand_b, operand_c;
   fpnew_pkg::fp_info_t info_a,    info_b,    info_c;
+  logic                mul_bypass;
 
   // Operation selection and operand adjustment
   // | \c op_q  | \c op_mod_q | Operation Adjustment
@@ -248,6 +249,7 @@ module fpnew_fma_multi #(
   // \note \c op_mod_q always inverts the sign of the addend.
   always_comb begin : op_select
 
+    mul_bypass = 1'b0;
     // Default assignments - packing-order-agnostic
     operand_a = {fmt_sign[src_fmt_q][0], fmt_exponent[src_fmt_q][0], fmt_mantissa[src_fmt_q][0]};
     operand_b = {fmt_sign[src_fmt_q][1], fmt_exponent[src_fmt_q][1], fmt_mantissa[src_fmt_q][1]};
@@ -263,8 +265,9 @@ module fpnew_fma_multi #(
       fpnew_pkg::FMADD:  ; // do nothing
       fpnew_pkg::FNMSUB: operand_a.sign = ~operand_a.sign; // invert sign of product
       fpnew_pkg::ADD: begin // Set multiplicand to +1
-        operand_a = '{sign: 1'b0, exponent: fpnew_pkg::bias(src_fmt_q), mantissa: '0};
-        info_a    = '{is_normal: 1'b1, is_boxed: 1'b1, default: 1'b0}; //normal, boxed value.
+        operand_a  = '{sign: 1'b0, exponent: fpnew_pkg::bias(src_fmt_q), mantissa: '0};
+        info_a     = '{is_normal: 1'b1, is_boxed: 1'b1, default: 1'b0}; //normal, boxed value.
+        mul_bypass = 1'b1;
       end
       fpnew_pkg::MUL: begin // Set addend to +0 or -0, depending whether the rounding mode is RDN
         if (inp_pipe_rnd_mode_q[NUM_INP_REGS] == fpnew_pkg::RDN)
@@ -442,6 +445,7 @@ module fpnew_fma_multi #(
   logic                  [0:NUM_IM_EARLY_REGS][PRECISION_BITS-1:0]     im_early_pipe_mantissa_c_q;
   logic                  [0:NUM_IM_EARLY_REGS]                         im_early_pipe_tentative_sign_q;
   logic                  [0:NUM_IM_EARLY_REGS]                         im_early_pipe_eff_sub_q;
+  logic                  [0:NUM_IM_EARLY_REGS]                         im_early_pipe_mul_byp_q;
   logic signed           [0:NUM_IM_EARLY_REGS][EXP_WIDTH-1:0]          im_early_pipe_exp_prod_q;
   logic signed           [0:NUM_IM_EARLY_REGS][EXP_WIDTH-1:0]          im_early_pipe_exp_diff_q;
   logic signed           [0:NUM_IM_EARLY_REGS][EXP_WIDTH-1:0]          im_early_pipe_tent_exp_q;
@@ -465,6 +469,7 @@ module fpnew_fma_multi #(
   assign im_early_pipe_mantissa_c_q[0]     = mantissa_c;
   assign im_early_pipe_tentative_sign_q[0] = tentative_sign;
   assign im_early_pipe_eff_sub_q[0]        = effective_subtraction;
+  assign im_early_pipe_mul_byp_q[0]        = mul_bypass;
   assign im_early_pipe_exp_prod_q[0]       = exponent_product;
   assign im_early_pipe_exp_diff_q[0]       = exponent_difference;
   assign im_early_pipe_tent_exp_q[0]       = tentative_exponent;
@@ -474,7 +479,7 @@ module fpnew_fma_multi #(
   assign im_early_pipe_spec_res_q[0]       = special_result;
   assign im_early_pipe_spec_stat_q[0]      = special_status;
   assign im_early_pipe_dst_fmt_q[0]        = dst_fmt_q;
-  assign im_early_pipe_pace_operand_q[0]   = operands_q[1];
+  assign im_early_pipe_pace_operand_q[0]   = mul_bypass ? '0 : operands_q[1];
   assign im_early_pipe_tag_q[0]            = inp_pipe_tag_q[NUM_INP_REGS];
   assign im_early_pipe_mask_q[0]           = inp_pipe_mask_q[NUM_INP_REGS];
   assign im_early_pipe_aux_q[0]            = inp_pipe_aux_q[NUM_INP_REGS];
@@ -500,6 +505,7 @@ module fpnew_fma_multi #(
     `FFL(im_early_pipe_mantissa_c_q[i+1],     im_early_pipe_mantissa_c_q[i],     reg_ena, '0)
     `FFL(im_early_pipe_tentative_sign_q[i+1], im_early_pipe_tentative_sign_q[i], reg_ena, '0)
     `FFL(im_early_pipe_eff_sub_q[i+1],        im_early_pipe_eff_sub_q[i],        reg_ena, '0)
+    `FFL(im_early_pipe_mul_byp_q[i+1],        im_early_pipe_mul_byp_q[i],        reg_ena, '0)
     `FFL(im_early_pipe_exp_prod_q[i+1],       im_early_pipe_exp_prod_q[i],       reg_ena, '0)
     `FFL(im_early_pipe_exp_diff_q[i+1],       im_early_pipe_exp_diff_q[i],       reg_ena, '0)
     `FFL(im_early_pipe_tent_exp_q[i+1],       im_early_pipe_tent_exp_q[i],       reg_ena, '0)
@@ -525,7 +531,17 @@ module fpnew_fma_multi #(
   logic [3*PRECISION_BITS+3:0] product_shifted; // addends are 3p+4 bit wide (including G/R)
 
   // Mantissa multiplier (a*b)
-  assign product = mantissa_a_q * mantissa_b_q;
+  logic                        mul_byp_q;   // this op is an add
+  logic [PRECISION_BITS-1:0]   mul_op_a, mul_op_b;
+  logic [2*PRECISION_BITS-1:0] product_array;
+
+  assign mul_byp_q = im_early_pipe_mul_byp_q[NUM_IM_EARLY_REGS];
+  assign mul_op_a  = mul_byp_q ? '0 : mantissa_a_q;
+  assign mul_op_b  = mul_byp_q ? '0 : mantissa_b_q;
+
+  assign product_array = mul_op_a * mul_op_b;
+  assign product = mul_byp_q ? ({{PRECISION_BITS{1'b0}}, mantissa_b_q} << (PRECISION_BITS - 1))
+                             : product_array;
 
   // Product is placed into a 3p+4 bit wide vector, padded with 2 bits for round and sticky:
   // | 000...000 | product | RS |
