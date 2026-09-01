@@ -564,19 +564,51 @@ module fpnew_mxdotp_product_shifter
     assign exponent_product[i] = operands_a[i].exponent + info_a[i].is_subnormal
                                 + operands_b[i].exponent + info_b[i].is_subnormal
                                 - 2*signed'(bias_constant(src_fmt));
-    if (SrcFmt == fpnew_pkg::FP8) begin
-      always_comb begin // TODO: Generate only for INT8 vs FP8
-        if (src_is_int && int_fmt == fpnew_pkg::INT8) begin
-          // INT8: shift to integer position
-          shifted_product[i] = signed'(product_signed[i]) << ANCHOR;
-        end else begin
-          // Right shift the significand by anchor point - exponent
-          // sum of four 9-bit numbers can be at most 11 bits, for 69 bits output we need to shift by 69 - 11 = 58
-          // 58-30=28 plus inherit 6 fractional bits from the multiplication -> point moves to 28+6=34
-          // max shift can be 58 (28 + exp-max(30)), min shift is 0 (28 + exp-min(-28))
-          shifted_product[i] = signed'(product_signed[i]) << (signed'(SOP_SHIFT) + signed'(exponent_product[i]));
-        end
-      end
+    if (SrcFmt == fpnew_pkg::FP8) begin : gen_align_fp8
+      // The INT8 and FP8 arms of the original 2:1 select are made DISJOINT, so
+      // the select degenerates into an OR and disappears from the low ANCHOR
+      // bits entirely.
+      //
+      //  * the INT8 arm, `product << ANCHOR`, is zero below bit ANCHOR by
+      //    construction;
+      //  * the FP8 arm is forced to zero over the WHOLE word when INT8 is
+      //    selected, by OR-ing the shift amount to all ones.  `shift_amount` is
+      //    AmtWidth = ExpWidth+1 = 7 bits, so all ones is 127 >= OutputWidth
+      //    and the variable shifter returns zero.
+      //
+      // Narrowing the shift amount to AmtWidth is itself exact: exponent_product
+      // is ExpWidth-bit signed, so SOP_SHIFT + exponent_product lies in
+      // [SOP_SHIFT-2**(ExpWidth-1), SOP_SHIFT+2**(ExpWidth-1)-1] = [-4, 59].
+      // Non-negative values are <= 59 < OutputWidth and pass through unchanged;
+      // negative ones wrap to [124, 127], all >= OutputWidth, and so still
+      // produce the all-zero result the original 32-bit signed expression gave.
+      // No reachable value lands in [OutputWidth, 2**AmtWidth) by accident.
+      localparam int unsigned AmtWidth = ExpWidth + 1;
+      localparam int unsigned HiBits   = OutputWidth - ANCHOR;
+
+      logic                          is_int8;
+      logic [AmtWidth-1:0]           shift_amount;
+      logic signed [OutputWidth-1:0] barrel;
+      logic [ProductBits-1:0]        product_gated;
+      logic signed [HiBits-1:0]      int8_hi;
+
+      assign is_int8 = src_is_int && (int_fmt == fpnew_pkg::INT8);
+
+      // Right shift the significand by anchor point - exponent
+      // sum of four 9-bit numbers can be at most 11 bits, for 69 bits output we need to shift by 69 - 11 = 58
+      // 58-30=28 plus inherit 6 fractional bits from the multiplication -> point moves to 28+6=34
+      // max shift can be 58 (28 + exp-max(30)), min shift is 0 (28 + exp-min(-28))
+      assign shift_amount = AmtWidth'(signed'(SOP_SHIFT) + signed'(exponent_product[i]))
+                            | {AmtWidth{is_int8}};
+      assign barrel       = signed'(product_signed[i]) << shift_amount;
+
+      // INT8: shift to integer position.  Gating the ProductBits-wide product
+      // rather than the OutputWidth-wide shifted word is what makes the merge
+      // cheap: OutputWidth-ANCHOR bits of OR instead of a full-width select.
+      assign product_gated = product_signed[i] & {ProductBits{is_int8}};
+      assign int8_hi       = signed'(product_gated);
+
+      assign shifted_product[i] = barrel | {int8_hi, {ANCHOR{1'b0}}};
     end else if (SrcFmt == fpnew_pkg::FP6) begin
       // E3 exponent_product is in range [-4, 8], requires 5b for signed representation
       // To make shift positive, we scale by 4
