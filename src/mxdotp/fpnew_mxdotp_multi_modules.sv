@@ -115,7 +115,7 @@ module fpnew_mxdotp_classifier
     end
   end
 
-  if (FP6VectorSize != 0) begin : fp6_classifier
+  if (FpSrcFmtConfig[fpnew_pkg::FP6] || FpSrcFmtConfig[fpnew_pkg::FP6ALT]) begin : fp6_classifier
     for (genvar fmt = 0; fmt < int'(NUM_FORMATS); fmt++) begin : fp6_fmt_src_init_inputs
       // Set up some constants
       localparam int unsigned FP_WIDTH = fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(fmt));
@@ -151,7 +151,7 @@ module fpnew_mxdotp_classifier
     end
   end
 
-  if (FP4VectorSize != 0) begin : fp4_classifier
+  if (FpSrcFmtConfig[fpnew_pkg::FP4]) begin : fp4_classifier
     for (genvar fmt = 0; fmt < int'(NUM_FORMATS); fmt++) begin : fp4_fmt_src_init_inputs
       // Set up some constants
       localparam int unsigned FP_WIDTH = fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(fmt));
@@ -807,9 +807,9 @@ module fpnew_mxdotp_norm_lzc
 );
   logic [LZC_RESULT_WIDTH-1:0] leading_zero_count;
 
-  lzc #(
-    .WIDTH ( LZC_SUM_WIDTH ),
-    .MODE  ( 1             ) // MODE = 1 counts leading zeroes
+  cc_lzc #(
+    .Width ( LZC_SUM_WIDTH                ),
+    .Mode  ( cc_pkg::LZC_LEADING_ZERO_CNT )
   ) i_lzc (
     .in_i    ( sum_magnitude      ),
     .cnt_o   ( leading_zero_count ),

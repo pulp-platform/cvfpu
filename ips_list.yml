@@ -22,9 +22,9 @@
 #
 
 common_cells:
-  commit: v1.21.0
+  commit: v2.0.0-beta.2
   domain: [soc, cluster]
 
 fpu_div_sqrt_mvp:
-  commit: v1.0.4
+  commit: af8562ebfe4a18765ed7a4f059861e7985baa869
   domain: [cluster,soc]

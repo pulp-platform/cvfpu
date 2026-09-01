@@ -176,15 +176,15 @@ module fpnew_top #(
   output_t arbiter_output;
 
   // Round-Robin arbiter to decide which result to use
-  rr_arb_tree #(
+  cc_rr_arb_tree #(
     .NumIn     ( NUM_OPGROUPS ),
-    .DataType  ( output_t     ),
+    .data_t    ( output_t     ),
     .AxiVldRdy ( 1'b1         )
   ) i_arbiter (
     .clk_i,
     .rst_ni,
-    .flush_i,
-    .rr_i   ( '0             ),
+    .clr_i  ( flush_i         ),
+    .rr_i   ( '0              ),
     .req_i  ( opgrp_out_valid ),
     .gnt_o  ( opgrp_out_ready ),
     .data_i ( opgrp_outputs   ),
