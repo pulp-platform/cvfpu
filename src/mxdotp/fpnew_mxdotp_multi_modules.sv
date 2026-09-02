@@ -587,73 +587,7 @@ module fpnew_mxdotp_signed_vector_multiplier
   end
 endmodule
 
-// Shifts products left by (exp_a + exp_b - 2×bias + SOP_SHIFT) to align to fixed-point anchor.
-// Handles FP8/FP6/FP4 with format-specific offsets; INT8 shifts directly to anchor position.
-module fpnew_mxdotp_product_shifter
-  import fpnew_mxdotp_multi_pkg::*;
-#(
-  parameter type         SrcType          = logic,
-  parameter int unsigned LocalVectorSize  = 8,
-  parameter fpnew_pkg::fp_format_e SrcFmt = fpnew_pkg::FP8,
-  parameter int unsigned ProductBits      = 4,
-  parameter int unsigned ExpWidth         = 8,
-  parameter int unsigned OutputWidth      = 70
-) (
-  // Input signals
-  input  SrcType [LocalVectorSize-1:0] operands_a,
-  input  SrcType [LocalVectorSize-1:0] operands_b,
-  input  logic [LocalVectorSize-1:0][ProductBits-1:0] product_signed,
-  input  fpnew_pkg::fp_info_t [LocalVectorSize-1:0] info_a,
-  input  fpnew_pkg::fp_info_t [LocalVectorSize-1:0] info_b,
-  input  fpnew_pkg::fp_format_e src_fmt,
-  input  fpnew_pkg::int_format_e int_fmt,
-  input  logic src_is_int,
-  output logic signed [LocalVectorSize-1:0][OutputWidth-1:0] shifted_product
-);
-  // ------------------
-  // Shift data path
-  // ------------------
-  logic signed [LocalVectorSize-1:0][ExpWidth-1:0] exponent_product;
-
-  // Calculate the non-biased exponent of the product
-  for (genvar i = 0; i < LocalVectorSize; i++) begin : gen_exponent_adjustment
-    assign exponent_product[i] = operands_a[i].exponent + info_a[i].is_subnormal
-                                + operands_b[i].exponent + info_b[i].is_subnormal
-                                - 2*signed'(bias_constant(src_fmt));
-    if (SrcFmt == fpnew_pkg::FP8) begin
-      always_comb begin // TODO: Generate only for INT8 vs FP8
-        if (src_is_int && int_fmt == fpnew_pkg::INT8) begin
-          // INT8: shift to integer position
-          shifted_product[i] = signed'(product_signed[i]) << ANCHOR;
-        end else begin
-          // Right shift the significand by anchor point - exponent
-          // sum of four 9-bit numbers can be at most 11 bits, for 69 bits output we need to shift by 69 - 11 = 58
-          // 58-30=28 plus inherit 6 fractional bits from the multiplication -> point moves to 28+6=34
-          // max shift can be 58 (28 + exp-max(30)), min shift is 0 (28 + exp-min(-28))
-          //
-          // In the FP8/FP8ALT branch both mantissae are 4-bit magnitudes
-          // (implicit bit + 3 mantissa bits), so the product lies in
-          // [-16*15, 15*15] = [-240,225] and product_signed[ProductBits-1:9]
-          // is pure sign extension of bit 8.  Only those 9 bits therefore
-          // have to enter the variable shifter -- the sign extension is
-          // re-created for free by the signed widening of the assignment.
-          // (Only the INT8 branch, whose shift amount is the CONSTANT
-          // ANCHOR and hence pure wiring, needs the full product width.)
-          shifted_product[i] = signed'(product_signed[i][2*PRECISION_BITS:0]) << (signed'(SOP_SHIFT) + signed'(exponent_product[i]));
-        end
-      end
-    end else if (SrcFmt == fpnew_pkg::FP6) begin
-      // E3 exponent_product is in range [-4, 8], requires 5b for signed representation
-      // To make shift positive, we scale by 4
-      assign shifted_product[i] = signed'(product_signed[i]) << (signed'(4) + signed'(exponent_product[i]));
-    end else begin
-      // exponent_product is negative only for zero inputs for FP4
-      assign shifted_product[i] = signed'(product_signed[i]) << exponent_product[i];
-    end
-  end
-endmodule
-
-// Early half of fpnew_mxdotp_product_shifter: the per-lane product exponent.
+// Early half of the former fpnew_mxdotp_product_shifter: the per-lane product exponent.
 // Depends only on the (classified) operands, never on the product, so it can sit
 // in a different pipeline stage than the alignment shift below.
 module fpnew_mxdotp_product_exponent
@@ -752,57 +686,6 @@ module fpnew_mxdotp_product_align
       assign shifted_product[i] = signed'(product_signed[i]) << shift_amount[i];
     end
   end
-endmodule
-
-// Sums all shifted products in the vector.
-module fpnew_mxdotp_adder_tree
-  import fpnew_mxdotp_multi_pkg::*;
-#(
-  parameter int unsigned LocalVectorSize = 8,
-  parameter int unsigned InputWidth      = 4,
-  parameter int unsigned OutputWidth     = 70
-) (
-  // Input signals
-  input  logic signed [LocalVectorSize-1:0][InputWidth-1:0] shifted_product,
-  output logic signed [OutputWidth-1:0] sum_product
-);
-  // ------------------
-  // Adder data path
-  // ------------------
-  // Sum the products
-  always_comb begin : sum_products
-    sum_product = '0;
-    for (int i = 0; i < LocalVectorSize; i++) begin : gen_sum_products
-      sum_product += signed'(shifted_product[i]);
-    end
-  end
-endmodule
-
-// Adds FP8, FP6, and FP4 sum-of-products; shifts FP6 and FP4 sums to align before adding.
-// When FP6 is disabled, sum_product_fp6 is zero and optimized away by synthesis.
-module fpnew_mxdotp_format_adder
-  import fpnew_mxdotp_multi_pkg::*;
-#(
-  parameter int unsigned Fp6SumWidth = FP6_PROD_SHIFT_WIDTH,
-  parameter int unsigned Fp4SumWidth = FP4_PROD_SHIFT_WIDTH,
-  parameter int unsigned SoPFixedWidth = 70,
-  // Do not change the following parameters
-  localparam int unsigned FIXED_SUM_WIDTH = 1 + DST_PRECISION_BITS + 1 + (SoPFixedWidth - 1) // |s|-Acc:24b-|R|-unsigned SoP:64+log2k-|
-) (
-  input  logic signed [SoPFixedWidth-1:0] sum_product_fp8,
-  input  logic signed [Fp6SumWidth-1:0]     sum_product_fp6,
-  input  logic signed [Fp4SumWidth-1:0]     sum_product_fp4,
-  output logic signed [FIXED_SUM_WIDTH-1:0] sum_product
-);
-  // ------------------
-  // Adder data path
-  // ------------------
-  logic signed [FIXED_SUM_WIDTH-1:0] sum_product_fp4_shifted;
-  logic signed [FIXED_SUM_WIDTH-1:0] sum_product_fp6_shifted;
-
-  assign sum_product_fp4_shifted = signed'(sum_product_fp4) << (SOP_SHIFT+2*(SUPER_MAN_BITS-FP4_MAN_BITS));
-  assign sum_product_fp6_shifted = signed'(sum_product_fp6) << (SOP_SHIFT-4+2*(SUPER_MAN_BITS-FP6_MAN_BITS)); // 4 is subtracted to account for the 4-bit shift in the product shifter
-  assign sum_product = sum_product_fp8 + sum_product_fp4_shifted + sum_product_fp6_shifted;
 endmodule
 
 // Shifts accumulator right to align with sum-of-products based on scale and accumulator exponent.
@@ -916,28 +799,6 @@ module fpnew_mxdotp_accumulator_shift
       end
     end
   end
-endmodule
-
-// Adds aligned accumulator to sum-of-products, extending with accumulator remainder bits.
-module fpnew_mxdotp_add_accumulator_sop
-  import fpnew_mxdotp_multi_pkg::*;
-#(
-  parameter int unsigned SoPFixedWidth = 70,
-  // Do not change the following parameters
-  localparam int unsigned FIXED_SUM_WIDTH = 1 + DST_PRECISION_BITS + 1 + (SoPFixedWidth - 1), // |s|-Acc:24b-|R|-unsigned SoP:64+log2k-|
-  localparam int unsigned LZC_SUM_WIDTH   = FIXED_SUM_WIDTH + DST_PRECISION_BITS
-) (
-  // Input signals
-  input  logic signed [FIXED_SUM_WIDTH-1:0] sum_product,
-  input  logic signed [FIXED_SUM_WIDTH-1:0] accumulator_shifted,
-  input  logic signed [DST_PRECISION_BITS-1:0] accumulator_remaining,
-  output logic signed [LZC_SUM_WIDTH-1:0] sum_product_accumulator_extended
-);
-
-  logic signed [FIXED_SUM_WIDTH-1:0] sum_product_accumulator;
-
-  assign sum_product_accumulator = sum_product + accumulator_shifted;
-  assign sum_product_accumulator_extended = {sum_product_accumulator, accumulator_remaining};
 endmodule
 
 
@@ -1075,31 +936,6 @@ module fpnew_mxdotp_twos_compl
   // ------------------------------------------------------------------
   assign sum_magnitude = sum_product_accumulator_extended
                        ^ {LZC_SUM_WIDTH{final_sign}};
-endmodule
-
-// Shifts magnitude left by normalization amount to align leading 1 to implicit bit position.
-module fpnew_mxdotp_norm_shift
-  import fpnew_mxdotp_multi_pkg::*;
-#(
-  parameter int unsigned SoPFixedWidth = 70,
-  // Do not change the following parameters
-  localparam int unsigned FIXED_SUM_WIDTH = 1 + DST_PRECISION_BITS + 1 + (SoPFixedWidth - 1), // |s|-Acc:24b-|R|-unsigned SoP:64+log2k-|
-  localparam int unsigned LZC_SUM_WIDTH   = FIXED_SUM_WIDTH + DST_PRECISION_BITS,
-  // Shift amount width: $clog2(DST_BIAS - ANCHOR + (scale_a+scale_b) + FIXED_SUM_WIDTH - 1)
-  localparam int unsigned SHIFT_AMOUNT_WIDTH = $clog2(fpnew_pkg::bias(fpnew_pkg::FP32) - ANCHOR + 2**(SCALE_WIDTH) - 1 + FIXED_SUM_WIDTH - 1)
-) (
-  // Input signals
-  input  logic [LZC_SUM_WIDTH-1:0] sum_magnitude,
-  input  logic [SHIFT_AMOUNT_WIDTH-1:0] norm_shamt,
-  // Output signals
-  output logic [LZC_SUM_WIDTH-1:0] sum_shifted
-);
-  // ------------------
-  // Normalization shift
-  // ------------------
-
-  // Shift the sum to normalize it
-  assign sum_shifted = sum_magnitude << norm_shamt;
 endmodule
 
 // Normalisation window extractor with fused sticky collection.
