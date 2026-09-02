@@ -248,8 +248,8 @@ module fpnew_mxdotp_multi
     // TODO: FP6 and FP4 without FP8
     if (src_fmt_q == fpnew_pkg::FP6 || src_fmt_q == fpnew_pkg::FP6ALT) begin
       for (int i = 0; i < FP6_VECTOR_SIZE; i++) begin // Last 3 elements use FP6 datapath
-        fp6_operands_post_inp_pipe[i] = {{(SRC_WIDTH-6){1'b0}}, flat_operands_a_q[(48+i*6) +: 6]};
-        fp6_operands_post_inp_pipe[i+FP6_VECTOR_SIZE] = {{(SRC_WIDTH-6){1'b0}}, flat_operands_b_q[(48+i*6) +: 6]};
+        fp6_operands_post_inp_pipe[i] = {{(SRC_WIDTH-6){1'b0}}, flat_operands_a_q[(VectorSize*6+i*6) +: 6]};
+        fp6_operands_post_inp_pipe[i+FP6_VECTOR_SIZE] = {{(SRC_WIDTH-6){1'b0}}, flat_operands_b_q[(VectorSize*6+i*6) +: 6]};
         if (i == FP6_VECTOR_SIZE-1) begin // Last element of the FP6 remainder extends to 66 bits
           fp6_operands_post_inp_pipe[i][5:4] = operands_a_fp6_rem_q;
           fp6_operands_post_inp_pipe[i+FP6_VECTOR_SIZE][5:4] = operands_b_fp6_rem_q;
