@@ -1167,10 +1167,15 @@ module fpnew_mxdotp_norm_window
   localparam int unsigned W2 = DST_PRECISION_BITS + 31;           //  55
   localparam int unsigned W3 = DST_PRECISION_BITS + 15;           //  39
 
-  // Only shift amounts >= 2**7 need explicit forcing: for 119 <= p <= 127 the
-  // window indices (118-p .. 95-p) are already all negative and the sticky
-  // range X[94-p:0] is already empty, so the chain returns the same zero
-  // by itself.  Catching only p >= 128 makes this one OR of two bits and lets
+  if (W0 <= 64 || W0 > 128) begin
+    $fatal(1, "fpnew_mxdotp_norm_window: LZC_SUM_WIDTH=%0d outside the supported (64,128] range", W0);
+  end
+
+  // Only shift amounts >= 2**7 need explicit forcing: for W0 <= p <= 127 the
+  // window indices (W0-1-p .. W0-24-p) are already all negative and the sticky
+  // range X[W0-25-p:0] is already empty, so the chain returns the same zero
+  // by itself (requires 64 < W0 <= 128, which holds for VectorSize <= 4096).
+  // Catching only p >= 128 makes this one OR of two bits and lets
   // the forcing sit at the FIRST stage instead of on the outputs at the end.
   logic shift_out_all;
   assign shift_out_all = (| norm_shamt[SHIFT_AMOUNT_WIDTH-1:7]);
@@ -1178,8 +1183,15 @@ module fpnew_mxdotp_norm_window
   logic [W1-1:0] v1; logic [W2-1:0] v2; logic [W3-1:0] v3;
   logic s1, s2, s3, s4, s5, s6, s7;
 
+  // Stage 1 (shift by 64): the top W1 bits of (X << 64).  Written as a
+  // constant shift so the window stays correct for every LZC_SUM_WIDTH
+  // (119 at VectorSize=8, 121 at VectorSize=32, ...); a hand-built
+  // {X[W0-65:0], 32'b0} is only right for W0 == 119.
+  logic [W0-1:0] sum_magnitude_shl64;
+  assign sum_magnitude_shl64 = sum_magnitude << 64;
+
   assign v1 = shift_out_all ? '0
-                            : (norm_shamt[6] ? {sum_magnitude[W0-1-64:0], 32'b0}
+                            : (norm_shamt[6] ? sum_magnitude_shl64[W0-1 -: W1]
                                              : sum_magnitude[W0-1 -: W1]);
   assign s1 = (shift_out_all | norm_shamt[6]) ? 1'b0 : |sum_magnitude[W0-W1-1:0];
   assign v2 = norm_shamt[5] ? v1[W2-1:0] : v1[W1-1 -: W2];
