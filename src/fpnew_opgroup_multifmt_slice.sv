@@ -173,7 +173,7 @@ or on 16b inputs producing 32b outputs");
   logic [SELECTOR_WIDTH-1:0] result_insert_slot;
   insert_kind_e        result_insert_kind;
   logic [Width-1:0]    insert_result;
-
+  logic [7:0]          mxscale_scale_byte;
 
   logic simd_synch_rdy, simd_synch_done;
   fpnew_pkg::roundmode_e rnd_mode;
@@ -243,6 +243,12 @@ or on 16b inputs producing 32b outputs");
           target_insert_kind_d       = INSERT_FP;
         end
       end
+      fpnew_pkg::MXSCALE,
+      fpnew_pkg::MXISCALE: begin
+        target_is_insert_d         = 1'b1;
+        target_insert_nlanes_idx_d = fpnew_pkg::op0_nlanes_idx(1);
+        target_insert_kind_d       = INSERT_BYTE;
+      end
       default: begin
       end
     endcase
@@ -297,7 +303,9 @@ or on 16b inputs producing 32b outputs");
     localparam fpnew_pkg::ifmt_logic_t CONV_ALL_INT_FORMATS = CONV_INT_FORMATS | CONV_MX_INT_FORMATS;
     localparam int unsigned CONV_WIDTH = fpnew_pkg::maximum(
         fpnew_pkg::max_fp_width(CONV_ALL_FORMATS),
-        fpnew_pkg::max_int_width(CONV_ALL_INT_FORMATS));
+        fpnew_pkg::maximum(fpnew_pkg::max_int_width(CONV_ALL_INT_FORMATS),
+                             fpnew_pkg::MX_SCALE_WIDTH));
+
 
 
     // Dotp-specific parameters
@@ -360,6 +368,11 @@ or on 16b inputs producing 32b outputs");
             fpnew_pkg::F2MI: begin
               conv_is_up_cast = fi_is_up_cast;
               conv_src_lane_is_used = LANE_FORMATS[src_fmt_i];
+            end
+            fpnew_pkg::MXSCALE,
+            fpnew_pkg::MXISCALE: begin
+              conv_is_up_cast       = 1'b0;
+              conv_src_lane_is_used = (LANE == 0) & CONV_ALL_FORMATS[src_fmt_i];
             end
             default: begin
               conv_is_up_cast = is_up_cast;
@@ -763,6 +776,7 @@ or on 16b inputs producing 32b outputs");
           .IntFmtConfig   ( CONV_INT_FORMATS     ),
           .MxFpFmtConfig  ( CONV_MX_FORMATS      ),
           .MxIntFmtConfig ( CONV_MX_INT_FORMATS  ),
+          .EnableMXScale  ( LANE == 0            ),
           .NumPipeRegs    ( NumPipeRegs          ),
           .PipeConfig     ( PipeConfig           ),
           .TagType        ( TagType              ),
@@ -841,6 +855,10 @@ or on 16b inputs producing 32b outputs");
       assign local_result      = lane_out_valid[lane] ? op_result : {(LANE_WIDTH){lane_ext_bit[0]}};
       assign lane_status[lane] = lane_out_valid[lane] ? op_status : '0;
 
+      if (OpGroup == fpnew_pkg::CONV && LANE == 0) begin : drive_mxscale_scale_byte
+        assign mxscale_scale_byte = local_result[7:0];
+      end
+
     // Otherwise generate constant sign-extension
     end else begin : inactive_lane
       assign lane_out_valid[lane] = 1'b0; // unused lane
@@ -862,10 +880,8 @@ or on 16b inputs producing 32b outputs");
       if (OpGroup == fpnew_pkg::DOTP) begin
         localparam int unsigned INACTIVE_MASK = fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(LANE_FORMATS[fmt]));
         localparam int unsigned FP_WIDTH      = fpnew_pkg::minimum(INACTIVE_MASK, fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(fmt)));
-        localparam logic LANE_FMT_ACTIVE = (OpGroup == fpnew_pkg::CONV) ?
-                                           CONV_ALL_FORMATS[fmt] : ACTIVE_FORMATS[fmt];
         // only for active formats within the lane
-        if (LANE_FMT_ACTIVE && (LANE_WIDTH>0)) begin
+        if (ACTIVE_FORMATS[fmt] && (LANE_WIDTH>0)) begin
           if (FP_WIDTH==INACTIVE_MASK) begin
             assign fmt_slice_result[fmt][(LANE+1)*FP_WIDTH-1:LANE*FP_WIDTH] =
                 local_result[FP_WIDTH-1:0];
@@ -882,10 +898,15 @@ or on 16b inputs producing 32b outputs");
         end
       end else begin
         localparam int unsigned FP_WIDTH = fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(fmt));
+        localparam logic LANE_FMT_ACTIVE = (OpGroup == fpnew_pkg::CONV) ?
+                                           CONV_ALL_FORMATS[fmt] : ACTIVE_FORMATS[fmt];
         // only for active formats within the lane
-        if (ACTIVE_FORMATS[fmt]) begin
+        if (LANE_FMT_ACTIVE && ((LANE+1)*FP_WIDTH <= Width)) begin
           assign fmt_slice_result[fmt][(LANE+1)*FP_WIDTH-1:LANE*FP_WIDTH] =
               local_result[FP_WIDTH-1:0];
+        end else if (LANE_FMT_ACTIVE && (LANE*FP_WIDTH < Width)) begin
+          assign fmt_slice_result[fmt][Width-1:LANE*FP_WIDTH] =
+              local_result[Width-LANE*FP_WIDTH-1:0];
         end else if ((LANE+1)*FP_WIDTH <= Width) begin
           assign fmt_slice_result[fmt][(LANE+1)*FP_WIDTH-1:LANE*FP_WIDTH] =
               '{default: lane_ext_bit[LANE]};
@@ -1022,6 +1043,7 @@ or on 16b inputs producing 32b outputs");
     assign result_insert_nlanes_idx = '0;
     assign result_insert_slot = '0;
     assign result_insert_kind = INSERT_NONE;
+    assign mxscale_scale_byte = '0;
   end
 
   if ((DivSqrtSel != fpnew_pkg::TH32) && (OpGroup == fpnew_pkg::DIVSQRT)) begin
@@ -1044,6 +1066,7 @@ or on 16b inputs producing 32b outputs");
           [INSERT_NUM_SLOTS-1:0][Width-1:0] fmt_insert_result;
     logic [NUM_INT_FORMATS-1:0][fpnew_pkg::OP0_NUM_NLANES-1:0]
           [INSERT_NUM_SLOTS-1:0][Width-1:0] ifmt_insert_result;
+    logic [INSERT_NUM_SLOTS-1:0][Width-1:0] byte_insert_result;
 
     for (genvar fmt = 0; fmt < NUM_FORMATS; fmt++) begin : gen_fmt_insert_result               // insertion logic
       localparam int unsigned FP_WIDTH = fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(fmt));
@@ -1063,6 +1086,19 @@ or on 16b inputs producing 32b outputs");
             assign fmt_insert_result[fmt][nidx][slot] = conv_target_q;
           end
         end
+      end
+    end
+
+    for (genvar slot = 0; slot < INSERT_NUM_SLOTS; slot++) begin : gen_byte_insert_result
+      localparam int unsigned SLOT_LSB = slot * 8;
+      localparam int unsigned SLOT_MSB = SLOT_LSB + 8;
+      if (SLOT_MSB <= Width) begin : valid
+        always_comb begin
+          byte_insert_result[slot] = conv_target_q;
+          byte_insert_result[slot][SLOT_MSB-1:SLOT_LSB] = mxscale_scale_byte;
+        end
+      end else begin : invalid
+        assign byte_insert_result[slot] = conv_target_q;
       end
     end
 
@@ -1095,8 +1131,10 @@ or on 16b inputs producing 32b outputs");
                                                    [result_insert_nlanes_idx]
                                                    [result_insert_slot];
         INSERT_INT: insert_result = ifmt_insert_result[result_fmt]
-                                                      [result_insert_nlanes_idx]
-                                                      [result_insert_slot];
+                                                       [result_insert_nlanes_idx]
+                                                       [result_insert_slot];
+        INSERT_BYTE: insert_result = byte_insert_result[result_insert_slot];
+
         default: begin
         end
       endcase
@@ -1106,6 +1144,7 @@ or on 16b inputs producing 32b outputs");
           fmt_insert_result;
     logic [NUM_INT_FORMATS-1:0][fpnew_pkg::OP0_NUM_NLANES-1:0][Width-1:0]
           ifmt_insert_result;
+    logic [Width-1:0] byte_insert_result;
 
     for (genvar fmt = 0; fmt < NUM_FORMATS; fmt++) begin : gen_fmt_insert_result
       localparam int unsigned FP_WIDTH = fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(fmt));
@@ -1122,6 +1161,15 @@ or on 16b inputs producing 32b outputs");
           assign fmt_insert_result[fmt][nidx] = conv_target_q;
         end
       end
+    end
+
+    if (8 <= Width) begin : gen_byte_insert_valid
+      always_comb begin
+        byte_insert_result = conv_target_q;
+        byte_insert_result[7:0] = mxscale_scale_byte;
+      end
+    end else begin : gen_byte_insert_invalid
+      assign byte_insert_result = conv_target_q;
     end
 
     for (genvar ifmt = 0; ifmt < NUM_INT_FORMATS; ifmt++) begin : gen_ifmt_insert_result
@@ -1146,6 +1194,7 @@ or on 16b inputs producing 32b outputs");
       unique case (result_insert_kind)
         INSERT_FP: insert_result = fmt_insert_result[result_fmt][result_insert_nlanes_idx];
         INSERT_INT: insert_result = ifmt_insert_result[result_fmt][result_insert_nlanes_idx];
+        INSERT_BYTE: insert_result = byte_insert_result;
         default: begin
         end
       endcase

@@ -137,6 +137,7 @@ package fpnew_pkg;
   localparam int unsigned               MX_SCALE_BIAS     = 127;
   localparam logic [MX_SCALE_WIDTH-1:0] MX_SCALE_NAN_BITS = '1;
   localparam int unsigned               MX_SCALE_MAX_ABS  = MX_SCALE_BIAS;
+  localparam int unsigned               MX_INT8_MAX_EXP   = 6;
 
 
   // --------------
@@ -156,9 +157,10 @@ package fpnew_pkg;
     DIV, SQRT,                   // DIVSQRT operation group
     SGNJ, MINMAX, CMP, CLASSIFY, // NONCOMP operation group
     F2F, F2I, I2F, CPKAB, CPKCD, // CONV operation group
-    FNF, M2F, F2M, MI2F, F2MI,   // CONV operation: non-2x FP format conversion and MX
     SDOTP, EXVSUM, VSUM,         // DOTP operation group
-    MXDOTPF, MXDOTPI             // MXDOTP operation group
+    MXDOTPF, MXDOTPI,            // MXDOTP operation group
+    FNF, M2F, F2M, MI2F, F2MI,   // CONV operation: non-2x FP format conversion and MX
+    MXSCALE, MXISCALE            // CONV MX scale computation
   } operation_e;
 
   // -------------
@@ -646,7 +648,19 @@ package fpnew_pkg;
   // -------------------------------------------
   // Returns the width of a FP format
   function automatic int unsigned fp_width(fp_format_e fmt);
-    return FP_ENCODINGS[fmt].exp_bits + FP_ENCODINGS[fmt].man_bits + 1;
+    unique case (fmt)
+      FP32:    return 32;
+      FP64:    return 64;
+      FP16:    return 16;
+      FP8:     return 8;
+      FP16ALT: return 16;
+      FP8ALT:  return 8;
+      FP6:     return 6;
+      FP6ALT:  return 6;
+      FP4:     return 4;
+      default: return 0;
+    endcase
+
   endfunction
 
   function automatic bit fp_fmt_has_inf(fp_format_e fmt, bit is_mx);
@@ -700,6 +714,22 @@ package fpnew_pkg;
     return unsigned'(2**(FP_ENCODINGS[fmt].exp_bits-1)-1); // symmetrical bias
   endfunction
 
+  function automatic int unsigned max_fp_unbiased_exp(fp_format_e fmt, bit is_mx);
+    unique case (fmt)
+      FP32:    return 127;
+      FP64:    return 1023;
+      FP16:    return 15;
+      FP8:     return 15;
+      FP16ALT: return 127;
+      FP8ALT:  return is_mx ? 8 : 7;
+      FP6:     return 4;
+      FP6ALT:  return 2;
+      FP4:     return 2;
+      default: return 0;
+    endcase
+  endfunction
+
+
   function automatic fp_encoding_t super_format(fmt_logic_t cfg);
     automatic fp_encoding_t res;
     res = '0;
@@ -732,7 +762,8 @@ package fpnew_pkg;
       FMADD, FNMSUB, ADD, MUL, PWPA, PACE_INV, PACE_SQRT, PACE_RSQRT: return ADDMUL;
       DIV, SQRT:                                                      return DIVSQRT;
       SGNJ, MINMAX, CMP, CLASSIFY:                                    return NONCOMP;
-      F2F, FNF, F2I, I2F, M2F, MI2F, F2M, F2MI, CPKAB, CPKCD:         return CONV;
+      F2F, FNF, F2I, I2F, M2F, MI2F, F2M, F2MI, MXSCALE, MXISCALE,
+      CPKAB, CPKCD:                                                   return CONV;
       SDOTP, EXVSUM, VSUM:                                            return DOTP;
       MXDOTPF, MXDOTPI:                                               return MXDOTP;
       default:                                                        return NONCOMP;
