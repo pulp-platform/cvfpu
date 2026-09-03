@@ -214,6 +214,7 @@ module fpnew_fma_multi #(
       ) i_fpnew_classifier (
         .operands_i ( trimmed_ops                            ),
         .is_boxed_i ( inp_pipe_is_boxed_q[NUM_INP_REGS][fmt] ),
+        .src_is_mx  ( 1'b0                              ),
         .info_o     ( info_q[fmt]                            )
       );
       for (genvar op = 0; op < 3; op++) begin : gen_operands

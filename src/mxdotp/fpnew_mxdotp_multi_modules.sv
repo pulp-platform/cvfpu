@@ -93,11 +93,11 @@ module fpnew_mxdotp_classifier
       // Classify input
       fpnew_classifier #(
         .FpFormat    ( fpnew_pkg::fp_format_e'(fmt) ),
-        .NumOperands ( 2*VectorSize                 ),
-        .MX          ( 1                            )
+        .NumOperands ( 2*VectorSize                 )
       ) i_fpnew_classifier (
         .operands_i  ( trimmed_ops                                          ),
         .is_boxed_i  ( inp_pipe_is_boxed[NumInpRegs][fmt][2*VectorSize-1:0] ),
+        .src_is_mx   ( 1'b1                                                 ),
         .info_o      ( info_q[fmt][2*VectorSize-1:0]                        )
       );
       for (genvar op = 0; op < 2*VectorSize; op++) begin : gen_operands
@@ -128,11 +128,11 @@ module fpnew_mxdotp_classifier
         // Classify input
         fpnew_classifier #(
           .FpFormat    ( fpnew_pkg::fp_format_e'(fmt) ),
-          .NumOperands ( 2*FP6VectorSize              ),
-          .MX          ( 1                            )
+          .NumOperands ( 2*FP6VectorSize              )
         ) i_fpnew_classifier (
           .operands_i  ( trimmed_ops                                             ),
           .is_boxed_i  ( inp_pipe_is_boxed[NumInpRegs][fmt][2*FP6VectorSize-1:0] ),
+          .src_is_mx   ( 1'b1                                                    ),
           .info_o      ( fp6_info_q[fmt][2*FP6VectorSize-1:0]                    )
         );
         for (genvar op = 0; op < 2*FP6VectorSize; op++) begin : gen_operands
@@ -164,11 +164,11 @@ module fpnew_mxdotp_classifier
         // Classify input
         fpnew_classifier #(
           .FpFormat    ( fpnew_pkg::fp_format_e'(fmt) ),
-          .NumOperands ( 2*FP4VectorSize              ),
-          .MX          ( 1                            )
+          .NumOperands ( 2*FP4VectorSize              )
         ) i_fpnew_classifier (
           .operands_i  ( trimmed_ops                                             ),
           .is_boxed_i  ( inp_pipe_is_boxed[NumInpRegs][fmt][2*FP4VectorSize-1:0] ),
+          .src_is_mx   ( 1'b1                                                    ),
           .info_o      ( fp4_info_q[fmt][2*FP4VectorSize-1:0]                    )
         );
         for (genvar op = 0; op < 2*FP4VectorSize; op++) begin : gen_operands
@@ -213,6 +213,7 @@ module fpnew_mxdotp_classifier
       ) i_fpnew_classifier (
         .operands_i  ( trimmed_dst_ops             ),
         .is_boxed_i  ( dst_ops_is_boxed            ),
+        .src_is_mx   ( 1'b0                        ),
         .info_o      ( info_q[fmt][NUM_OPERANDS-1] )
       );
       assign trimmed_dst_ops       = operand_d_in[FP_WIDTH-1:0];

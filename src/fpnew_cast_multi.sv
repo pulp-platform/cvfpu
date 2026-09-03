@@ -219,6 +219,7 @@ module fpnew_cast_multi #(
       ) i_fpnew_classifier (
         .operands_i ( operands_q[FP_WIDTH-1:0] ),
         .is_boxed_i ( is_boxed_q[fmt]          ),
+        .src_is_mx  ( 1'b0                      ),
         .info_o     ( info[fmt]                )
       );
 
