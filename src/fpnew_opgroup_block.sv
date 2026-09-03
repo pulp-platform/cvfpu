@@ -203,6 +203,7 @@ module fpnew_opgroup_block #(
       .IntFmtConfig   ( IntFmtMask       ),
       .MxFpFmtConfig  ( MxFpFmtMask      ),
       .MxIntFmtConfig ( MxIntFmtMask     ),
+      .FmtUnitTypes   ( FmtUnitTypes     ),
       .EnableVectors  ( EnableVectors    ),
       .DivSqrtSel     ( DivSqrtSel       ),
       .NumPipeRegs    ( REG              ),

@@ -330,7 +330,7 @@ package fpnew_pkg;
     Width:         64,
     EnableVectors: 1'b1,
     EnableNanBox:  1'b1,
-    FpFmtMask:     9'b111111000,  // Standard formats (not including FP6, FP6ALT, FP4)
+    FpFmtMask:     9'b111111111,  // Standard formats (not including FP6, FP6ALT, FP4)
     IntFmtMask:    4'b1111,
     MxFpFmtMask:   9'b000101111,  // MX formats: FP8, FP8ALT, FP6, FP6ALT, FP4
     MxIntFmtMask:  4'b1000,       // INT8 for MX operations
@@ -641,6 +641,62 @@ package fpnew_pkg;
                             |(mx_int_cfg & MXDOTP_FORMATS_MASK.src_int_formats))) ? 1 : 0;
   endfunction
 
+  // Returns maximum conversions parallelism for the enabled formats.
+  // computed at compile time
+  function automatic int unsigned num_conv_lanes(int unsigned width,
+                                                  fmt_logic_t fp_cfg,
+                                                  ifmt_logic_t int_cfg,
+                                                  fmt_logic_t mx_fp_cfg,
+                                                  ifmt_logic_t mx_int_cfg);
+    automatic int unsigned min_width;
+    automatic int unsigned min2_width;  // use to track parallelism between same with (int8 -> fp8)
+    automatic int unsigned min_num;
+    automatic int unsigned cur_width;
+    automatic int unsigned lane_width;
+    automatic logic        mx_present;
+
+    min_width  = width;
+    min2_width = width;
+    min_num    = 0;
+
+    // fing fp/int min and min2
+    for (int unsigned i = 0; i < NUM_FP_FORMATS; i++) begin
+      if (fp_cfg[i]) begin
+        cur_width = fp_width(fp_format_e'(i));
+        if (cur_width < min_width) begin
+          min2_width = min_width;
+          min_width  = cur_width;
+          min_num    = 1;
+        end else if (cur_width == min_width) begin
+          min_num++;
+        end else if (cur_width < min2_width) begin
+          min2_width = cur_width;
+        end
+      end
+    end
+
+    for (int unsigned i = 0; i < NUM_INT_FORMATS; i++) begin
+      if (int_cfg[i]) begin
+        cur_width = int_width(int_format_e'(i));
+        if (cur_width < min_width) begin
+          min2_width = min_width;
+          min_width  = cur_width;
+          min_num    = 1;
+        end else if (cur_width == min_width) begin
+          min_num++;
+        end else if (cur_width < min2_width) begin
+          min2_width = cur_width;
+        end
+      end
+    end
+
+    // MX conversions take advantage of fp maximum parallelism
+    mx_present = ((mx_fp_cfg != '0) || (mx_int_cfg != '0)) && min_width >= 8;
+    lane_width = (mx_present || (min_num >= 2)) ? min_width : min2_width;
+    return width / lane_width;
+  endfunction
+
+
   // Returns all format masks for MXDOTP operations
   // Note: Assumes width == 64 (validated at instantiation)
   function automatic lane_formats_t get_mxdotp_formats(int unsigned width,
@@ -731,5 +787,15 @@ package fpnew_pkg;
     end
     return res;
   endfunction
+
+  // In merged opgroup filter fmt that are disable for that opgroup
+  // "active format but not for this merged opgroup"
+  function automatic fmt_logic_t get_merged_formats(fmt_unit_types_t types,
+                                                     fmt_logic_t cfg);
+    for (int unsigned fmt = 0; fmt < NUM_FP_FORMATS; fmt++) begin
+      get_merged_formats[fmt] = cfg[fmt] && (types[fmt] == MERGED);  // mask op
+    end
+  endfunction
+
 
 endpackage

@@ -23,6 +23,7 @@ module fpnew_opgroup_multifmt_slice #(
   parameter fpnew_pkg::ifmt_logic_t    IntFmtConfig   = '1,
   parameter fpnew_pkg::fmt_logic_t     MxFpFmtConfig  = '0,  // MX-specific FP formats
   parameter fpnew_pkg::ifmt_logic_t    MxIntFmtConfig = '0,  // MX-specific INT formats
+  parameter fpnew_pkg::fmt_unit_types_t FmtUnitTypes  = '{default: fpnew_pkg::MERGED},
   parameter logic                      EnableVectors  = 1'b1,
   parameter fpnew_pkg::divsqrt_unit_t  DivSqrtSel     = fpnew_pkg::THMULTI,
   parameter int unsigned               NumPipeRegs    = 0,
@@ -73,18 +74,22 @@ module fpnew_opgroup_multifmt_slice #(
   output logic                                    busy_o
 );
 
+  localparam fpnew_pkg::fmt_logic_t MERGED_FP_FORMATS =
+      fpnew_pkg::get_merged_formats(FmtUnitTypes, FpFmtConfig);   // mask disable fmt from opgroup cfg
+
+
   if ((OpGroup == fpnew_pkg::DIVSQRT)) begin
-    if ((DivSqrtSel == fpnew_pkg::TH32) && !((FpFmtConfig[0] == 1) && (FpFmtConfig[1:NUM_FORMATS-1] == '0))) begin
+    if ((DivSqrtSel == fpnew_pkg::TH32) && !((MERGED_FP_FORMATS[0] == 1) && (MERGED_FP_FORMATS[1:NUM_FORMATS-1] == '0))) begin
       $fatal(1, "T-Head-based DivSqrt unit supported only in FP32-only configurations. \
 Set DivSqrtSel = THMULTI or DivSqrtSel = PULP to use a multi-format divider");
-    end else if ((DivSqrtSel == fpnew_pkg::THMULTI) && (FpFmtConfig[3] == 1'b1 || FpFmtConfig[5] == 1'b1)) begin
+    end else if ((DivSqrtSel == fpnew_pkg::THMULTI) && (MERGED_FP_FORMATS[3] == 1'b1 || MERGED_FP_FORMATS[5] == 1'b1)) begin
       $warning("The DivSqrt unit of C910 (instantiated by DivSqrtSel = THMULTI) does not support \
 FP8, FP8alt. Please use the PULP DivSqrt unit when in need of div/sqrt operations on FP8, FP8alt.");
     end
   end
 
   if ((OpGroup == fpnew_pkg::DOTP) &&
-      !(FpFmtConfig[0] && (FpFmtConfig[2] || FpFmtConfig[4]) && (FpFmtConfig[3] || FpFmtConfig[5]))) begin
+      !(MERGED_FP_FORMATS[0] && (MERGED_FP_FORMATS[2] || MERGED_FP_FORMATS[4]) && (MERGED_FP_FORMATS[3] || MERGED_FP_FORMATS[5]))) begin
     $fatal(1, "SDOTP only supported on 32b and 64b CVFPU instances in which at \
 least one 16b and one 8b format are supported. \
 The SDOTP operations compute on 8b inputs producing 16b outputs \
@@ -101,12 +106,13 @@ or on 16b inputs producing 32b outputs");
     end
   end
 
-  localparam int unsigned MAX_FP_WIDTH   = fpnew_pkg::max_fp_width(FpFmtConfig);
+  localparam int unsigned MAX_FP_WIDTH   = fpnew_pkg::max_fp_width(MERGED_FP_FORMATS);
   localparam int unsigned MAX_INT_WIDTH  = fpnew_pkg::max_int_width(IntFmtConfig);
-  localparam int unsigned NUM_LANES = fpnew_pkg::max_num_lanes(Width, FpFmtConfig, 1'b1);
-  localparam int unsigned NUM_DIVSQRT_LANES = fpnew_pkg::num_divsqrt_lanes(Width, FpFmtConfig, 1'b1, DivSqrtSel);
-  localparam int unsigned NUM_DOTP_LANES = fpnew_pkg::num_dotp_lanes(Width, FpFmtConfig);
+  localparam int unsigned NUM_LANES = fpnew_pkg::max_num_lanes(Width, MERGED_FP_FORMATS, 1'b1);
+  localparam int unsigned NUM_DIVSQRT_LANES = fpnew_pkg::num_divsqrt_lanes(Width, MERGED_FP_FORMATS, 1'b1, DivSqrtSel);
+  localparam int unsigned NUM_DOTP_LANES = fpnew_pkg::num_dotp_lanes(Width, MERGED_FP_FORMATS);
   localparam int unsigned NUM_MX_LANES = fpnew_pkg::num_mxdotp_lanes(Width, MxFpFmtConfig, MxIntFmtConfig);
+  localparam int unsigned NUM_CONV_LANES = fpnew_pkg::num_conv_lanes(Width, MERGED_FP_FORMATS, IntFmtConfig, MxFpFmtConfig, MxIntFmtConfig);
   localparam int unsigned NUM_INT_FORMATS = fpnew_pkg::NUM_INT_FORMATS;
   // We will send the format information along with the data
   localparam int unsigned FMT_BITS =
@@ -200,23 +206,23 @@ or on 16b inputs producing 32b outputs");
     localparam int unsigned LANE = unsigned'(lane); // unsigned to please the linter
     // Get a mask of active formats for this lane
     localparam fpnew_pkg::fmt_logic_t ACTIVE_FORMATS =
-        fpnew_pkg::get_lane_formats(Width, FpFmtConfig, LANE);
+        fpnew_pkg::get_lane_formats(Width, MERGED_FP_FORMATS, LANE);
     localparam fpnew_pkg::ifmt_logic_t ACTIVE_INT_FORMATS =
-        fpnew_pkg::get_lane_int_formats(Width, FpFmtConfig, IntFmtConfig, LANE);
+        fpnew_pkg::get_lane_int_formats(Width, MERGED_FP_FORMATS, IntFmtConfig, LANE);
     localparam int unsigned MAX_WIDTH = fpnew_pkg::max_fp_width(ACTIVE_FORMATS);
     localparam fpnew_pkg::fmt_logic_t PaceActiveFormats =
         fpnew_pkg::get_pace_lane_formats(ACTIVE_FORMATS, PaceFmtConfig);
     localparam int unsigned EnablePace = (PaceActiveFormats != 0);
     // Cast-specific parameters
     localparam fpnew_pkg::fmt_logic_t CONV_FORMATS =
-        fpnew_pkg::get_conv_lane_formats(Width, FpFmtConfig, LANE);
+        fpnew_pkg::get_conv_lane_formats(Width, MERGED_FP_FORMATS, LANE);
     localparam fpnew_pkg::ifmt_logic_t CONV_INT_FORMATS =
-        fpnew_pkg::get_conv_lane_int_formats(Width, FpFmtConfig, IntFmtConfig, LANE);
+        fpnew_pkg::get_conv_lane_int_formats(Width, MERGED_FP_FORMATS, IntFmtConfig, LANE);
     localparam int unsigned CONV_WIDTH = fpnew_pkg::max_fp_width(CONV_FORMATS);
 
     // Dotp-specific parameters
     localparam fpnew_pkg::fmt_logic_t DOTP_FORMATS =
-        fpnew_pkg::get_dotp_lane_formats(Width, FpFmtConfig, LANE);
+        fpnew_pkg::get_dotp_lane_formats(Width, MERGED_FP_FORMATS, LANE);
     localparam int unsigned DOTP_MAX_FMT_WIDTH = fpnew_pkg::max_fp_width(DOTP_FORMATS);
     localparam int unsigned DOTP_WIDTH = fpnew_pkg::minimum(2*DOTP_MAX_FMT_WIDTH, Width);
 
@@ -244,8 +250,9 @@ or on 16b inputs producing 32b outputs");
     // Generate instances only if needed, lane 0 always generated
     if ((lane == 0) || (EnableVectors & (!(OpGroup == fpnew_pkg::DOTP && (lane >= NUM_DOTP_LANES))
                                         && !(OpGroup == fpnew_pkg::DIVSQRT && (lane >= NUM_DIVSQRT_LANES))
-                                        && !(OpGroup == fpnew_pkg::MXDOTP && (lane >= NUM_MX_LANES))
-                                        ))) begin : active_lane
+                                         && !(OpGroup == fpnew_pkg::MXDOTP && (lane >= NUM_MX_LANES))
+                                         && !(OpGroup == fpnew_pkg::CONV && (lane >= NUM_CONV_LANES))
+                                         ))) begin : active_lane
       logic in_valid, out_valid, out_ready; // lane-local handshake
 
       logic [NUM_OPERANDS-1:0][LANE_WIDTH-1:0] local_operands;  // lane-local oprands
