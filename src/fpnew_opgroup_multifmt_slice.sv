@@ -25,7 +25,8 @@ module fpnew_opgroup_multifmt_slice #(
   parameter fpnew_pkg::ifmt_logic_t    MxIntFmtConfig = '0,  // MX-specific INT formats
   parameter fpnew_pkg::fmt_unit_types_t FmtUnitTypes  = '{default: fpnew_pkg::MERGED},
   parameter logic                      EnableVectors  = 1'b1,
-  parameter logic                     EnableSlotSelect = 1'b1,
+  parameter logic                      EnableSlotSelect = 1'b1,
+  parameter logic                      EnableMXConv   = 1'b1,
   parameter fpnew_pkg::divsqrt_unit_t  DivSqrtSel     = fpnew_pkg::THMULTI,
   parameter int unsigned               NumPipeRegs    = 0,
   parameter fpnew_pkg::pipe_config_t   PipeConfig     = fpnew_pkg::BEFORE,
@@ -141,7 +142,7 @@ or on 16b inputs producing 32b outputs");
   logic       dst_fmt_is_int, dst_is_cpk;
   logic [1:0] dst_vec_op; // info for vectorial results (for packing)
   logic [1:0] target_aux_d;
-  logic       is_up_cast, is_down_cast;
+  logic       is_up_cast, is_down_cast, mxi_is_up_cast, fi_is_up_cast;
 
   logic [SELECTOR_WIDTH-1:0] slot_select_imm;
   logic                     target_is_insert_d;
@@ -187,13 +188,17 @@ or on 16b inputs producing 32b outputs");
   assign vectorial_op = vectorial_op_i & EnableVectors; // only do vectorial stuff if enabled
 
   // Cast-and-Pack ops are encoded in operation and modifier
-  assign dst_fmt_is_int = (OpGroup == fpnew_pkg::CONV) & (op_i == fpnew_pkg::F2I);
+  assign dst_fmt_is_int = (OpGroup == fpnew_pkg::CONV) &
+                          (op_i == fpnew_pkg::F2I || op_i == fpnew_pkg::F2MI);
+
   assign dst_is_cpk     = (OpGroup == fpnew_pkg::CONV) & (op_i == fpnew_pkg::CPKAB ||
                                                           op_i == fpnew_pkg::CPKCD);
   assign dst_vec_op     = {2{(OpGroup == fpnew_pkg::CONV)}} & {(op_i == fpnew_pkg::CPKCD), op_mod_i};
 
   assign is_up_cast   = (fpnew_pkg::fp_width(dst_fmt_i) > fpnew_pkg::fp_width(src_fmt_i));
   assign is_down_cast = (fpnew_pkg::fp_width(dst_fmt_i) < fpnew_pkg::fp_width(src_fmt_i));
+  assign mxi_is_up_cast = (fpnew_pkg::fp_width(dst_fmt_i) > fpnew_pkg::int_width(int_fmt_i));
+  assign fi_is_up_cast  = (fpnew_pkg::int_width(int_fmt_i) > fpnew_pkg::fp_width(src_fmt_i));
   assign op_is_vsum   = op_i == fpnew_pkg::VSUM ? 1'b1 : 1'b0;
 
   if (EnableSlotSelect) begin : gen_slot_select_enabled
@@ -217,12 +222,30 @@ or on 16b inputs producing 32b outputs");
     target_insert_nlanes_idx_d = fpnew_pkg::op0_nlanes_idx(1);
     target_insert_kind_d       = INSERT_NONE;
 
-    if ((op_i == fpnew_pkg::FNF) && !is_up_cast) begin
-      src_lanes = fpnew_pkg::num_lanes(Width, src_fmt_i, vectorial_op);
-      target_is_insert_d         = 1'b1;
-      target_insert_nlanes_idx_d = fpnew_pkg::op0_nlanes_idx(src_lanes);
-      target_insert_kind_d       = INSERT_FP;
-    end
+    unique case (op_i)
+      fpnew_pkg::F2M: begin
+        src_lanes = fpnew_pkg::num_lanes(Width, src_fmt_i, vectorial_op);
+        target_is_insert_d         = 1'b1;
+        target_insert_nlanes_idx_d = fpnew_pkg::op0_nlanes_idx(src_lanes);
+        target_insert_kind_d       = INSERT_FP;
+      end
+      fpnew_pkg::F2MI: begin
+        src_lanes = fpnew_pkg::num_lanes(Width, src_fmt_i, vectorial_op);
+        target_is_insert_d         = 1'b1;
+        target_insert_nlanes_idx_d = fpnew_pkg::op0_nlanes_idx(src_lanes);
+        target_insert_kind_d       = INSERT_INT;
+      end
+      fpnew_pkg::FNF: begin
+        if (!is_up_cast) begin
+          src_lanes = fpnew_pkg::num_lanes(Width, src_fmt_i, 1'b1);
+          target_is_insert_d         = 1'b1;
+          target_insert_nlanes_idx_d = fpnew_pkg::op0_nlanes_idx(src_lanes);
+          target_insert_kind_d       = INSERT_FP;
+        end
+      end
+      default: begin
+      end
+    endcase
   end
 
 
@@ -266,7 +289,16 @@ or on 16b inputs producing 32b outputs");
         fpnew_pkg::get_conv_lane_formats(Width, MERGED_FP_FORMATS, LANE);
     localparam fpnew_pkg::ifmt_logic_t CONV_INT_FORMATS =
         fpnew_pkg::get_conv_lane_int_formats(Width, MERGED_FP_FORMATS, IntFmtConfig, LANE);
-    localparam int unsigned CONV_WIDTH = fpnew_pkg::max_fp_width(CONV_FORMATS);
+    localparam fpnew_pkg::fmt_logic_t CONV_MX_FORMATS =
+        fpnew_pkg::get_conv_lane_formats(Width, MxFpFmtConfig, LANE);
+    localparam fpnew_pkg::ifmt_logic_t CONV_MX_INT_FORMATS =
+        fpnew_pkg::get_conv_lane_int_formats(Width, MxFpFmtConfig, MxIntFmtConfig, LANE);
+    localparam fpnew_pkg::fmt_logic_t CONV_ALL_FORMATS = CONV_FORMATS | CONV_MX_FORMATS;
+    localparam fpnew_pkg::ifmt_logic_t CONV_ALL_INT_FORMATS = CONV_INT_FORMATS | CONV_MX_INT_FORMATS;
+    localparam int unsigned CONV_WIDTH = fpnew_pkg::maximum(
+        fpnew_pkg::max_fp_width(CONV_ALL_FORMATS),
+        fpnew_pkg::max_int_width(CONV_ALL_INT_FORMATS));
+
 
     // Dotp-specific parameters
     localparam fpnew_pkg::fmt_logic_t DOTP_FORMATS =
@@ -308,9 +340,49 @@ or on 16b inputs producing 32b outputs");
       fpnew_pkg::status_t                      op_status;
 
       logic lane_is_used;
-      assign lane_is_used = (LANE_FORMATS[src_fmt_i] & ~is_up_cast) |
-                            (LANE_FORMATS[dst_fmt_i] &  is_up_cast) | 
-                            (OpGroup == fpnew_pkg::DIVSQRT) | (OpGroup == fpnew_pkg::MXDOTP);
+      if (OpGroup == fpnew_pkg::CONV) begin : gen_conv_connections
+        logic conv_is_up_cast;
+        logic conv_src_lane_is_used;
+        always_comb begin : conv_lane_activity
+          unique case (op_i)
+            fpnew_pkg::I2F: begin
+              conv_is_up_cast = mxi_is_up_cast;
+              conv_src_lane_is_used = CONV_INT_FORMATS[int_fmt_i];
+            end
+            fpnew_pkg::MI2F: begin
+              conv_is_up_cast = mxi_is_up_cast;
+              conv_src_lane_is_used = CONV_MX_INT_FORMATS[int_fmt_i];
+            end
+            fpnew_pkg::F2I: begin
+              conv_is_up_cast = fi_is_up_cast;
+              conv_src_lane_is_used = LANE_FORMATS[src_fmt_i];
+            end
+            fpnew_pkg::F2MI: begin
+              conv_is_up_cast = fi_is_up_cast;
+              conv_src_lane_is_used = LANE_FORMATS[src_fmt_i];
+            end
+            default: begin
+              conv_is_up_cast = is_up_cast;
+              conv_src_lane_is_used = LANE_FORMATS[src_fmt_i];
+            end
+          endcase
+        end
+        always_comb begin : conv_lane_used
+          if (!conv_is_up_cast) begin
+            lane_is_used = conv_src_lane_is_used;
+          end else begin
+            unique case (op_i)
+              fpnew_pkg::F2I:  lane_is_used = CONV_INT_FORMATS[int_fmt_i];
+              fpnew_pkg::F2MI: lane_is_used = CONV_MX_INT_FORMATS[int_fmt_i];
+              default:         lane_is_used = LANE_FORMATS[dst_fmt_i];
+            endcase
+          end
+        end
+      end else begin : gen_nonconv_connections
+        assign lane_is_used = (LANE_FORMATS[src_fmt_i] & ~is_up_cast) |
+                              (LANE_FORMATS[dst_fmt_i] &  is_up_cast) |
+                              (OpGroup == fpnew_pkg::DIVSQRT) | (OpGroup == fpnew_pkg::MXDOTP);
+      end
       assign in_valid = in_valid_i & ((lane == 0) | vectorial_op) & lane_is_used; // upper lanes only for vectors
 
       fpnew_pkg::op0_window_t op0_window_sel;                                           // instantiated selection logic
@@ -379,7 +451,22 @@ or on 16b inputs producing 32b outputs");
           if (op_i == fpnew_pkg::I2F) begin                     // special cases
             op0_window_sel = fpnew_pkg::pick_op0_window(
                 op0_window_table, int_widx, 3'd0, 5'd0);
+            local_operands[0] = op0_window_sel[LANE_WIDTH-1:0];ù
+          end else if (op_i == fpnew_pkg::M2F) begin
+            if (EnableMXConv && vectorial_op && (slot_select_imm != '0) && is_up_cast) begin
+              op0_window_sel = fpnew_pkg::pick_op0_window(
+                  op0_window_table, src_widx, dst_nidx, subgroup_sel);
+              local_operands[0] = op0_window_sel[LANE_WIDTH-1:0];
+            end
+          end else if (op_i == fpnew_pkg::MI2F) begin
+            op0_window_sel = fpnew_pkg::pick_op0_window(
+                op0_window_table, int_widx, 3'd0, 5'd0);
             local_operands[0] = op0_window_sel[LANE_WIDTH-1:0];
+            if (EnableMXConv && vectorial_op && (slot_select_imm != '0) && mxi_is_up_cast) begin
+              op0_window_sel = fpnew_pkg::pick_op0_window(
+                  op0_window_table, int_widx, dst_nidx, subgroup_sel);
+              local_operands[0] = op0_window_sel[LANE_WIDTH-1:0];
+            end
           // vectorial F2F up casts
           end else if (op_i == fpnew_pkg::F2F) begin
             if (vectorial_op && op_mod_i && is_up_cast) begin
@@ -672,16 +759,18 @@ or on 16b inputs producing 32b outputs");
 
       end else if (OpGroup == fpnew_pkg::CONV) begin : lane_instance
         fpnew_cast_multi #(
-          .FpFmtConfig  ( LANE_FORMATS         ),
-          .IntFmtConfig ( CONV_INT_FORMATS     ),
-          .NumPipeRegs  ( NumPipeRegs          ),
-          .PipeConfig   ( PipeConfig           ),
-          .TagType      ( TagType              ),
-          .AuxType      ( logic [AUX_BITS-1:0] )
+          .FpFmtConfig    ( CONV_FORMATS         ),
+          .IntFmtConfig   ( CONV_INT_FORMATS     ),
+          .MxFpFmtConfig  ( CONV_MX_FORMATS      ),
+          .MxIntFmtConfig ( CONV_MX_INT_FORMATS  ),
+          .NumPipeRegs    ( NumPipeRegs          ),
+          .PipeConfig     ( PipeConfig           ),
+          .TagType        ( TagType              ),
+          .AuxType        ( logic [AUX_BITS-1:0] )
         ) i_fpnew_cast_multi (
           .clk_i,
           .rst_ni,
-          .operands_i      ( local_operands[0]   ),
+          .operands_i      ( local_operands[2:0]   ),
           .is_boxed_i      ( is_boxed_1op        ),
           .rnd_mode_i      ( rnd_mode            ),
           .op_i,
@@ -773,8 +862,10 @@ or on 16b inputs producing 32b outputs");
       if (OpGroup == fpnew_pkg::DOTP) begin
         localparam int unsigned INACTIVE_MASK = fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(LANE_FORMATS[fmt]));
         localparam int unsigned FP_WIDTH      = fpnew_pkg::minimum(INACTIVE_MASK, fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(fmt)));
+        localparam logic LANE_FMT_ACTIVE = (OpGroup == fpnew_pkg::CONV) ?
+                                           CONV_ALL_FORMATS[fmt] : ACTIVE_FORMATS[fmt];
         // only for active formats within the lane
-        if (ACTIVE_FORMATS[fmt] && (LANE_WIDTH>0)) begin
+        if (LANE_FMT_ACTIVE && (LANE_WIDTH>0)) begin
           if (FP_WIDTH==INACTIVE_MASK) begin
             assign fmt_slice_result[fmt][(LANE+1)*FP_WIDTH-1:LANE*FP_WIDTH] =
                 local_result[FP_WIDTH-1:0];
@@ -951,6 +1042,8 @@ or on 16b inputs producing 32b outputs");
   if (EnableSlotSelect) begin : gen_insert_slot_select
     logic [NUM_FORMATS-1:0][fpnew_pkg::OP0_NUM_NLANES-1:0]
           [INSERT_NUM_SLOTS-1:0][Width-1:0] fmt_insert_result;
+    logic [NUM_INT_FORMATS-1:0][fpnew_pkg::OP0_NUM_NLANES-1:0]
+          [INSERT_NUM_SLOTS-1:0][Width-1:0] ifmt_insert_result;
 
     for (genvar fmt = 0; fmt < NUM_FORMATS; fmt++) begin : gen_fmt_insert_result               // insertion logic
       localparam int unsigned FP_WIDTH = fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(fmt));
@@ -973,17 +1066,46 @@ or on 16b inputs producing 32b outputs");
       end
     end
 
-    always_comb begin : select_insert_result
-      insert_result = conv_target_q;
-      if (result_insert_kind == INSERT_FP) begin
-        insert_result = fmt_insert_result[result_fmt]
-                                         [result_insert_nlanes_idx]
-                                         [result_insert_slot];
+    for (genvar ifmt = 0; ifmt < NUM_INT_FORMATS; ifmt++) begin : gen_ifmt_insert_result
+      localparam int unsigned INT_WIDTH = fpnew_pkg::int_width(fpnew_pkg::int_format_e'(ifmt));
+      for (genvar nidx = 0; nidx < fpnew_pkg::OP0_NUM_NLANES; nidx++) begin : gen_ifmt_insert_nlanes
+        localparam int unsigned NLANES = fpnew_pkg::op0_idx_to_nlanes(nidx);
+        localparam int unsigned GROUP_BITS = NLANES * INT_WIDTH;
+        for (genvar slot = 0; slot < INSERT_NUM_SLOTS; slot++) begin : gen_ifmt_insert_slots
+          localparam int unsigned SLOT_LSB = slot * GROUP_BITS;
+          localparam int unsigned SLOT_MSB = SLOT_LSB + GROUP_BITS;
+          if ((GROUP_BITS <= Width) && (SLOT_MSB <= Width)) begin : gen_ifmt_insert_slot_valid
+            always_comb begin
+              ifmt_insert_result[ifmt][nidx][slot] = conv_target_q;
+              ifmt_insert_result[ifmt][nidx][slot][SLOT_MSB-1:SLOT_LSB] =
+                  ifmt_slice_result[ifmt][GROUP_BITS-1:0];
+            end
+          end else begin : gen_ifmt_insert_slot_invalid
+            assign ifmt_insert_result[ifmt][nidx][slot] = conv_target_q;
+          end
+        end
       end
     end
+
+
+    always_comb begin : select_insert_result
+      insert_result = conv_target_q;
+      unique case (result_insert_kind)
+        INSERT_FP: insert_result = fmt_insert_result[result_fmt]
+                                                   [result_insert_nlanes_idx]
+                                                   [result_insert_slot];
+        INSERT_INT: insert_result = ifmt_insert_result[result_fmt]
+                                                      [result_insert_nlanes_idx]
+                                                      [result_insert_slot];
+        default: begin
+        end
+      endcase
+
   end else begin : gen_insert_slot0_only
     logic [NUM_FORMATS-1:0][fpnew_pkg::OP0_NUM_NLANES-1:0][Width-1:0]
           fmt_insert_result;
+    logic [NUM_INT_FORMATS-1:0][fpnew_pkg::OP0_NUM_NLANES-1:0][Width-1:0]
+          ifmt_insert_result;
 
     for (genvar fmt = 0; fmt < NUM_FORMATS; fmt++) begin : gen_fmt_insert_result
       localparam int unsigned FP_WIDTH = fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(fmt));
@@ -1002,11 +1124,32 @@ or on 16b inputs producing 32b outputs");
       end
     end
 
-    always_comb begin : select_insert_result
-      insert_result = conv_target_q;
-      if (result_insert_kind == INSERT_FP) begin
-        insert_result = fmt_insert_result[result_fmt][result_insert_nlanes_idx];
+    for (genvar ifmt = 0; ifmt < NUM_INT_FORMATS; ifmt++) begin : gen_ifmt_insert_result
+      localparam int unsigned INT_WIDTH = fpnew_pkg::int_width(fpnew_pkg::int_format_e'(ifmt));
+      for (genvar nidx = 0; nidx < fpnew_pkg::OP0_NUM_NLANES; nidx++) begin : gen_ifmt_insert_nlanes
+        localparam int unsigned NLANES = fpnew_pkg::op0_idx_to_nlanes(nidx);
+        localparam int unsigned GROUP_BITS = NLANES * INT_WIDTH;
+        if (GROUP_BITS <= Width) begin : gen_ifmt_insert_slot0_valid
+          always_comb begin
+            ifmt_insert_result[ifmt][nidx] = conv_target_q;
+            ifmt_insert_result[ifmt][nidx][GROUP_BITS-1:0] =
+                ifmt_slice_result[ifmt][GROUP_BITS-1:0];
+          end
+        end else begin : gen_ifmt_insert_slot0_invalid
+          assign ifmt_insert_result[ifmt][nidx] = conv_target_q;
+        end
       end
+    end
+
+
+    always_comb begin : select_insert_result
+      unique case (result_insert_kind)
+        INSERT_FP: insert_result = fmt_insert_result[result_fmt][result_insert_nlanes_idx];
+        INSERT_INT: insert_result = ifmt_insert_result[result_fmt][result_insert_nlanes_idx];
+        default: begin
+        end
+      endcase
+
     end
   end
 

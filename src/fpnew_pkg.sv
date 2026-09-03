@@ -133,6 +133,12 @@ package fpnew_pkg;
     dst_fp_formats:  9'b100010000   // FP32, FP16ALT
   };
 
+  localparam int unsigned               MX_SCALE_WIDTH    = 8;
+  localparam int unsigned               MX_SCALE_BIAS     = 127;
+  localparam logic [MX_SCALE_WIDTH-1:0] MX_SCALE_NAN_BITS = '1;
+  localparam int unsigned               MX_SCALE_MAX_ABS  = MX_SCALE_BIAS;
+
+
   // --------------
   // FP OPERATIONS
   // --------------
@@ -150,7 +156,7 @@ package fpnew_pkg;
     DIV, SQRT,                   // DIVSQRT operation group
     SGNJ, MINMAX, CMP, CLASSIFY, // NONCOMP operation group
     F2F, F2I, I2F, CPKAB, CPKCD, // CONV operation group
-    FNF,
+    FNF, M2F, F2M, MI2F, F2MI,   // CONV operation: non-2x FP format conversion and MX
     SDOTP, EXVSUM, VSUM,         // DOTP operation group
     MXDOTPF, MXDOTPI             // MXDOTP operation group
   } operation_e;
@@ -286,6 +292,8 @@ package fpnew_pkg;
   typedef struct packed {
     int unsigned    Width;
     logic           EnableVectors;
+    logic           EnableSlotSelect;
+    logic           EnableMXConv;
     logic           EnableNanBox;
     fmt_logic_t     FpFmtMask;    // Standard FP formats for all opgroups
     ifmt_logic_t    IntFmtMask;   // Standard INT formats for all opgroups
@@ -297,6 +305,8 @@ package fpnew_pkg;
   localparam fpu_features_t RV64D = '{
     Width:         64,
     EnableVectors: 1'b0,
+    EnableSlotSelect: 1'b0,
+    EnableMXConv:  1'b0,
     EnableNanBox:  1'b1,
     FpFmtMask:     9'b110000000,
     IntFmtMask:    4'b0011,
@@ -308,6 +318,8 @@ package fpnew_pkg;
   localparam fpu_features_t RV32D = '{
     Width:         64,
     EnableVectors: 1'b1,
+    EnableSlotSelect: 1'b1,
+    EnableMXConv:  1'b0
     EnableNanBox:  1'b1,
     FpFmtMask:     9'b110000000,
     IntFmtMask:    4'b0010,
@@ -319,6 +331,8 @@ package fpnew_pkg;
   localparam fpu_features_t RV32F = '{
     Width:         32,
     EnableVectors: 1'b0,
+    EnableSlotSelect: 1'b0,
+    EnableMXConv:  1'b0,
     EnableNanBox:  1'b1,
     FpFmtMask:     9'b100000000,
     IntFmtMask:    4'b0010,
@@ -330,6 +344,8 @@ package fpnew_pkg;
   localparam fpu_features_t RV64D_Xsflt = '{
     Width:         64,
     EnableVectors: 1'b1,
+    EnableSlotSelect: 1'b1,
+    EnableMXConv:  1'b1,
     EnableNanBox:  1'b1,
     FpFmtMask:     9'b111111111,  // Standard formats (not including FP6, FP6ALT, FP4)
     IntFmtMask:    4'b1111,
@@ -341,6 +357,8 @@ package fpnew_pkg;
   localparam fpu_features_t RV32F_Xsflt = '{
     Width:         32,
     EnableVectors: 1'b1,
+    EnableSlotSelect: 1'b1,
+    EnableMXConv:  1'b0,
     EnableNanBox:  1'b1,
     FpFmtMask:     9'b101111000,
     IntFmtMask:    4'b1110,
@@ -352,6 +370,8 @@ package fpnew_pkg;
   localparam fpu_features_t RV32F_Xf16alt_Xfvec = '{
     Width:         32,
     EnableVectors: 1'b1,
+    EnableSlotSelect: 1'b1,
+    EnableMXConv:  1'b0,
     EnableNanBox:  1'b1,
     FpFmtMask:     9'b100010000,
     IntFmtMask:    4'b0110,
@@ -629,6 +649,15 @@ package fpnew_pkg;
     return FP_ENCODINGS[fmt].exp_bits + FP_ENCODINGS[fmt].man_bits + 1;
   endfunction
 
+  function automatic bit fp_fmt_has_inf(fp_format_e fmt, bit is_mx);
+    return !(fmt == FP6 || fmt == FP6ALT || fmt == FP4 ||
+             (fmt == FP8ALT && is_mx));
+  endfunction
+
+  function automatic bit fp_fmt_has_nan(fp_format_e fmt);
+    return !(fmt == FP6 || fmt == FP6ALT || fmt == FP4);
+  endfunction
+
   // Returns the widest FP format present
   function automatic int unsigned max_fp_width(fmt_logic_t cfg);
     automatic int unsigned res = 0;
@@ -703,7 +732,7 @@ package fpnew_pkg;
       FMADD, FNMSUB, ADD, MUL, PWPA, PACE_INV, PACE_SQRT, PACE_RSQRT: return ADDMUL;
       DIV, SQRT:                                                      return DIVSQRT;
       SGNJ, MINMAX, CMP, CLASSIFY:                                    return NONCOMP;
-      F2F, F2I, I2F, CPKAB, CPKCD, FNF:                               return CONV;
+      F2F, FNF, F2I, I2F, M2F, MI2F, F2M, F2MI, CPKAB, CPKCD:         return CONV;
       SDOTP, EXVSUM, VSUM:                                            return DOTP;
       MXDOTPF, MXDOTPI:                                               return MXDOTP;
       default:                                                        return NONCOMP;
