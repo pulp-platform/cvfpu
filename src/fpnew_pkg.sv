@@ -106,18 +106,30 @@ package fpnew_pkg;
       INT16: return 16;
       INT32: return 32;
       INT64: return 64;
-      default: begin
-        // pragma translate_off
-        $fatal(1, "Invalid INT format supplied");
-        // pragma translate_on
-        // just return any integer to avoid any latches
-        // hopefully this error is caught by simulation
-        return INT8;
-      end
+      default: return 0;
     endcase
   endfunction
 
   typedef logic [0:NUM_INT_FORMATS-1] ifmt_logic_t; // Logic indexed by INT format (for masks)
+
+  typedef fmt_logic_t  fmt_cmp_lut_t      [NUM_FP_FORMATS];
+  typedef ifmt_logic_t fmt_ifmt_cmp_lut_t [NUM_FP_FORMATS];
+  typedef fmt_logic_t  ifmt_fmt_cmp_lut_t [NUM_INT_FORMATS];
+
+  localparam fmt_cmp_lut_t FP_WIDTH_GT_LUT = '{
+    9'b001111111, 9'b101111111, 9'b000101111,
+    9'b000000111, 9'b000101111, 9'b000000111,
+    9'b000000001, 9'b000000001, 9'b000000000
+  };
+
+  localparam fmt_ifmt_cmp_lut_t FP_WIDTH_GT_INT_LUT = '{
+    4'b1100, 4'b1110, 4'b1000, 4'b0000, 4'b1000,
+    4'b0000, 4'b0000, 4'b0000, 4'b0000
+  };
+
+  localparam ifmt_fmt_cmp_lut_t INT_WIDTH_GT_FP_LUT = '{
+    9'b000000111, 9'b000101111, 9'b001111111, 9'b101111111
+  };
 
   // Combined format struct for operations that need FP, INT, and destination formats
   typedef struct packed {
@@ -321,7 +333,7 @@ package fpnew_pkg;
     Width:         64,
     EnableVectors: 1'b1,
     EnableSlotSelect: 1'b1,
-    EnableMXConv:  1'b0
+    EnableMXConv:  1'b0,
     EnableNanBox:  1'b1,
     FpFmtMask:     9'b110000000,
     IntFmtMask:    4'b0010,
@@ -661,6 +673,18 @@ package fpnew_pkg;
       default: return 0;
     endcase
 
+  endfunction
+
+  function automatic logic fp_width_gt(fp_format_e lhs, fp_format_e rhs);
+    return FP_WIDTH_GT_LUT[lhs][rhs];
+  endfunction
+
+  function automatic logic fp_width_gt_int(fp_format_e lhs, int_format_e rhs);
+    return FP_WIDTH_GT_INT_LUT[lhs][rhs];
+  endfunction
+
+  function automatic logic int_width_gt_fp(int_format_e lhs, fp_format_e rhs);
+    return INT_WIDTH_GT_FP_LUT[lhs][rhs];
   endfunction
 
   function automatic bit fp_fmt_has_inf(fp_format_e fmt, bit is_mx);

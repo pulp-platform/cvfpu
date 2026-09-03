@@ -195,10 +195,10 @@ or on 16b inputs producing 32b outputs");
                                                           op_i == fpnew_pkg::CPKCD);
   assign dst_vec_op     = {2{(OpGroup == fpnew_pkg::CONV)}} & {(op_i == fpnew_pkg::CPKCD), op_mod_i};
 
-  assign is_up_cast   = (fpnew_pkg::fp_width(dst_fmt_i) > fpnew_pkg::fp_width(src_fmt_i));
-  assign is_down_cast = (fpnew_pkg::fp_width(dst_fmt_i) < fpnew_pkg::fp_width(src_fmt_i));
-  assign mxi_is_up_cast = (fpnew_pkg::fp_width(dst_fmt_i) > fpnew_pkg::int_width(int_fmt_i));
-  assign fi_is_up_cast  = (fpnew_pkg::int_width(int_fmt_i) > fpnew_pkg::fp_width(src_fmt_i));
+  assign is_up_cast     = fpnew_pkg::fp_width_gt(dst_fmt_i, src_fmt_i);
+  assign is_down_cast   = fpnew_pkg::fp_width_gt(src_fmt_i, dst_fmt_i);
+  assign mxi_is_up_cast = fpnew_pkg::fp_width_gt_int(dst_fmt_i, int_fmt_i);
+  assign fi_is_up_cast  = fpnew_pkg::int_width_gt_fp(int_fmt_i, src_fmt_i);
   assign op_is_vsum   = op_i == fpnew_pkg::VSUM ? 1'b1 : 1'b0;
 
   if (EnableSlotSelect) begin : gen_slot_select_enabled
@@ -464,7 +464,7 @@ or on 16b inputs producing 32b outputs");
           if (op_i == fpnew_pkg::I2F) begin                     // special cases
             op0_window_sel = fpnew_pkg::pick_op0_window(
                 op0_window_table, int_widx, 3'd0, 5'd0);
-            local_operands[0] = op0_window_sel[LANE_WIDTH-1:0];ù
+            local_operands[0] = op0_window_sel[LANE_WIDTH-1:0];
           end else if (op_i == fpnew_pkg::M2F) begin
             if (EnableMXConv && vectorial_op && (slot_select_imm != '0) && is_up_cast) begin
               op0_window_sel = fpnew_pkg::pick_op0_window(
@@ -486,7 +486,8 @@ or on 16b inputs producing 32b outputs");
               op0_window_sel = fpnew_pkg::pick_op0_width_window(
                   op0_f2f_upper_table, src_widx);
               local_operands[0] = op0_window_sel[LANE_WIDTH-1:0];
-            end else if (op_i == fpnew_pkg::FNF) begin
+            end
+          end else if (op_i == fpnew_pkg::FNF) begin
             if (vectorial_op && (slot_select_imm != '0) && is_up_cast) begin
               op0_window_sel = fpnew_pkg::pick_op0_window(
                   op0_window_table, src_widx, dst_nidx, subgroup_sel);
@@ -522,7 +523,7 @@ or on 16b inputs producing 32b outputs");
               op0_window_table, src_widx, 3'd0, 5'd0);
           local_operands[0] = op0_window_sel[LANE_WIDTH-1:0];
 
-          if (op_i == fpnew_pkg::I2F) begin
+          if (op_i == fpnew_pkg::I2F || op_i == fpnew_pkg::MI2F) begin
             op0_window_sel = fpnew_pkg::pick_op0_window(
                 op0_window_table, int_widx, 3'd0, 5'd0);
             local_operands[0] = op0_window_sel[LANE_WIDTH-1:0];
@@ -968,9 +969,11 @@ or on 16b inputs producing 32b outputs");
     logic [0:NumPipeRegs] byp_pipe_ready;
 
     // Input stage: First element of pipeline is taken from inputs
-    assign byp_pipe_target_q[0]  = conv_target_d;
-    assign byp_pipe_aux_q[0]     = target_aux_d;
-    assign byp_pipe_valid_q[0]   = in_valid_i & vectorial_op;
+    assign byp_pipe_target_q[0]            = conv_target_d;
+    assign byp_pipe_aux_q[0]               = target_aux_d;
+    assign byp_pipe_insert_nlanes_idx_q[0] = target_insert_nlanes_idx_d;
+    assign byp_pipe_insert_kind_q[0]       = target_insert_kind_d;
+    assign byp_pipe_valid_q[0]             = in_valid_i & (dst_is_cpk | target_is_insert_d);
     // Generate the register stages
     for (genvar i = 0; i < NumPipeRegs; i++) begin : gen_bypass_pipeline
       // Internal register enable for this stage
@@ -1138,6 +1141,7 @@ or on 16b inputs producing 32b outputs");
         default: begin
         end
       endcase
+    end
 
   end else begin : gen_insert_slot0_only
     logic [NUM_FORMATS-1:0][fpnew_pkg::OP0_NUM_NLANES-1:0][Width-1:0]
