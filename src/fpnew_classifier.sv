@@ -16,12 +16,12 @@
 module fpnew_classifier #(
   parameter fpnew_pkg::fp_format_e   FpFormat = fpnew_pkg::fp_format_e'(0),
   parameter int unsigned             NumOperands = 1,
-  parameter int unsigned             MX = 0,
   // Do not change
   localparam int unsigned WIDTH = fpnew_pkg::fp_width(FpFormat)
 ) (
   input  logic                [NumOperands-1:0][WIDTH-1:0] operands_i,
   input  logic                [NumOperands-1:0]            is_boxed_i,
+  input  logic                                             src_is_mx,
   output fpnew_pkg::fp_info_t [NumOperands-1:0]            info_o
 );
 
@@ -48,32 +48,44 @@ module fpnew_classifier #(
     logic is_zero;
     logic is_subnormal;
 
+    assign value    = operands_i[op];
+    assign is_boxed = is_boxed_i[op];
+
+
     // ---------------
     // Classify Input
     // ---------------
-    always_comb begin : classify_input
-      value    = operands_i[op];
-      is_boxed = is_boxed_i[op];
-
-      if (MX == 1 && FpFormat == fpnew_pkg::fp_format_e'(fpnew_pkg::FP8ALT)) begin
-        // E4M3: No infinity, NaN when exp=all1s and man=all1s
-        is_inf    = 1'b0;
-        is_nan    = !is_boxed || ((value.exponent == '1) && (value.mantissa == '1));
-        is_normal = is_boxed && (value.exponent != '0) && !is_nan;
-      end else if (MX == 1 && (FpFormat == fpnew_pkg::fp_format_e'(fpnew_pkg::FP6) ||
-                                FpFormat == fpnew_pkg::fp_format_e'(fpnew_pkg::FP6ALT) ||
-                                FpFormat == fpnew_pkg::fp_format_e'(fpnew_pkg::FP4))) begin
-        // E3M2, E2M3, E2M1: No infinity or NaN
+    if (FpFormat == fpnew_pkg::fp_format_e'(fpnew_pkg::FP6) ||
+        FpFormat == fpnew_pkg::fp_format_e'(fpnew_pkg::FP6ALT) ||
+        FpFormat == fpnew_pkg::fp_format_e'(fpnew_pkg::FP4)) begin : gen_finite_only
+      always_comb begin : classify_input
+        // FP6/FP4 formats are always finite-only.
         is_inf    = 1'b0;
         is_nan    = 1'b0;
         is_normal = is_boxed && (value.exponent != '0);
-      end else begin
-        // Standard IEEE-754 classification (for all other formats and MX=0)
+      end
+    end else if (FpFormat == fpnew_pkg::fp_format_e'(fpnew_pkg::FP8ALT)) begin : gen_fp8alt
+      always_comb begin : classify_input
+        if (src_is_mx) begin
+          // E4M3: No infinity, NaN when exp=all1s and man=all1s
+          is_inf    = 1'b0;
+          is_nan    = !is_boxed || ((value.exponent == '1) && (value.mantissa == '1));
+          is_normal = is_boxed && (value.exponent != '0) && !is_nan;
+        end else begin
+          is_inf    = is_boxed && ((value.exponent == '1) && (value.mantissa == '0));
+          is_nan    = !is_boxed || ((value.exponent == '1) && (value.mantissa != '0));
+          is_normal = is_boxed && (value.exponent != '0) && (value.exponent != '1);
+        end
+      end
+    end else begin : gen_ieee
+      always_comb begin : classify_input
         is_inf    = is_boxed && ((value.exponent == '1) && (value.mantissa == '0));
         is_nan    = !is_boxed || ((value.exponent == '1) && (value.mantissa != '0));
         is_normal = is_boxed && (value.exponent != '0) && (value.exponent != '1);
       end
+    end
 
+    always_comb begin : classify_common
       is_zero       = is_boxed && (value.exponent == '0) && (value.mantissa == '0);
       is_subnormal  = is_boxed && (value.exponent == '0) && !is_zero;
       is_signalling = is_boxed && is_nan && (value.mantissa[MAN_BITS-1] == 1'b0);
@@ -90,3 +102,4 @@ module fpnew_classifier #(
     end
   end
 endmodule
+

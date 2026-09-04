@@ -159,6 +159,7 @@ module fpnew_fma #(
     ) i_class_inputs (
     .operands_i ( inp_pipe_operands_q[NUM_INP_REGS] ),
     .is_boxed_i ( inp_pipe_is_boxed_q[NUM_INP_REGS] ),
+    .src_is_mx  ( 1'b0                              ),
     .info_o     ( info_q                            )
   );
 

@@ -127,6 +127,8 @@ module fpnew_top #(
       .OpGroup       ( fpnew_pkg::opgroup_e'(opgrp)    ),
       .Width         ( WIDTH                           ),
       .EnableVectors ( Features.EnableVectors          ),
+      .EnableSlotSelect ( Features.EnableSlotSelect    ),
+      .EnableMXConv  ( Features.EnableMXConv           ),
       .DivSqrtSel    ( DivSqrtSel                      ),
       .FpFmtMask     ( Features.FpFmtMask              ),
       .IntFmtMask    ( Features.IntFmtMask             ),

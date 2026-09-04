@@ -106,18 +106,30 @@ package fpnew_pkg;
       INT16: return 16;
       INT32: return 32;
       INT64: return 64;
-      default: begin
-        // pragma translate_off
-        $fatal(1, "Invalid INT format supplied");
-        // pragma translate_on
-        // just return any integer to avoid any latches
-        // hopefully this error is caught by simulation
-        return INT8;
-      end
+      default: return 0;
     endcase
   endfunction
 
   typedef logic [0:NUM_INT_FORMATS-1] ifmt_logic_t; // Logic indexed by INT format (for masks)
+
+  typedef fmt_logic_t  fmt_cmp_lut_t      [NUM_FP_FORMATS];
+  typedef ifmt_logic_t fmt_ifmt_cmp_lut_t [NUM_FP_FORMATS];
+  typedef fmt_logic_t  ifmt_fmt_cmp_lut_t [NUM_INT_FORMATS];
+
+  localparam fmt_cmp_lut_t FP_WIDTH_GT_LUT = '{
+    9'b001111111, 9'b101111111, 9'b000101111,
+    9'b000000111, 9'b000101111, 9'b000000111,
+    9'b000000001, 9'b000000001, 9'b000000000
+  };
+
+  localparam fmt_ifmt_cmp_lut_t FP_WIDTH_GT_INT_LUT = '{
+    4'b1100, 4'b1110, 4'b1000, 4'b0000, 4'b1000,
+    4'b0000, 4'b0000, 4'b0000, 4'b0000
+  };
+
+  localparam ifmt_fmt_cmp_lut_t INT_WIDTH_GT_FP_LUT = '{
+    9'b000000111, 9'b000101111, 9'b001111111, 9'b101111111
+  };
 
   // Combined format struct for operations that need FP, INT, and destination formats
   typedef struct packed {
@@ -132,6 +144,13 @@ package fpnew_pkg;
     src_int_formats: 4'b1000,       // INT8
     dst_fp_formats:  9'b100010000   // FP32, FP16ALT
   };
+
+  localparam int unsigned               MX_SCALE_WIDTH    = 8;
+  localparam int unsigned               MX_SCALE_BIAS     = 127;
+  localparam logic [MX_SCALE_WIDTH-1:0] MX_SCALE_NAN_BITS = '1;
+  localparam int unsigned               MX_SCALE_MAX_ABS  = MX_SCALE_BIAS;
+  localparam int unsigned               MX_INT8_MAX_EXP   = 6;
+
 
   // --------------
   // FP OPERATIONS
@@ -151,7 +170,10 @@ package fpnew_pkg;
     SGNJ, MINMAX, CMP, CLASSIFY, // NONCOMP operation group
     F2F, F2I, I2F, CPKAB, CPKCD, // CONV operation group
     SDOTP, EXVSUM, VSUM,         // DOTP operation group
-    MXDOTPF, MXDOTPI             // MXDOTP operation group
+    MXDOTPF, MXDOTPI,            // MXDOTP operation group
+    FNF, M2F, F2M, MI2F, F2MI,   // CONV operation: non-2x FP format conversion and MX
+    MXSCALE, MXISCALE,           // CONV MX scale computation
+    MINMAX_P                     // Snitch wrapper marker; converted to MINMAX before fpnew_top
   } operation_e;
 
   // -------------
@@ -285,6 +307,8 @@ package fpnew_pkg;
   typedef struct packed {
     int unsigned    Width;
     logic           EnableVectors;
+    logic           EnableSlotSelect;
+    logic           EnableMXConv;
     logic           EnableNanBox;
     fmt_logic_t     FpFmtMask;    // Standard FP formats for all opgroups
     ifmt_logic_t    IntFmtMask;   // Standard INT formats for all opgroups
@@ -296,6 +320,8 @@ package fpnew_pkg;
   localparam fpu_features_t RV64D = '{
     Width:         64,
     EnableVectors: 1'b0,
+    EnableSlotSelect: 1'b0,
+    EnableMXConv:  1'b0,
     EnableNanBox:  1'b1,
     FpFmtMask:     9'b110000000,
     IntFmtMask:    4'b0011,
@@ -307,6 +333,8 @@ package fpnew_pkg;
   localparam fpu_features_t RV32D = '{
     Width:         64,
     EnableVectors: 1'b1,
+    EnableSlotSelect: 1'b1,
+    EnableMXConv:  1'b0,
     EnableNanBox:  1'b1,
     FpFmtMask:     9'b110000000,
     IntFmtMask:    4'b0010,
@@ -318,6 +346,8 @@ package fpnew_pkg;
   localparam fpu_features_t RV32F = '{
     Width:         32,
     EnableVectors: 1'b0,
+    EnableSlotSelect: 1'b0,
+    EnableMXConv:  1'b0,
     EnableNanBox:  1'b1,
     FpFmtMask:     9'b100000000,
     IntFmtMask:    4'b0010,
@@ -329,8 +359,10 @@ package fpnew_pkg;
   localparam fpu_features_t RV64D_Xsflt = '{
     Width:         64,
     EnableVectors: 1'b1,
+    EnableSlotSelect: 1'b1,
+    EnableMXConv:  1'b1,
     EnableNanBox:  1'b1,
-    FpFmtMask:     9'b111111000,  // Standard formats (not including FP6, FP6ALT, FP4)
+    FpFmtMask:     9'b111111111,  // Standard formats (not including FP6, FP6ALT, FP4)
     IntFmtMask:    4'b1111,
     MxFpFmtMask:   9'b000101111,  // MX formats: FP8, FP8ALT, FP6, FP6ALT, FP4
     MxIntFmtMask:  4'b1000,       // INT8 for MX operations
@@ -340,6 +372,8 @@ package fpnew_pkg;
   localparam fpu_features_t RV32F_Xsflt = '{
     Width:         32,
     EnableVectors: 1'b1,
+    EnableSlotSelect: 1'b1,
+    EnableMXConv:  1'b0,
     EnableNanBox:  1'b1,
     FpFmtMask:     9'b101111000,
     IntFmtMask:    4'b1110,
@@ -351,6 +385,8 @@ package fpnew_pkg;
   localparam fpu_features_t RV32F_Xf16alt_Xfvec = '{
     Width:         32,
     EnableVectors: 1'b1,
+    EnableSlotSelect: 1'b1,
+    EnableMXConv:  1'b0,
     EnableNanBox:  1'b1,
     FpFmtMask:     9'b100010000,
     IntFmtMask:    4'b0110,
@@ -429,6 +465,186 @@ package fpnew_pkg;
   // -----------------------
   localparam logic DONT_CARE = 1'b1; // the value to assign as don't care
 
+  // Static window table for CONV operand-0 extraction
+  localparam int unsigned OP0_NUM_WIDTHS    = 6;
+  localparam int unsigned OP0_NUM_NLANES    = 6;
+  localparam int unsigned OP0_NUM_SUBGROUPS = 17;
+  localparam int unsigned OP0_WINDOW_MAX_WIDTH = 64;
+
+  typedef logic [OP0_WINDOW_MAX_WIDTH-1:0] op0_window_t;
+  typedef op0_window_t op0_width_table_t [OP0_NUM_WIDTHS];
+  typedef op0_window_t op0_subgroup_table_t [OP0_NUM_SUBGROUPS];
+  typedef op0_subgroup_table_t op0_nlanes_table_t [OP0_NUM_NLANES];
+  typedef op0_nlanes_table_t op0_window_table_t [OP0_NUM_WIDTHS];
+
+  // Maps a supported operand width to its static table index.
+  function automatic logic [2:0] op0_width_idx(input int unsigned width);
+    unique case (width)
+      4:  return 3'd0;
+      6:  return 3'd1;
+      8:  return 3'd2;
+      16: return 3'd3;
+      32: return 3'd4;
+      64: return 3'd5;
+      default: return 3'd0;
+    endcase
+  endfunction
+
+  // Maps a static table index back to its operand width.
+  function automatic int unsigned op0_idx_to_width(input int unsigned idx);
+    unique case (idx)
+      3'd0: return 4;
+      3'd1: return 6;
+      3'd2: return 8;
+      3'd3: return 16;
+      3'd4: return 32;
+      3'd5: return 64;
+      default: return 4;
+    endcase
+  endfunction
+
+  // Maps a supported lane count to its static table index.
+  function automatic logic [2:0] op0_nlanes_idx(input int unsigned nlanes);
+    unique case (nlanes)
+      1:  return 3'd0;
+      2:  return 3'd1;
+      4:  return 3'd2;
+      8:  return 3'd3;
+      10: return 3'd4;
+      16: return 3'd5;
+      default: return 3'd0;
+    endcase
+  endfunction
+
+  // Maps a static table index back to its lane count.
+  function automatic int unsigned op0_idx_to_nlanes(input int unsigned idx);
+    unique case (idx)
+      0: return 1;
+      1: return 2;
+      2: return 4;
+      3: return 8;
+      4: return 10;
+      5: return 16;
+      default: return 1;
+    endcase
+  endfunction
+
+  // Selects a precomputed operand window by source width.
+  function automatic op0_window_t pick_op0_width_window(
+    input op0_width_table_t tab,
+    input logic [2:0] width_idx
+  );
+    unique case (width_idx)
+      3'd0: return tab[0];
+      3'd1: return tab[1];
+      3'd2: return tab[2];
+      3'd3: return tab[3];
+      3'd4: return tab[4];
+      3'd5: return tab[5];
+      default: return '0;
+    endcase
+  endfunction
+
+  // Selects a precomputed operand window by subgroup.
+  function automatic op0_window_t pick_op0_subgroup_window(
+    input op0_subgroup_table_t subgroup_table,
+    input logic [4:0] subgroup
+  );
+    unique case (subgroup)
+      5'd0:  return subgroup_table[0];
+      5'd1:  return subgroup_table[1];
+      5'd2:  return subgroup_table[2];
+      5'd3:  return subgroup_table[3];
+      5'd4:  return subgroup_table[4];
+      5'd5:  return subgroup_table[5];
+      5'd6:  return subgroup_table[6];
+      5'd7:  return subgroup_table[7];
+      5'd8:  return subgroup_table[8];
+      5'd9:  return subgroup_table[9];
+      5'd10: return subgroup_table[10];
+      5'd11: return subgroup_table[11];
+      5'd12: return subgroup_table[12];
+      5'd13: return subgroup_table[13];
+      5'd14: return subgroup_table[14];
+      5'd15: return subgroup_table[15];
+      5'd16: return subgroup_table[16];
+      default: return '0;
+    endcase
+  endfunction
+
+  // Selects a precomputed operand window by width, lane count, and subgroup.
+  function automatic op0_window_t pick_op0_window(
+    input op0_window_table_t tab,
+    input logic [2:0] width_idx,
+    input logic [2:0] nlanes_idx,
+    input logic [4:0] subgroup
+  );
+    unique case (width_idx)
+      3'd0: begin
+        unique case (nlanes_idx)
+          3'd0: return pick_op0_subgroup_window(tab[0][0], subgroup);
+          3'd1: return pick_op0_subgroup_window(tab[0][1], subgroup);
+          3'd2: return pick_op0_subgroup_window(tab[0][2], subgroup);
+          3'd3: return pick_op0_subgroup_window(tab[0][3], subgroup);
+          3'd4: return pick_op0_subgroup_window(tab[0][4], subgroup);
+          default: return '0;
+        endcase
+      end
+      3'd1: begin
+        unique case (nlanes_idx)
+          3'd0: return pick_op0_subgroup_window(tab[1][0], subgroup);
+          3'd1: return pick_op0_subgroup_window(tab[1][1], subgroup);
+          3'd2: return pick_op0_subgroup_window(tab[1][2], subgroup);
+          3'd3: return pick_op0_subgroup_window(tab[1][3], subgroup);
+          3'd4: return pick_op0_subgroup_window(tab[1][4], subgroup);
+          default: return '0;
+        endcase
+      end
+      3'd2: begin
+        unique case (nlanes_idx)
+          3'd0: return pick_op0_subgroup_window(tab[2][0], subgroup);
+          3'd1: return pick_op0_subgroup_window(tab[2][1], subgroup);
+          3'd2: return pick_op0_subgroup_window(tab[2][2], subgroup);
+          3'd3: return pick_op0_subgroup_window(tab[2][3], subgroup);
+          3'd4: return pick_op0_subgroup_window(tab[2][4], subgroup);
+          default: return '0;
+        endcase
+      end
+      3'd3: begin
+        unique case (nlanes_idx)
+          3'd0: return pick_op0_subgroup_window(tab[3][0], subgroup);
+          3'd1: return pick_op0_subgroup_window(tab[3][1], subgroup);
+          3'd2: return pick_op0_subgroup_window(tab[3][2], subgroup);
+          3'd3: return pick_op0_subgroup_window(tab[3][3], subgroup);
+          3'd4: return pick_op0_subgroup_window(tab[3][4], subgroup);
+          default: return '0;
+        endcase
+      end
+      3'd4: begin
+        unique case (nlanes_idx)
+          3'd0: return pick_op0_subgroup_window(tab[4][0], subgroup);
+          3'd1: return pick_op0_subgroup_window(tab[4][1], subgroup);
+          3'd2: return pick_op0_subgroup_window(tab[4][2], subgroup);
+          3'd3: return pick_op0_subgroup_window(tab[4][3], subgroup);
+          3'd4: return pick_op0_subgroup_window(tab[4][4], subgroup);
+          default: return '0;
+        endcase
+      end
+      3'd5: begin
+        unique case (nlanes_idx)
+          3'd0: return pick_op0_subgroup_window(tab[5][0], subgroup);
+          3'd1: return pick_op0_subgroup_window(tab[5][1], subgroup);
+          3'd2: return pick_op0_subgroup_window(tab[5][2], subgroup);
+          3'd3: return pick_op0_subgroup_window(tab[5][3], subgroup);
+          3'd4: return pick_op0_subgroup_window(tab[5][4], subgroup);
+          default: return '0;
+        endcase
+      end
+      default: return '0;
+    endcase
+  endfunction
+
+
   // -------------------------
   // General helper functions
   // -------------------------
@@ -445,7 +661,40 @@ package fpnew_pkg;
   // -------------------------------------------
   // Returns the width of a FP format
   function automatic int unsigned fp_width(fp_format_e fmt);
-    return FP_ENCODINGS[fmt].exp_bits + FP_ENCODINGS[fmt].man_bits + 1;
+    unique case (fmt)
+      FP32:    return 32;
+      FP64:    return 64;
+      FP16:    return 16;
+      FP8:     return 8;
+      FP16ALT: return 16;
+      FP8ALT:  return 8;
+      FP6:     return 6;
+      FP6ALT:  return 6;
+      FP4:     return 4;
+      default: return 0;
+    endcase
+
+  endfunction
+
+  function automatic logic fp_width_gt(fp_format_e lhs, fp_format_e rhs);
+    return FP_WIDTH_GT_LUT[lhs][rhs];
+  endfunction
+
+  function automatic logic fp_width_gt_int(fp_format_e lhs, int_format_e rhs);
+    return FP_WIDTH_GT_INT_LUT[lhs][rhs];
+  endfunction
+
+  function automatic logic int_width_gt_fp(int_format_e lhs, fp_format_e rhs);
+    return INT_WIDTH_GT_FP_LUT[lhs][rhs];
+  endfunction
+
+  function automatic bit fp_fmt_has_inf(fp_format_e fmt, bit is_mx);
+    return !(fmt == FP6 || fmt == FP6ALT || fmt == FP4 ||
+             (fmt == FP8ALT && is_mx));
+  endfunction
+
+  function automatic bit fp_fmt_has_nan(fp_format_e fmt);
+    return !(fmt == FP6 || fmt == FP6ALT || fmt == FP4);
   endfunction
 
   // Returns the widest FP format present
@@ -490,6 +739,22 @@ package fpnew_pkg;
     return unsigned'(2**(FP_ENCODINGS[fmt].exp_bits-1)-1); // symmetrical bias
   endfunction
 
+  function automatic int unsigned max_fp_unbiased_exp(fp_format_e fmt, bit is_mx);
+    unique case (fmt)
+      FP32:    return 127;
+      FP64:    return 1023;
+      FP16:    return 15;
+      FP8:     return 15;
+      FP16ALT: return 127;
+      FP8ALT:  return is_mx ? 8 : 7;
+      FP6:     return 4;
+      FP6ALT:  return 2;
+      FP4:     return 2;
+      default: return 0;
+    endcase
+  endfunction
+
+
   function automatic fp_encoding_t super_format(fmt_logic_t cfg);
     automatic fp_encoding_t res;
     res = '0;
@@ -522,7 +787,8 @@ package fpnew_pkg;
       FMADD, FNMSUB, ADD, MUL, PWPA, PACE_INV, PACE_SQRT, PACE_RSQRT: return ADDMUL;
       DIV, SQRT:                                                      return DIVSQRT;
       SGNJ, MINMAX, CMP, CLASSIFY:                                    return NONCOMP;
-      F2F, F2I, I2F, CPKAB, CPKCD:                                    return CONV;
+      F2F, FNF, F2I, I2F, M2F, MI2F, F2M, F2MI, MXSCALE, MXISCALE,
+      CPKAB, CPKCD:                                                   return CONV;
       SDOTP, EXVSUM, VSUM:                                            return DOTP;
       MXDOTPF, MXDOTPI:                                               return MXDOTP;
       default:                                                        return NONCOMP;
@@ -641,6 +907,62 @@ package fpnew_pkg;
                             |(mx_int_cfg & MXDOTP_FORMATS_MASK.src_int_formats))) ? 1 : 0;
   endfunction
 
+  // Returns maximum conversions parallelism for the enabled formats.
+  // computed at compile time
+  function automatic int unsigned num_conv_lanes(int unsigned width,
+                                                  fmt_logic_t fp_cfg,
+                                                  ifmt_logic_t int_cfg,
+                                                  fmt_logic_t mx_fp_cfg,
+                                                  ifmt_logic_t mx_int_cfg);
+    automatic int unsigned min_width;
+    automatic int unsigned min2_width;  // use to track parallelism between same with (int8 -> fp8)
+    automatic int unsigned min_num;
+    automatic int unsigned cur_width;
+    automatic int unsigned lane_width;
+    automatic logic        mx_present;
+
+    min_width  = width;
+    min2_width = width;
+    min_num    = 0;
+
+    // fing fp/int min and min2
+    for (int unsigned i = 0; i < NUM_FP_FORMATS; i++) begin
+      if (fp_cfg[i]) begin
+        cur_width = fp_width(fp_format_e'(i));
+        if (cur_width < min_width) begin
+          min2_width = min_width;
+          min_width  = cur_width;
+          min_num    = 1;
+        end else if (cur_width == min_width) begin
+          min_num++;
+        end else if (cur_width < min2_width) begin
+          min2_width = cur_width;
+        end
+      end
+    end
+
+    for (int unsigned i = 0; i < NUM_INT_FORMATS; i++) begin
+      if (int_cfg[i]) begin
+        cur_width = int_width(int_format_e'(i));
+        if (cur_width < min_width) begin
+          min2_width = min_width;
+          min_width  = cur_width;
+          min_num    = 1;
+        end else if (cur_width == min_width) begin
+          min_num++;
+        end else if (cur_width < min2_width) begin
+          min2_width = cur_width;
+        end
+      end
+    end
+
+    // MX conversions take advantage of fp maximum parallelism
+    mx_present = ((mx_fp_cfg != '0) || (mx_int_cfg != '0)) && min_width >= 8;
+    lane_width = (mx_present || (min_num >= 2)) ? min_width : min2_width;
+    return width / lane_width;
+  endfunction
+
+
   // Returns all format masks for MXDOTP operations
   // Note: Assumes width == 64 (validated at instantiation)
   function automatic lane_formats_t get_mxdotp_formats(int unsigned width,
@@ -731,5 +1053,15 @@ package fpnew_pkg;
     end
     return res;
   endfunction
+
+  // In merged opgroup filter fmt that are disable for that opgroup
+  // "active format but not for this merged opgroup"
+  function automatic fmt_logic_t get_merged_formats(fmt_unit_types_t types,
+                                                     fmt_logic_t cfg);
+    for (int unsigned fmt = 0; fmt < NUM_FP_FORMATS; fmt++) begin
+      get_merged_formats[fmt] = cfg[fmt] && (types[fmt] == MERGED);  // mask op
+    end
+  endfunction
+
 
 endpackage
