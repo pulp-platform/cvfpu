@@ -172,7 +172,8 @@ package fpnew_pkg;
     SDOTP, EXVSUM, VSUM,         // DOTP operation group
     MXDOTPF, MXDOTPI,            // MXDOTP operation group
     FNF, M2F, F2M, MI2F, F2MI,   // CONV operation: non-2x FP format conversion and MX
-    MXSCALE, MXISCALE            // CONV MX scale computation
+    MXSCALE, MXISCALE,           // CONV MX scale computation
+    MINMAX_P                     // Snitch wrapper marker; converted to MINMAX before fpnew_top
   } operation_e;
 
   // -------------
