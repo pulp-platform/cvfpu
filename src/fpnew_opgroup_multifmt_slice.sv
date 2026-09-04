@@ -414,7 +414,7 @@ or on 16b inputs producing 32b outputs");
 
       for (genvar widx = 0; widx < fpnew_pkg::OP0_NUM_WIDTHS; widx++) begin : gen_op0_widths
         localparam int unsigned W = fpnew_pkg::op0_idx_to_width(widx);
-        localparam int unsigned F2F_UPPER_BASE = LANE * W + (MAX_FP_WIDTH / 2);
+        localparam int unsigned F2F_UPPER_BASE = LANE * W + (Width / 2);
         for (genvar f2f_b = 0; f2f_b < fpnew_pkg::OP0_WINDOW_MAX_WIDTH; f2f_b++) begin : gen_op0_f2f_upper_bits
           if (f2f_b < LANE_WIDTH && (F2F_UPPER_BASE + f2f_b) < Width) begin
             assign op0_f2f_upper_table[widx][f2f_b] = operands_i[0][F2F_UPPER_BASE + f2f_b];
@@ -1195,6 +1195,7 @@ or on 16b inputs producing 32b outputs");
 
 
     always_comb begin : select_insert_result
+      insert_result = conv_target_q;
       unique case (result_insert_kind)
         INSERT_FP: insert_result = fmt_insert_result[result_fmt][result_insert_nlanes_idx];
         INSERT_INT: insert_result = ifmt_insert_result[result_fmt][result_insert_nlanes_idx];
