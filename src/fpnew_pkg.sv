@@ -106,7 +106,7 @@ package fpnew_pkg;
       INT16: return 16;
       INT32: return 32;
       INT64: return 64;
-      default: return 0;
+      default: return 8;
     endcase
   endfunction
 
@@ -525,7 +525,7 @@ package fpnew_pkg;
       3: return 8;
       4: return 10;
       5: return 16;
-      default: return 1;
+      default: return 8;
     endcase
   endfunction
 
@@ -671,7 +671,7 @@ package fpnew_pkg;
       FP6:     return 6;
       FP6ALT:  return 6;
       FP4:     return 4;
-      default: return 0;
+      default: return 8;
     endcase
 
   endfunction
