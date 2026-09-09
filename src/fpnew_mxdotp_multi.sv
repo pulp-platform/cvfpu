@@ -22,14 +22,10 @@ module fpnew_mxdotp_multi
   parameter fpnew_pkg::fmt_logic_t   FpSrcFmtConfig  = MxdotpSrcFpFmtConfig,
   parameter fpnew_pkg::ifmt_logic_t  IntSrcFmtConfig = MxdotpSrcIntFmtConfig,
   parameter fpnew_pkg::fmt_logic_t   FpDstFmtConfig  = MxdotpDstFpFmtConfig,
-  parameter int unsigned             LaneWidth   = 64,
-  parameter int unsigned             VectorSize  = 8,
   parameter int unsigned             NumPipeRegs = 4,
   parameter fpnew_pkg::pipe_config_t PipeConfig  = fpnew_pkg::BEFORE,
   parameter type                     TagType     = logic,
-  parameter type                     AuxType     = logic,
-  // Do not change the following parameters
-  localparam int unsigned            NUM_OPERANDS = 2*VectorSize+1
+  parameter type                     AuxType     = logic
 ) (
   input  logic                        clk_i,
   input  logic                        rst_ni,
@@ -68,10 +64,6 @@ module fpnew_mxdotp_multi
   output logic                        busy_o
 );
 
-  if (LaneWidth != VectorSize*SRC_WIDTH) begin
-    $fatal(1, "MXDOTP requires LaneWidth to be VectorSize*SRC_WIDTH, got LaneWidth=%0d and VectorSize=%0d", LaneWidth, VectorSize);
-  end
-
   // ----------------
   // Pipeline stages
   // ----------------
@@ -109,8 +101,9 @@ module fpnew_mxdotp_multi
   // Config-dependent derived localparams
   // -----------------------------------------
   // Computed from module parameters instead of package constants
+  localparam int unsigned LANE_WIDTH = VectorSize*SRC_WIDTH;
   localparam int unsigned FP6_VECTOR_SIZE = ((FpSrcFmtConfig[fpnew_pkg::FP6] || FpSrcFmtConfig[fpnew_pkg::FP6ALT]) == 1) ?
-                                            (((FpSrcFmtConfig[fpnew_pkg::FP8] || FpSrcFmtConfig[fpnew_pkg::FP8ALT]) == 1) ? cc_pkg::ceil_div(LaneWidth, 6) - VectorSize : cc_pkg::ceil_div(LaneWidth, 6)) : 0;
+                                            (((FpSrcFmtConfig[fpnew_pkg::FP8] || FpSrcFmtConfig[fpnew_pkg::FP8ALT]) == 1) ? cc_pkg::ceil_div(LANE_WIDTH, 6) - VectorSize : cc_pkg::ceil_div(LANE_WIDTH, 6)) : 0;
   localparam int unsigned FP6_VECTOR_SIZE_GUARDED = (FP6_VECTOR_SIZE > 0) ? FP6_VECTOR_SIZE : 1;
   localparam int unsigned FP4_VECTOR_SIZE = (FpSrcFmtConfig[fpnew_pkg::FP4] == 1) ?
                                             (((FpSrcFmtConfig[fpnew_pkg::FP8] || FpSrcFmtConfig[fpnew_pkg::FP8ALT]) == 1) ?
@@ -124,13 +117,6 @@ module fpnew_mxdotp_multi
 
   localparam int unsigned FP6_SUM_WIDTH = $clog2(FP6_VECTOR_SIZE) + FP6_PROD_SHIFT_WIDTH;
   localparam int unsigned FP4_SUM_WIDTH = $clog2(FP4_VECTOR_SIZE) + FP4_PROD_SHIFT_WIDTH;
-
-  // Accumulator Constants
-  localparam int unsigned VECTOR_BITS          = $clog2(VectorSize);
-  localparam int unsigned SOP_FIXED_WIDTH      = VECTOR_BITS + PROD_SHIFT_WIDTH;
-  localparam int unsigned FIXED_SUM_WIDTH      = 1 + DST_PRECISION_BITS + 1 + (SOP_FIXED_WIDTH - 1); // |s|-Acc:24b-|R|-unsigned SoP:64+log2k-|
-  localparam int unsigned LZC_SUM_WIDTH        = FIXED_SUM_WIDTH + DST_PRECISION_BITS;
-  localparam int unsigned LZC_RESULT_WIDTH     = $clog2(LZC_SUM_WIDTH);
 
   // ---------------
   // Input pipeline
@@ -295,7 +281,6 @@ module fpnew_mxdotp_multi
   fpnew_mxdotp_classifier #(
     .FpSrcFmtConfig ( FpSrcFmtConfig  ),
     .FpDstFmtConfig ( FpDstFmtConfig  ),
-    .VectorSize     ( VectorSize      ),
     .FP6VectorSize  ( FP6_VECTOR_SIZE_GUARDED ),
     .FP4VectorSize  ( FP4_VECTOR_SIZE_GUARDED ),
     .NumInpRegs     ( NUM_INP_REGS    )
@@ -338,8 +323,7 @@ module fpnew_mxdotp_multi
   // Inf and NaN do not exists in FP6 and FP4 formats
   if (FpSrcFmtConfig[fpnew_pkg::FP8] || FpSrcFmtConfig[fpnew_pkg::FP8ALT]) begin : special_case_handling
     fpnew_mxdotp_special_cases #(
-      .FpDstFmtConfig ( FpDstFmtConfig ),
-      .VectorSize     ( VectorSize     )
+      .FpDstFmtConfig ( FpDstFmtConfig )
     ) i_special_cases (
       .operands_a(operands_a),
       .operands_b(operands_b),
@@ -642,7 +626,6 @@ module fpnew_mxdotp_multi
 
   // Unified format adder: handles FP8 + FP6 + FP4 (FP6/FP4 are zero when disabled)
   fpnew_mxdotp_format_adder #(
-    .SoPFixedWidth ( SOP_FIXED_WIDTH ),
     .Fp6SumWidth ( FP6_SUM_WIDTH ),
     .Fp4SumWidth ( FP4_SUM_WIDTH )
   ) i_format_adder (
@@ -742,7 +725,6 @@ module fpnew_mxdotp_multi
   logic signed [DST_PRECISION_BITS-1:0] accumulator_remaining;
 
   fpnew_mxdotp_accumulator_shift #(
-    .SoPFixedWidth  ( SOP_FIXED_WIDTH )
   ) i_accumulator_shift (
     .sum_product(sum_product_q),
     .scale(scale_q),
@@ -764,7 +746,6 @@ module fpnew_mxdotp_multi
   logic signed [LZC_SUM_WIDTH-1:0] sum_product_accumulator_extended;
 
   fpnew_mxdotp_add_accumulator_sop #(
-    .SoPFixedWidth  ( SOP_FIXED_WIDTH )
   ) i_add_accumulator_sop (
     .sum_product(sum_product_q),
     .accumulator_shifted(accumulator_shifted),
@@ -779,7 +760,6 @@ module fpnew_mxdotp_multi
   logic [LZC_SUM_WIDTH-1:0] sum_magnitude;
 
   fpnew_mxdotp_twos_compl #(
-    .SoPFixedWidth  ( SOP_FIXED_WIDTH )
   ) i_twos_compl (
     .sum_product_accumulator_extended ( sum_product_accumulator_extended ),
     .signed_mantissa_d                ( signed_mantissa_d                ),
@@ -877,7 +857,6 @@ module fpnew_mxdotp_multi
   logic                             lzc_zeroes;
 
   fpnew_mxdotp_norm_lzc #(
-    .SoPFixedWidth  ( SOP_FIXED_WIDTH )
   ) i_norm_lzc (
     .sum_magnitude         ( sum_magnitude_q        ),
     .leading_zero_count_sgn( leading_zero_count_sgn ),
@@ -1002,7 +981,6 @@ module fpnew_mxdotp_multi
   logic                            sticky_after_norm;
 
   fpnew_mxdotp_norm_finalize #(
-    .SoPFixedWidth  ( SOP_FIXED_WIDTH )
   ) i_norm_finalize (
     .sum_magnitude          ( sum_magnitude_q2         ),
     .leading_zero_count_sgn ( leading_zero_count_sgn_q ),
@@ -1024,8 +1002,7 @@ module fpnew_mxdotp_multi
   logic uf_after_round; // underflow
 
   fpnew_mxdotp_rounder #(
-    .FpDstFmtConfig ( FpDstFmtConfig ),
-    .SoPFixedWidth  ( SOP_FIXED_WIDTH )
+    .FpDstFmtConfig ( FpDstFmtConfig )
   ) i_rounder (
     .clk_i(clk_i),
     .rst_ni(rst_ni),
