@@ -7,6 +7,25 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) a
 In this sense, we interpret the "Public API" of a hardware module as its port/parameter list.
 Versions of the IP in the same major relase are "pin-compatible" with each other. Minor relases are permitted to add new parameters as long as their default bindings ensure backwards compatibility.
 
+## [Unreleased]
+
+### Added
+- Add MX conversion operations to the `CONV` opgroup: `M2F`/`F2M` (MX FP <-> FP with a shared E8M0 scale), `MI2F`/`F2MI` (MX INT8 <-> FP), `MXSCALE`/`MXISCALE` (E8M0 scale computation) and `FNF` (FP -> FP conversion between formats whose widths are not a power-of-two multiple apart)
+- Add slot insert mechanism to `fpnew_opgroup_multifmt_slice`: the converted group of a `CONV` insert operation is written into a slot of the target operand (`operands_i[1]`), the slot being selected by `operands_i[2][11:8]`
+- Add `EnableSlotSelect` and `EnableMXConv` fields to `fpu_features_t` to enable the slot insert mechanism and the MX conversion datapath
+- `MINMAX` with `op_mod_i` set compares and returns the magnitudes of `op[0]` and `op[1]` (absolute minimum / maximum); `op_mod_i` was previously ignored by `MINMAX`
+
+### Changed
+- **Breaking**: `fpu_features_t` gains the `EnableSlotSelect` and `EnableMXConv` fields; existing feature literals must add both (set them to `1'b0` to keep the previous behaviour)
+- `fpnew_cast_multi` takes three operands (`operands_i[0]` source, `[1]` insert target, `[2]` MX scale) and gains the `MxFpFmtConfig`, `MxIntFmtConfig` and `EnableMXScale` parameters
+- `fpnew_classifier` replaces the `MX` parameter with a runtime `src_is_mx` input; FP6, FP6ALT and FP4 are always classified as finite-only (they have no Inf/NaN encodings)
+- `FNF` between two MX-only formats (FP6, FP6ALT, FP4 on both sides) requires both formats in `FpFmtMask`; every other MX conversion only needs them in `MxFpFmtMask` (the `CONV` opgroup block routes the MX element formats to its merged slice). The predefined `RV64D_Xsflt` keeps them out of `FpFmtMask`, so `NumLanes` and `simd_mask_i` are unchanged
+- `DEFAULT_SNITCH_PIPE` is now specified per format: FP6, FP6ALT and FP4 are enabled for `CONV` only and `DISABLED` elsewhere, `ADDMUL` is `MERGED` for FP32/FP64/FP16/FP16ALT only (no FP8/FP8ALT FMA), `DIVSQRT` is `MERGED` for FP32/FP16/FP16ALT only, and the pipeline depths are ADDMUL 2 (FP32/FP64) / 1 (FP16/FP16ALT), DIVSQRT 1, NONCOMP 0, CONV 2, DOTP 3, MXDOTP 3
+- Merged opgroup slices only build lanes for formats whose unit type is `MERGED` for that opgroup
+
+### Fixed
+- Fix upper-half operand selection of vectorial F2F up-casts in `fpnew_opgroup_multifmt_slice` (`MAX_FP_WIDTH/2` -> `Width/2`)
+
 ## [pulp-v0.3.0] - 2026-07-20
 
 ### Added

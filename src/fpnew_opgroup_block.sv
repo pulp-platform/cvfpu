@@ -18,6 +18,8 @@ module fpnew_opgroup_block #(
   // FPU configuration
   parameter int unsigned                Width         = 32,
   parameter logic                       EnableVectors = 1'b1,
+  parameter logic                       EnableSlotSelect = 1'b1,
+  parameter logic                       EnableMXConv  = 1'b1,
   parameter fpnew_pkg::divsqrt_unit_t   DivSqrtSel    = fpnew_pkg::THMULTI,
   parameter fpnew_pkg::fmt_logic_t      FpFmtMask     = '1,
   parameter fpnew_pkg::ifmt_logic_t     IntFmtMask    = '1,
@@ -101,6 +103,12 @@ module fpnew_opgroup_block #(
   // -----------
   // Input Side
   // -----------
+  // Formats this block routes to the merged slice: the standard formats and, for CONV only, the
+  // MX-only element formats (in MxFpFmtMask but not FpFmtMask), whose CONV lanes the slice builds
+  // from MxFpFmtConfig.
+  localparam fpnew_pkg::fmt_logic_t RoutedFpFmtMask =
+      FpFmtMask | ((OpGroup == fpnew_pkg::CONV) ? MxFpFmtMask : '0);
+
   assign in_ready_o = in_valid_i & fmt_in_ready[dst_fmt_i]; // Ready is given by selected format
 
   // -------------------------
@@ -157,7 +165,7 @@ module fpnew_opgroup_block #(
         .busy_o         ( fmt_busy[fmt]            )
       );
     // If the format wants to use merged ops, tie off the dangling ones not used here
-    end else if (FpFmtMask[fmt] && ANY_MERGED && !IS_FIRST_MERGED) begin : merged_unused
+    end else if (RoutedFpFmtMask[fmt] && ANY_MERGED && !IS_FIRST_MERGED) begin : merged_unused
 
       localparam FMT = fpnew_pkg::get_first_enabled_multi(FmtUnitTypes, FpFmtMask);
       // Ready is split up into formats
@@ -172,7 +180,7 @@ module fpnew_opgroup_block #(
       assign fmt_outputs[fmt].tag     = TagType'(fpnew_pkg::DONT_CARE);
 
     // Tie off disabled formats
-    end else if (!FpFmtMask[fmt] || (FmtUnitTypes[fmt] == fpnew_pkg::DISABLED)) begin : disable_fmt
+    end else if (!RoutedFpFmtMask[fmt] || (FmtUnitTypes[fmt] == fpnew_pkg::DISABLED)) begin : disable_fmt
       assign fmt_in_ready[fmt]  = 1'b0; // don't accept operations
       assign fmt_out_valid[fmt] = 1'b0; // don't emit values
       assign fmt_busy[fmt]      = 1'b0; // never busy
@@ -194,21 +202,25 @@ module fpnew_opgroup_block #(
 
     logic in_valid;
 
-    assign in_valid = in_valid_i & (FmtUnitTypes[dst_fmt_i] == fpnew_pkg::MERGED);
+    assign in_valid = in_valid_i & (FmtUnitTypes[dst_fmt_i] == fpnew_pkg::MERGED) &
+                      RoutedFpFmtMask[dst_fmt_i];
 
     fpnew_opgroup_multifmt_slice #(
-      .OpGroup        ( OpGroup          ),
-      .Width          ( Width            ),
-      .FpFmtConfig    ( FpFmtMask        ),
-      .IntFmtConfig   ( IntFmtMask       ),
-      .MxFpFmtConfig  ( MxFpFmtMask      ),
-      .MxIntFmtConfig ( MxIntFmtMask     ),
-      .EnableVectors  ( EnableVectors    ),
-      .DivSqrtSel     ( DivSqrtSel       ),
-      .NumPipeRegs    ( REG              ),
-      .PipeConfig     ( PipeConfig       ),
-      .PaceFeatures   ( PaceFeatures     ),
-      .TagType        ( TagType          ),
+      .OpGroup          ( OpGroup          ),
+      .Width            ( Width            ),
+      .FpFmtConfig      ( FpFmtMask        ),
+      .IntFmtConfig     ( IntFmtMask       ),
+      .MxFpFmtConfig    ( MxFpFmtMask      ),
+      .MxIntFmtConfig   ( MxIntFmtMask     ),
+      .FmtUnitTypes     ( FmtUnitTypes     ),
+      .EnableVectors    ( EnableVectors    ),
+      .EnableSlotSelect ( EnableSlotSelect ),
+      .EnableMXConv     ( EnableMXConv     ),
+      .DivSqrtSel       ( DivSqrtSel       ),
+      .NumPipeRegs      ( REG              ),
+      .PipeConfig       ( PipeConfig       ),
+      .PaceFeatures     ( PaceFeatures     ),
+      .TagType          ( TagType          ),
       .StochasticRndImplementation ( StochasticRndImplementation )
     ) i_multifmt_slice (
       .clk_i,

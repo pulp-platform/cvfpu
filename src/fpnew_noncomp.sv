@@ -148,17 +148,30 @@ module fpnew_noncomp #(
     ) i_class_a (
     .operands_i ( inp_pipe_operands_q[NUM_INP_REGS] ),
     .is_boxed_i ( inp_pipe_is_boxed_q[NUM_INP_REGS] ),
+    .src_is_mx  ( 1'b0                              ),
     .info_o     ( info_q                            )
   );
 
   fp_t                 operand_a, operand_b;
   fpnew_pkg::fp_info_t info_a,    info_b;
 
+  // MINMAX with op_mod_i set compares magnitudes: the operand signs are cleared here so that the
+  // comparison, the NaN handling and the returned operand all see |op[0]| and |op[1]|.
+  logic minmax_abs;
+  assign minmax_abs = (inp_pipe_op_q[NUM_INP_REGS] == fpnew_pkg::MINMAX) &
+                      inp_pipe_op_mod_q[NUM_INP_REGS];
+
   // Packing-order-agnostic assignments
-  assign operand_a = inp_pipe_operands_q[NUM_INP_REGS][0];
-  assign operand_b = inp_pipe_operands_q[NUM_INP_REGS][1];
-  assign info_a    = info_q[0];
-  assign info_b    = info_q[1];
+  always_comb begin : operand_select
+    operand_a = inp_pipe_operands_q[NUM_INP_REGS][0];
+    operand_b = inp_pipe_operands_q[NUM_INP_REGS][1];
+    if (minmax_abs) begin
+      operand_a.sign = 1'b0;
+      operand_b.sign = 1'b0;
+    end
+  end
+  assign info_a = info_q[0];
+  assign info_b = info_q[1];
 
   logic any_operand_inf;
   logic any_operand_nan;

@@ -302,6 +302,7 @@ module fpnew_sdotp_multi #(
       ) i_fpnew_classifier (
         .operands_i  ( trimmed_ops                                 ),
         .is_boxed_i  ( inp_pipe_is_boxed_q[NUM_INP_REGS][fmt][3:0] ),
+        .src_is_mx   ( 1'b0                                        ),
         .info_o      ( info_q[fmt][3:0]                            )
       );
       for (genvar op = 0; op < 4; op++) begin : gen_operands
@@ -347,6 +348,7 @@ module fpnew_sdotp_multi #(
       ) i_fpnew_classifier (
         .operands_i  ( trimmed_vsum_ops  ),
         .is_boxed_i  ( vsum_ops_is_boxed ),
+        .src_is_mx  ( 1'b0               ),
         .info_o      ( info_vsum_q[fmt]  )
       );
       assign trimmed_vsum_ops          = {operand_c_q[FP_WIDTH-1:0], operand_a_q[FP_WIDTH-1:0]};
@@ -389,6 +391,7 @@ module fpnew_sdotp_multi #(
       ) i_fpnew_classifier (
         .operands_i ( trimmed_dst_ops                           ),
         .is_boxed_i ( inp_pipe_is_boxed_q[NUM_INP_REGS][fmt][4] ),
+        .src_is_mx  ( 1'b0                                      ),
         .info_o     ( info_q[fmt][4]                            )
       );
       assign trimmed_dst_ops       = dst_operands_q[FP_WIDTH-1:0];

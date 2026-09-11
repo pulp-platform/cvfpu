@@ -54,7 +54,7 @@ As the width of some input/output signals is defined by the configuration, it is
 | `clk_i`          | in        | `logic`              | Clock, synchronous, rising-edge triggered                      |
 | `rst_ni`         | in        | `logic`              | Asynchronous reset, active low                                 |
 | `hart_id_i`      | in        | `logic [31:0]`       | Core ID, used only when stochastic rounding is enabled         |
-| `operands_i`     | in        | `logic [2:0][W-1:0]` | Operands, henceforth referred to as `op[`*i*`]`                |
+| `operands_i`     | in        | `logic [2:0][W-1:0]` | Operands, henceforth referred to as `op[`*i*`]`. For `CONV` insert operations `op[1]` is the target vector, `op[2][7:0]` the E8M0 block scale and `op[2][11:8]` the slot selector |
 | `rnd_mode_i`     | in        | `roundmode_e`        | Floating-point rounding mode                                   |
 | `op_i`           | in        | `operation_e`        | Operation select                                               |
 | `op_mod_i`       | in        | `logic`              | Operation modifier                                             |
@@ -98,7 +98,7 @@ Enumeration of type `logic [2:0]` holding available rounding modes, encoded for 
 
 ##### `operation_e` - FP Operation
 
-Enumeration of type `logic [3:0]` holding the FP operation.
+Enumeration of type `logic [OP_BITS-1:0]` (`OP_BITS = 5`) holding the FP operation.
 The operation modifier `op_mod_i` can change the operation carried out.
 Unless noted otherwise, the first operand `op[0]` is used for the operation.
 
@@ -120,6 +120,7 @@ Unless noted otherwise, the first operand `op[0]` is used for the operation.
 | `SGNJ`     | `0`      | Sign injection, operation encoded in rounding mode<br>`RNE`: `op[0]` with `sign(op[1])`<br>`RTZ`: `op[0]` with `~sign(op[1])`<br>`RDN`: `op[0]` with `sign(op[0]) ^ sign(op[1])`<br>`RUP`: `op[0]` (passthrough) |
 | `SGNJ`     | `1`      | As above, but result is sign-extended instead of NaN-Boxed                                                                                                                                                       |
 | `MINMAX`   | `0`      | Minimum / maximum, operation encoded in rounding mode<br>`RNE`: `minimumNumber(op[0], op[1])`<br>`RTZ`: `maximumNumber(op[0], op[1])`                                                                            |
+| `MINMAX`   | `1`      | As above on the magnitudes: the signs of `op[0]` and `op[1]` are cleared before the comparison and the selected magnitude is returned (absolute minimum / maximum)                                               |
 | `CMP`      | `0`      | Comparison, operation encoded in rounding mode<br>`RNE`: `op[0] <= op[1]`<br>`RTZ`: `op[0] < op[1]`<br>`RDN`: `op[0] == op[1]`                                                                                   |
 | `CLASSIFY` | `0`      | Classification, returns RISC-V classification block                                                                                                                                                              |
 | `F2F`      | `0`      | FP to FP cast, formats given by `src_fmt_i` and `dst_fmt_i`                                                                                                                                                      |
@@ -131,6 +132,13 @@ Unless noted otherwise, the first operand `op[0]` is used for the operation.
 | `CPKAB`    | `1`      | Cast-and-pack `op[0]` and `op[1]` to entries 2, 3 of vector `op[2]`.                                                                                                                                             |
 | `CPKCD`    | `0`      | Cast-and-pack `op[0]` and `op[1]` to entries 4, 5 of vector `op[2]`.                                                                                                                                             |
 | `CPKCD`    | `1`      | Cast-and-pack `op[0]` and `op[1]` to entries 6, 7 of vector `op[2]`.                                                                                                                                             |
+| `FNF`      | `0`      | FP to FP cast between formats whose widths are not a power-of-two ratio apart (e.g. FP16 to FP6). Vectorial down-casts insert the result into the slot of `op[1]` selected by `op[2][11:8]`, up-casts take the selected source group. Between two MX-only formats (FP6, FP6ALT, FP4) both must be enabled in `FpFmtMask` |
+| `M2F`      | `0`      | MX FP to FP cast: `op[0]` (`src_fmt_i`) scaled by the E8M0 block scale `op[2][7:0]`, converted to `dst_fmt_i`                                                                                                     |
+| `F2M`      | `0`      | FP to MX FP cast: `op[0]` (`src_fmt_i`) divided by the block scale `op[2][7:0]`, converted (saturating) to `dst_fmt_i` and inserted into the selected slot of `op[1]`                                            |
+| `MI2F`     | `0`      | As `M2F` with INT8 source elements (`int_fmt_i`)                                                                                                                                                                 |
+| `F2MI`     | `0`      | As `F2M` with INT8 result elements (`int_fmt_i`)                                                                                                                                                                 |
+| `MXSCALE`  | `0`      | E8M0 block scale that maps `op[0]` (`src_fmt_i`) onto the largest exponent of the MX format `dst_fmt_i`, inserted as a byte into the selected slot of `op[1]`. Inf/NaN give `0xFF`, zero `0x00`, saturates at `0xFE` |
+| `MXISCALE` | `0`      | As `MXSCALE` for INT8 element blocks                                                                                                                                                                             |
 | `PWPA`      | `0`      | Piecewise polynomial approximation via PACE (no inv/sqrt/rsqrt scaling). Requires PACE enabled in `Features.PaceFeatures`.                                                                                      |
 | `PACE_INV`  | `0`      | PACE reciprocal (1/op[0]).
 | `PACE_SQRT` | `0`      | PACE square root.                                  |
@@ -253,6 +261,8 @@ It is of type `fpu_features_t` which is defined as:
 typedef struct packed {
   int unsigned    Width;
   logic           EnableVectors;
+  logic           EnableSlotSelect; // Slot insert for CONV insert operations
+  logic           EnableMXConv;     // MX conversion datapath
   logic           EnableNanBox;
   fmt_logic_t     FpFmtMask;    // Standard FP formats for all opgroups
   ifmt_logic_t    IntFmtMask;   // Standard INT formats for all opgroups
@@ -275,6 +285,20 @@ It must be larger or equal to the width of the widest enabled FP and integer for
 Controls the generation of packed-SIMD computation units in the FPU.
 If set to `1`, vectorial execution units will be generated for all FP formats that are narrower than `Width` in order to fill up the datapath width.
 For example, given `Width = 64`, there will be four execution units for every operation on 16-bit FP formats.
+
+*Default*: `1'b1`
+
+##### `EnableSlotSelect` - Slot Insert Hardware Generation
+
+If set to `1`, `CONV` insert operations (`F2M`, `F2MI`, `FNF` down-casts, `MXSCALE`, `MXISCALE`) write their result into the slot of `op[1]` selected by `op[2][11:8]`, and vectorial up-casts take the source group selected by the same field.
+One operation converts as many elements as fit the wider of the two formats into `Width` (e.g. 2 for FP32 to FP4, 8 for FP8 to FP4), so a full narrow vector is converted with several operations targeting successive slots.
+If set to `0` only slot 0 is used.
+
+*Default*: `1'b1`
+
+##### `EnableMXConv` - MX Conversion Datapath
+
+Controls the generation of the Microscaling conversions (`M2F`, `F2M`, `MI2F`, `F2MI`, `MXSCALE`, `MXISCALE`) in the `CONV` block.
 
 *Default*: `1'b1`
 
@@ -307,6 +331,13 @@ If a bit in `IntFmtMask` is set, FPU hardware for the corresponding format is ge
 Otherwise, synthesis tools can optimize away any logic associated with this format and operations on the format yield undefined results.
 
 *Default*: `'1` (all enabled)
+
+##### `MxFpFmtMask` / `MxIntFmtMask` - Enabled MX Element Formats
+
+Formats usable as Microscaling element formats by `MXDOTP` and the MX conversions in `CONV`.
+`FpFmtMask` applies to every operation group, so formats wanted only as MX elements (e.g. `FP6`, `FP6ALT`, `FP4`) should be `DISABLED` in `Implementation.UnitTypes` for the other groups.
+
+*Default*: `'0`
 
 ##### `PaceFeatures` - PACE Configuration
 
@@ -413,6 +444,8 @@ Currently, the follwoing unit types are available for the FPU operation groups:
   '{default: DISABLED}}  // MXDOTP
 ```
 (all formats within operation group use same type)
+
+Formats set to `DISABLED` in a `MERGED` operation group are excluded from its merged unit; see `DEFAULT_SNITCH_PIPE` for a per-format example.
 
 
 ##### `PipeConfig` - Pipeline Register Placement
@@ -522,7 +555,7 @@ There are currently six operation groups in FPnew which are enumerated in `opgro
 | `ADDMUL`   | Addition, Multiplication, and PACE            | `FMADD`, `FNMSUB`, `ADD`, `MUL`, `PWPA`, `PACE_INV`, `PACE_SQRT`, `PACE_RSQRT` |
 | `DIVSQRT`  | Division and Square Root                      | `DIV`, `SQRT`                         |
 | `NONCOMP`  | Non-Computational Operations like Comparisons | `SGNJ`, `MINMAX`, `CMP`, `CLASS`      |
-| `CONV`     | Conversions                                   | `F2I`, `I2F`, `F2F`, `CPKAB`, `CPKCD` |
+| `CONV`     | Conversions                                   | `F2I`, `I2F`, `F2F`, `FNF`, `M2F`, `F2M`, `MI2F`, `F2MI`, `MXSCALE`, `MXISCALE`, `CPKAB`, `CPKCD` |
 | `DOTP`     | Dot Products                                  | `SDOTP`, `EXVSUM`, `VSUM`             |
 | `MXDOTP`   | Microscaling Dot Products                     | `MXDOTPF`, `MXDOTPI`                  |
 
@@ -555,7 +588,7 @@ Implementing units as parallel slices usually yields best format-specific latenc
 
 In a merged slice, operational units capable of processing multiple formats are generated.
 If `EnableVectors` is set, operational units for narrow formats are duplicated into vectorial *lanes* in order to fill up the width of the datapath.
-To facilitate vectorial conversions that update an input vector, the third operand is pipelined along with the operation in the `CONV` block.
+To facilitate vectorial conversions that update an input vector, the target operand (`op[2]` for cast-and-pack, `op[1]` for insert operations) is pipelined along with the operation in the `CONV` block.
 Results from all lanes are collected and assembled at the output of the slice.
 
 Implementing units as merged slices usually yields best total area, however costs more in terms of per-format latency.

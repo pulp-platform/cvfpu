@@ -16,22 +16,28 @@
 `include "common_cells/registers.svh"
 
 module fpnew_cast_multi #(
-  parameter fpnew_pkg::fmt_logic_t   FpFmtConfig  = '1,
-  parameter fpnew_pkg::ifmt_logic_t  IntFmtConfig = '1,
+  parameter fpnew_pkg::fmt_logic_t   FpFmtConfig    = '1,
+  parameter fpnew_pkg::ifmt_logic_t  IntFmtConfig   = '1,
+  parameter fpnew_pkg::fmt_logic_t   MxFpFmtConfig  = '0,
+  parameter fpnew_pkg::ifmt_logic_t  MxIntFmtConfig = '0,
+  parameter logic                    EnableMXScale  = 1'b1,
   // FPU configuration
   parameter int unsigned             NumPipeRegs = 0,
   parameter fpnew_pkg::pipe_config_t PipeConfig  = fpnew_pkg::BEFORE,
   parameter type                     TagType     = logic,
   parameter type                     AuxType     = logic,
   // Do not change
-  localparam int unsigned WIDTH = fpnew_pkg::maximum(fpnew_pkg::max_fp_width(FpFmtConfig),
-                                                     fpnew_pkg::max_int_width(IntFmtConfig)),
+  localparam fpnew_pkg::fmt_logic_t  AllFpFmtConfig  = FpFmtConfig | MxFpFmtConfig,
+  localparam fpnew_pkg::ifmt_logic_t AllIntFmtConfig = IntFmtConfig | MxIntFmtConfig,
+  localparam int unsigned WIDTH = fpnew_pkg::maximum(fpnew_pkg::max_fp_width(AllFpFmtConfig),
+                                                      fpnew_pkg::maximum(fpnew_pkg::max_int_width(AllIntFmtConfig),
+                                                                           fpnew_pkg::MX_SCALE_WIDTH)),
   localparam int unsigned NUM_FORMATS = fpnew_pkg::NUM_FP_FORMATS
 ) (
   input  logic                   clk_i,
   input  logic                   rst_ni,
   // Input signals
-  input  logic [WIDTH-1:0]       operands_i, // 1 operand
+  input  logic [2:0][WIDTH-1:0]  operands_i, // source, insert target (unused here) and shared MX scale
   input  logic [NUM_FORMATS-1:0] is_boxed_i, // 1 operand
   input  fpnew_pkg::roundmode_e  rnd_mode_i,
   input  fpnew_pkg::operation_e  op_i,
@@ -64,9 +70,11 @@ module fpnew_cast_multi #(
   // Constants
   // ----------
   localparam int unsigned NUM_INT_FORMATS = fpnew_pkg::NUM_INT_FORMATS;
-  localparam int unsigned MAX_INT_WIDTH   = fpnew_pkg::max_int_width(IntFmtConfig);
+  localparam int unsigned MAX_INT_WIDTH   = fpnew_pkg::max_int_width(AllIntFmtConfig);
+  localparam int unsigned MX_SCALE_MAX_ABS =
+      ((|MxFpFmtConfig) || (|MxIntFmtConfig)) ? fpnew_pkg::MX_SCALE_MAX_ABS : 0;
 
-  localparam fpnew_pkg::fp_encoding_t SUPER_FORMAT = fpnew_pkg::super_format(FpFmtConfig);
+  localparam fpnew_pkg::fp_encoding_t SUPER_FORMAT = fpnew_pkg::super_format(AllFpFmtConfig);
 
   localparam int unsigned SUPER_EXP_BITS = SUPER_FORMAT.exp_bits;
   localparam int unsigned SUPER_MAN_BITS = SUPER_FORMAT.man_bits;
@@ -79,7 +87,7 @@ module fpnew_cast_multi #(
   // The internal exponent must be able to represent the smallest denormal input value as signed
   // or the number of bits in an integer
   localparam int unsigned INT_EXP_WIDTH = fpnew_pkg::maximum($clog2(MAX_INT_WIDTH),
-      fpnew_pkg::maximum(SUPER_EXP_BITS, $clog2(SUPER_BIAS + SUPER_MAN_BITS))) + 1;
+      fpnew_pkg::maximum(SUPER_EXP_BITS, $clog2(SUPER_BIAS + SUPER_MAN_BITS + MX_SCALE_MAX_ABS))) + 1;
   // Pipelines
   localparam int unsigned NUM_INP_REGS =
     (PipeConfig == fpnew_pkg::BEFORE)      ? NumPipeRegs :
@@ -114,14 +122,14 @@ module fpnew_cast_multi #(
   // Input pipeline
   // ---------------
   // Selected pipeline output signals as non-arrays
-  logic [WIDTH-1:0]       operands_q;
+  logic [2:0][WIDTH-1:0]  operands_q;
   logic [NUM_FORMATS-1:0] is_boxed_q;
   logic                   op_mod_q;
   fpnew_pkg::fp_format_e  src_fmt_q;
   fpnew_pkg::int_format_e int_fmt_q;
 
   // Input pipeline signals, index i holds signal after i register stages
-  logic                   [0:NUM_INP_REGS][WIDTH-1:0]       inp_pipe_operands_q;
+  logic                   [0:NUM_INP_REGS][2:0][WIDTH-1:0]  inp_pipe_operands_q;
   logic                   [0:NUM_INP_REGS][NUM_FORMATS-1:0] inp_pipe_is_boxed_q;
   fpnew_pkg::roundmode_e  [0:NUM_INP_REGS]                  inp_pipe_rnd_mode_q;
   fpnew_pkg::operation_e  [0:NUM_INP_REGS]                  inp_pipe_op_q;
@@ -138,7 +146,8 @@ module fpnew_cast_multi #(
 
   // Input stage: First element of pipeline is taken from inputs
   assign inp_pipe_operands_q[0] = operands_i;
-  assign inp_pipe_is_boxed_q[0] = is_boxed_i;
+  assign inp_pipe_is_boxed_q[0] = ((op_i == fpnew_pkg::MXSCALE) || (op_i == fpnew_pkg::MXISCALE))
+                                   ? '1 : is_boxed_i;
   assign inp_pipe_rnd_mode_q[0] = rnd_mode_i;
   assign inp_pipe_op_q[0]       = op_i;
   assign inp_pipe_op_mod_q[0]   = op_mod_i;
@@ -186,10 +195,22 @@ module fpnew_cast_multi #(
   // -----------------
   // Input processing
   // -----------------
-  logic src_is_int, dst_is_int; // if 0, it's a float
+  logic src_is_int, dst_is_int, src_is_mx, dst_is_mx, src_is_mxi, dst_is_mxi;
 
   assign src_is_int = (inp_pipe_op_q[NUM_INP_REGS] == fpnew_pkg::I2F);
   assign dst_is_int = (inp_pipe_op_q[NUM_INP_REGS] == fpnew_pkg::F2I);
+  assign src_is_mx  = (inp_pipe_op_q[NUM_INP_REGS] == fpnew_pkg::M2F);
+  assign dst_is_mx  = (inp_pipe_op_q[NUM_INP_REGS] == fpnew_pkg::F2M);
+  assign src_is_mxi = (inp_pipe_op_q[NUM_INP_REGS] == fpnew_pkg::MI2F);
+  assign dst_is_mxi = (inp_pipe_op_q[NUM_INP_REGS] == fpnew_pkg::F2MI);
+
+  logic dst_is_mxscale, dst_is_mxiscale;
+  assign dst_is_mxscale  = (inp_pipe_op_q[NUM_INP_REGS] == fpnew_pkg::MXSCALE);
+  assign dst_is_mxiscale = (inp_pipe_op_q[NUM_INP_REGS] == fpnew_pkg::MXISCALE);
+
+  // Shared E8M0 block scale of MX conversions, carried to Normalization 2
+  logic [fpnew_pkg::MX_SCALE_WIDTH-1:0] scale_byte;
+  assign scale_byte = operands_q[2][fpnew_pkg::MX_SCALE_WIDTH-1:0];
 
   logic [INT_MAN_WIDTH-1:0] encoded_mant; // input mantissa with implicit bit
 
@@ -211,20 +232,21 @@ module fpnew_cast_multi #(
     localparam int unsigned EXP_BITS = fpnew_pkg::exp_bits(fpnew_pkg::fp_format_e'(fmt));
     localparam int unsigned MAN_BITS = fpnew_pkg::man_bits(fpnew_pkg::fp_format_e'(fmt));
 
-    if (FpFmtConfig[fmt]) begin : active_format
+    if (AllFpFmtConfig[fmt]) begin : active_format
       // Classify input
       fpnew_classifier #(
         .FpFormat    ( fpnew_pkg::fp_format_e'(fmt) ),
         .NumOperands ( 1                            )
       ) i_fpnew_classifier (
-        .operands_i ( operands_q[FP_WIDTH-1:0] ),
+        .operands_i ( operands_q[0][FP_WIDTH-1:0] ),
         .is_boxed_i ( is_boxed_q[fmt]          ),
+        .src_is_mx  ( src_is_mx                 ),
         .info_o     ( info[fmt]                )
       );
 
-      assign fmt_sign[fmt]     = operands_q[FP_WIDTH-1];
-      assign fmt_exponent[fmt] = signed'({1'b0, operands_q[MAN_BITS+:EXP_BITS]});
-      assign fmt_mantissa[fmt] = {info[fmt].is_normal, operands_q[MAN_BITS-1:0]}; // zero pad
+      assign fmt_sign[fmt]     = operands_q[0][FP_WIDTH-1];
+      assign fmt_exponent[fmt] = signed'({1'b0, operands_q[0][MAN_BITS+:EXP_BITS]});
+      assign fmt_mantissa[fmt] = {info[fmt].is_normal, operands_q[0][MAN_BITS-1:0]}; // zero pad
       // Compensation for the difference in mantissa widths used for leading-zero count
       assign fmt_shift_compensation[fmt] = signed'(INT_MAN_WIDTH - 1 - MAN_BITS);
     end else begin : inactive_format
@@ -241,11 +263,11 @@ module fpnew_cast_multi #(
     // Set up some constants
     localparam int unsigned INT_WIDTH = fpnew_pkg::int_width(fpnew_pkg::int_format_e'(ifmt));
 
-    if (IntFmtConfig[ifmt]) begin : active_format // only active formats
+    if (AllIntFmtConfig[ifmt]) begin : active_format // only active formats
       always_comb begin : sign_ext_input
         // sign-extend value only if it's signed
-        ifmt_input_val[ifmt]                = '{default: operands_q[INT_WIDTH-1] & ~op_mod_q};
-        ifmt_input_val[ifmt][INT_WIDTH-1:0] = operands_q[INT_WIDTH-1:0];
+        ifmt_input_val[ifmt]                = '{default: operands_q[0][INT_WIDTH-1] & ~op_mod_q};
+        ifmt_input_val[ifmt][INT_WIDTH-1:0] = operands_q[0][INT_WIDTH-1:0];
       end
     end else begin : inactive_format
       assign ifmt_input_val[ifmt] = '{default: fpnew_pkg::DONT_CARE}; // format disabled
@@ -258,7 +280,7 @@ module fpnew_cast_multi #(
   assign int_mantissa = int_sign ? unsigned'(-int_value) : int_value; // get magnitude of negative
 
   // select mantissa with source format
-  assign encoded_mant = src_is_int ? int_mantissa : fmt_mantissa[src_fmt_q];
+  assign encoded_mant = (src_is_int || src_is_mxi) ? int_mantissa : fmt_mantissa[src_fmt_q];
 
   // ----------------
   // Normalization 1
@@ -303,8 +325,18 @@ module fpnew_cast_multi #(
   logic signed [INT_EXP_WIDTH-1:0] src_offset_q;
   fpnew_pkg::fp_format_e           dst_fmt_q;
   fpnew_pkg::fp_format_e           src_fmt_q2;
+  logic                            src_is_mx_q, src_is_mxi_q, dst_is_mx_q, dst_is_mxi_q;
+  logic                            dst_is_mxscale_q, dst_is_mxiscale_q;
+  logic [fpnew_pkg::MX_SCALE_WIDTH-1:0] scale_byte_q;
 
   // Internal pipeline signals, index i holds signal after i register stages
+  logic                   [0:NUM_IM_REGS]                       inp_mid_pipe_src_is_mx_q;
+  logic                   [0:NUM_IM_REGS]                       inp_mid_pipe_src_is_mxi_q;
+  logic                   [0:NUM_IM_REGS]                       inp_mid_pipe_dst_is_mx_q;
+  logic                   [0:NUM_IM_REGS]                       inp_mid_pipe_dst_is_mxi_q;
+  logic                   [0:NUM_IM_REGS]                       inp_mid_pipe_dst_is_mxscale_q;
+  logic                   [0:NUM_IM_REGS]                       inp_mid_pipe_dst_is_mxiscale_q;
+  logic                   [0:NUM_IM_REGS][fpnew_pkg::MX_SCALE_WIDTH-1:0] inp_mid_pipe_scale_byte_q;
   logic                   [0:NUM_IM_REGS][LZC_RESULT_WIDTH-1:0] inp_mid_pipe_renorm_shamt_q;
   logic                   [0:NUM_IM_REGS]                       inp_mid_pipe_int_sign_q;
   logic                   [0:NUM_IM_REGS][NUM_FORMATS-1:0]      inp_mid_pipe_fmt_sign_q;
@@ -338,8 +370,15 @@ module fpnew_cast_multi #(
   assign inp_mid_pipe_src_subnormal_q[0] = src_subnormal;
   assign inp_mid_pipe_src_bias_q[0]      = src_bias;
   assign inp_mid_pipe_src_offset_q[0]    = src_offset;
-  assign inp_mid_pipe_src_is_int_q[0]    = src_is_int;
-  assign inp_mid_pipe_dst_is_int_q[0]    = dst_is_int;
+  assign inp_mid_pipe_src_is_int_q[0]    = src_is_int | src_is_mxi; // MX INT8 sources are integers
+  assign inp_mid_pipe_dst_is_int_q[0]    = dst_is_int | dst_is_mxi; // MX INT8 destinations are integers
+  assign inp_mid_pipe_src_is_mx_q[0]     = src_is_mx;
+  assign inp_mid_pipe_src_is_mxi_q[0]    = src_is_mxi;
+  assign inp_mid_pipe_dst_is_mx_q[0]     = dst_is_mx;
+  assign inp_mid_pipe_dst_is_mxi_q[0]    = dst_is_mxi;
+  assign inp_mid_pipe_dst_is_mxscale_q[0]  = dst_is_mxscale;
+  assign inp_mid_pipe_dst_is_mxiscale_q[0] = dst_is_mxiscale;
+  assign inp_mid_pipe_scale_byte_q[0]    = scale_byte;
   assign inp_mid_pipe_info_q[0]          = info[src_fmt_q];
   assign inp_mid_pipe_mant_zero_q[0]     = mant_is_zero;
   assign inp_mid_pipe_op_mod_q[0]        = op_mod_q;
@@ -376,6 +415,13 @@ module fpnew_cast_multi #(
     `FFL(inp_mid_pipe_src_bias_q[i+1],      inp_mid_pipe_src_bias_q[i],      reg_ena, '0)
     `FFL(inp_mid_pipe_src_offset_q[i+1],    inp_mid_pipe_src_offset_q[i],    reg_ena, '0)
     `FFL(inp_mid_pipe_src_is_int_q[i+1],    inp_mid_pipe_src_is_int_q[i],    reg_ena, '0)
+    `FFL(inp_mid_pipe_src_is_mx_q[i+1],     inp_mid_pipe_src_is_mx_q[i],     reg_ena, '0)
+    `FFL(inp_mid_pipe_src_is_mxi_q[i+1],    inp_mid_pipe_src_is_mxi_q[i],    reg_ena, '0)
+    `FFL(inp_mid_pipe_dst_is_mx_q[i+1],     inp_mid_pipe_dst_is_mx_q[i],     reg_ena, '0)
+    `FFL(inp_mid_pipe_dst_is_mxi_q[i+1],    inp_mid_pipe_dst_is_mxi_q[i],    reg_ena, '0)
+    `FFL(inp_mid_pipe_dst_is_mxscale_q[i+1],  inp_mid_pipe_dst_is_mxscale_q[i],  reg_ena, '0)
+    `FFL(inp_mid_pipe_dst_is_mxiscale_q[i+1], inp_mid_pipe_dst_is_mxiscale_q[i], reg_ena, '0)
+    `FFL(inp_mid_pipe_scale_byte_q[i+1],    inp_mid_pipe_scale_byte_q[i],    reg_ena, '0)
     `FFL(inp_mid_pipe_dst_is_int_q[i+1],    inp_mid_pipe_dst_is_int_q[i],    reg_ena, '0)
     `FFL(inp_mid_pipe_info_q[i+1],          inp_mid_pipe_info_q[i],          reg_ena, '0)
     `FFL(inp_mid_pipe_mant_zero_q[i+1],     inp_mid_pipe_mant_zero_q[i],     reg_ena, '0)
@@ -400,6 +446,13 @@ module fpnew_cast_multi #(
   assign src_offset_q    = inp_mid_pipe_src_offset_q[NUM_IM_REGS];
   assign dst_fmt_q       = inp_mid_pipe_dst_fmt_q[NUM_IM_REGS];
   assign src_fmt_q2      = inp_mid_pipe_src_fmt_q[NUM_IM_REGS];
+  assign src_is_mx_q     = inp_mid_pipe_src_is_mx_q[NUM_IM_REGS];
+  assign src_is_mxi_q    = inp_mid_pipe_src_is_mxi_q[NUM_IM_REGS];
+  assign dst_is_mx_q     = inp_mid_pipe_dst_is_mx_q[NUM_IM_REGS];
+  assign dst_is_mxi_q    = inp_mid_pipe_dst_is_mxi_q[NUM_IM_REGS];
+  assign dst_is_mxscale_q  = inp_mid_pipe_dst_is_mxscale_q[NUM_IM_REGS];
+  assign dst_is_mxiscale_q = inp_mid_pipe_dst_is_mxiscale_q[NUM_IM_REGS];
+  assign scale_byte_q    = inp_mid_pipe_scale_byte_q[NUM_IM_REGS];
 
   // ----------------
   // Normalization 2
@@ -410,6 +463,10 @@ module fpnew_cast_multi #(
 
   logic signed [INT_EXP_WIDTH-1:0] fp_input_exp;
   logic signed [INT_EXP_WIDTH-1:0] int_input_exp;
+  logic signed [INT_EXP_WIDTH-1:0] scale_exp;
+  logic signed [INT_EXP_WIDTH-1:0] base_input_exp;
+  logic signed [INT_EXP_WIDTH-1:0] scale_adjust_exp;
+  logic                            scale_is_nan;
 
   assign renorm_shamt_sgn = signed'({1'b0, renorm_shamt_q});
 
@@ -422,12 +479,36 @@ module fpnew_cast_multi #(
                                  renorm_shamt_sgn + src_offset_q); // compensate for shift
   assign int_input_exp = signed'(INT_MAN_WIDTH - 1 - renorm_shamt_sgn);
 
-  assign input_exp     = src_is_int_q ? int_input_exp : fp_input_exp;
+  // MX block scale: unbiased E8M0 exponent, NaN encoding is all ones
+  assign scale_exp     = signed'({1'b0, scale_byte_q}) - signed'(fpnew_pkg::MX_SCALE_BIAS);
+  assign scale_is_nan  = (src_is_mx_q | dst_is_mx_q | src_is_mxi_q | dst_is_mxi_q) &
+                         (scale_byte_q == fpnew_pkg::MX_SCALE_NAN_BITS);
+
+  assign base_input_exp = src_is_int_q ? int_input_exp : fp_input_exp;
+  if (EnableMXScale) begin : gen_mxscale_exp_adjust
+    assign scale_adjust_exp = (src_is_mx_q || src_is_mxi_q) ? scale_exp :
+                              (dst_is_mx_q || dst_is_mxi_q) ? -scale_exp :
+                              (dst_is_mxscale_q || dst_is_mxiscale_q) ? signed'(fpnew_pkg::MX_SCALE_BIAS) : '0;
+  end else begin : gen_no_mxscale_exp_adjust
+    assign scale_adjust_exp = (src_is_mx_q || src_is_mxi_q) ? scale_exp :
+                              (dst_is_mx_q || dst_is_mxi_q) ? -scale_exp : '0;
+  end
+
+  assign input_exp     = base_input_exp + scale_adjust_exp;
 
   logic signed [INT_EXP_WIDTH-1:0] destination_exp;  // re-biased exponent for destination
+  logic signed [INT_EXP_WIDTH-1:0] dst_exp_addend;
 
-  // Rebias the exponent
-  assign destination_exp = input_exp + signed'(fpnew_pkg::bias(dst_fmt_q));
+  // Rebias the exponent (MXSCALE ops map the input onto the largest exponent of the MX format)
+  if (EnableMXScale) begin : gen_mxscale_dst_exp_addend
+    assign dst_exp_addend = dst_is_mxscale_q ?
+        -signed'(fpnew_pkg::max_fp_unbiased_exp(dst_fmt_q, 1'b1)) :
+        dst_is_mxiscale_q ? -signed'(fpnew_pkg::MX_INT8_MAX_EXP) :
+        signed'(fpnew_pkg::bias(dst_fmt_q));
+  end else begin : gen_no_mxscale_dst_exp_addend
+    assign dst_exp_addend = signed'(fpnew_pkg::bias(dst_fmt_q));
+  end
+  assign destination_exp = input_exp + dst_exp_addend;
 
   // ---------------
   // Internal pipeline
@@ -442,8 +523,15 @@ module fpnew_cast_multi #(
   logic                            op_mod_q2;
   fpnew_pkg::fp_format_e           dst_fmt_q2;
   fpnew_pkg::int_format_e          int_fmt_q2;
+  logic                            dst_is_mx_q2, dst_is_mxi_q2, dst_is_mxscale_q2, dst_is_mxiscale_q2;
+  logic                            scale_is_nan_q2;
 
   // Internal pipeline signals, index i holds signal after i register stages
+  logic                   [0:NUM_MID_REGS]                    mid_pipe_dst_is_mx_q;
+  logic                   [0:NUM_MID_REGS]                    mid_pipe_dst_is_mxi_q;
+  logic                   [0:NUM_MID_REGS]                    mid_pipe_dst_is_mxscale_q;
+  logic                   [0:NUM_MID_REGS]                    mid_pipe_dst_is_mxiscale_q;
+  logic                   [0:NUM_MID_REGS]                    mid_pipe_scale_nan_q;
   logic                   [0:NUM_MID_REGS]                    mid_pipe_input_sign_q;
   logic signed            [0:NUM_MID_REGS][INT_EXP_WIDTH-1:0] mid_pipe_input_exp_q;
   logic                   [0:NUM_MID_REGS][INT_MAN_WIDTH-1:0] mid_pipe_input_mant_q;
@@ -471,6 +559,11 @@ module fpnew_cast_multi #(
   assign mid_pipe_dest_exp_q[0]          = destination_exp;
   assign mid_pipe_src_is_int_q[0]        = inp_mid_pipe_src_is_int_q[NUM_IM_REGS];
   assign mid_pipe_dst_is_int_q[0]        = inp_mid_pipe_dst_is_int_q[NUM_IM_REGS];
+  assign mid_pipe_dst_is_mx_q[0]         = dst_is_mx_q;
+  assign mid_pipe_dst_is_mxi_q[0]        = dst_is_mxi_q;
+  assign mid_pipe_dst_is_mxscale_q[0]    = dst_is_mxscale_q;
+  assign mid_pipe_dst_is_mxiscale_q[0]   = dst_is_mxiscale_q;
+  assign mid_pipe_scale_nan_q[0]         = scale_is_nan;
   assign mid_pipe_info_q[0]              = inp_mid_pipe_info_q[NUM_IM_REGS];
   assign mid_pipe_mant_zero_q[0]         = inp_mid_pipe_mant_zero_q[NUM_IM_REGS];
   assign mid_pipe_op_mod_q[0]            = inp_mid_pipe_op_mod_q[NUM_IM_REGS];
@@ -504,6 +597,11 @@ module fpnew_cast_multi #(
     `FFL(mid_pipe_dest_exp_q[i+1],   mid_pipe_dest_exp_q[i],   reg_ena, '0)
     `FFL(mid_pipe_src_is_int_q[i+1], mid_pipe_src_is_int_q[i], reg_ena, '0)
     `FFL(mid_pipe_dst_is_int_q[i+1], mid_pipe_dst_is_int_q[i], reg_ena, '0)
+    `FFL(mid_pipe_dst_is_mx_q[i+1],        mid_pipe_dst_is_mx_q[i],        reg_ena, '0)
+    `FFL(mid_pipe_dst_is_mxi_q[i+1],       mid_pipe_dst_is_mxi_q[i],       reg_ena, '0)
+    `FFL(mid_pipe_dst_is_mxscale_q[i+1],   mid_pipe_dst_is_mxscale_q[i],   reg_ena, '0)
+    `FFL(mid_pipe_dst_is_mxiscale_q[i+1],  mid_pipe_dst_is_mxiscale_q[i],  reg_ena, '0)
+    `FFL(mid_pipe_scale_nan_q[i+1],        mid_pipe_scale_nan_q[i],        reg_ena, '0)
     `FFL(mid_pipe_info_q[i+1],       mid_pipe_info_q[i],       reg_ena, '0)
     `FFL(mid_pipe_mant_zero_q[i+1],  mid_pipe_mant_zero_q[i],  reg_ena, '0)
     `FFL(mid_pipe_op_mod_q[i+1],     mid_pipe_op_mod_q[i],     reg_ena, '0)
@@ -521,6 +619,11 @@ module fpnew_cast_multi #(
   assign destination_exp_q = mid_pipe_dest_exp_q[NUM_MID_REGS];
   assign src_is_int_q2     = mid_pipe_src_is_int_q[NUM_MID_REGS];
   assign dst_is_int_q      = mid_pipe_dst_is_int_q[NUM_MID_REGS];
+  assign dst_is_mx_q2      = mid_pipe_dst_is_mx_q[NUM_MID_REGS];
+  assign dst_is_mxi_q2     = mid_pipe_dst_is_mxi_q[NUM_MID_REGS];
+  assign dst_is_mxscale_q2 = mid_pipe_dst_is_mxscale_q[NUM_MID_REGS];
+  assign dst_is_mxiscale_q2 = mid_pipe_dst_is_mxiscale_q[NUM_MID_REGS];
+  assign scale_is_nan_q2   = mid_pipe_scale_nan_q[NUM_MID_REGS];
   assign info_q            = mid_pipe_info_q[NUM_MID_REGS];
   assign op_mod_q2         = mid_pipe_op_mod_q[NUM_MID_REGS];
   assign dst_fmt_q2        = mid_pipe_dst_fmt_q[NUM_MID_REGS];
@@ -540,6 +643,28 @@ module fpnew_cast_multi #(
 
   logic [1:0] fp_round_sticky_bits, int_round_sticky_bits, round_sticky_bits;
   logic       of_before_round, uf_before_round;
+  logic       dst_fmt_noinf; // destination format has no infinity encoding (MX formats)
+
+  assign dst_fmt_noinf = !fpnew_pkg::fp_fmt_has_inf(dst_fmt_q2, dst_is_mx_q2);
+
+  // MXSCALE/MXISCALE: the E8M0 block scale is the re-biased destination exponent, saturated
+  logic [fpnew_pkg::MX_SCALE_WIDTH-1:0] mxscale_byte;
+  if (EnableMXScale) begin : gen_mxscale_byte
+    always_comb begin
+      if (info_q.is_inf || info_q.is_nan || !info_q.is_boxed)
+        mxscale_byte = fpnew_pkg::MX_SCALE_NAN_BITS;
+      else if (mid_pipe_mant_zero_q[NUM_MID_REGS])
+        mxscale_byte = '0;
+      else if (destination_exp_q >= signed'(255))
+        mxscale_byte = 8'hFE;
+      else if (destination_exp_q <= signed'(0))
+        mxscale_byte = '0;
+      else
+        mxscale_byte = destination_exp_q[7:0];
+    end
+  end else begin : gen_no_mxscale_byte
+    assign mxscale_byte = '0;
+  end
 
 
   // Perform adjustments to mantissa and exponent
@@ -570,7 +695,8 @@ module fpnew_cast_multi #(
     // Handle FP over-/underflows
     end else begin
       // Overflow or infinities (for proper rounding)
-      if ((destination_exp_q >= signed'(2**fpnew_pkg::exp_bits(dst_fmt_q2))-1) ||
+      if (((!dst_fmt_noinf) && (destination_exp_q >= signed'(2**fpnew_pkg::exp_bits(dst_fmt_q2))-1)) ||
+          (dst_fmt_noinf && (destination_exp_q > signed'(2**fpnew_pkg::exp_bits(dst_fmt_q2))-1)) ||
           (~src_is_int_q2 && info_q.is_inf)) begin
         final_exp       = unsigned'(2**fpnew_pkg::exp_bits(dst_fmt_q2)-2); // largest normal value
         preshift_mant   = '1;                           // largest normal value and RS bits set
@@ -616,8 +742,17 @@ module fpnew_cast_multi #(
   logic                      dst_is_int_q2;
   fpnew_pkg::int_format_e    int_fmt_q3;
   fpnew_pkg::fp_format_e     dst_fmt_q3;
+  logic                      dst_is_mx_q3, dst_is_mxi_q3, dst_is_mxscale_q3, dst_is_mxiscale_q3;
+  logic                      scale_is_nan_q3;
+  logic [fpnew_pkg::MX_SCALE_WIDTH-1:0] mxscale_byte_q3;
 
   // Internal pipeline signals, index i holds signal after i register stages
+  logic                   [0:NUM_MO_EARLY_REGS]                     mo_early_pipe_dst_is_mx_q;
+  logic                   [0:NUM_MO_EARLY_REGS]                     mo_early_pipe_dst_is_mxi_q;
+  logic                   [0:NUM_MO_EARLY_REGS]                     mo_early_pipe_dst_is_mxscale_q;
+  logic                   [0:NUM_MO_EARLY_REGS]                     mo_early_pipe_dst_is_mxiscale_q;
+  logic                   [0:NUM_MO_EARLY_REGS]                     mo_early_pipe_scale_nan_q;
+  logic                   [0:NUM_MO_EARLY_REGS][fpnew_pkg::MX_SCALE_WIDTH-1:0] mo_early_pipe_mxscale_byte_q;
   logic                   [0:NUM_MO_EARLY_REGS][INT_EXP_WIDTH-1:0]  mo_early_pipe_final_exp_q;
   logic                   [0:NUM_MO_EARLY_REGS][SUPER_MAN_BITS-1:0] mo_early_pipe_final_mant_q;
   logic                   [0:NUM_MO_EARLY_REGS][MAX_INT_WIDTH-1:0]  mo_early_pipe_final_int_q;
@@ -659,6 +794,12 @@ module fpnew_cast_multi #(
   assign mo_early_pipe_dest_exp_q[0]              = mid_pipe_dest_exp_q[NUM_MID_REGS];
   assign mo_early_pipe_src_is_int_q[0]            = mid_pipe_src_is_int_q[NUM_MID_REGS];
   assign mo_early_pipe_dst_is_int_q[0]            = mid_pipe_dst_is_int_q[NUM_MID_REGS];
+  assign mo_early_pipe_dst_is_mx_q[0]             = dst_is_mx_q2;
+  assign mo_early_pipe_dst_is_mxi_q[0]            = dst_is_mxi_q2;
+  assign mo_early_pipe_dst_is_mxscale_q[0]        = dst_is_mxscale_q2;
+  assign mo_early_pipe_dst_is_mxiscale_q[0]       = dst_is_mxiscale_q2;
+  assign mo_early_pipe_scale_nan_q[0]             = scale_is_nan_q2;
+  assign mo_early_pipe_mxscale_byte_q[0]          = mxscale_byte;
   assign mo_early_pipe_info_q[0]                  = mid_pipe_info_q[NUM_MID_REGS];
   assign mo_early_pipe_mant_zero_q[0]             = mid_pipe_mant_zero_q[NUM_MID_REGS];
   assign mo_early_pipe_op_mod_q[0]                = mid_pipe_op_mod_q[NUM_MID_REGS];
@@ -699,6 +840,12 @@ module fpnew_cast_multi #(
     `FFL(mo_early_pipe_dest_exp_q[i+1],              mo_early_pipe_dest_exp_q[i],              reg_ena, '0)
     `FFL(mo_early_pipe_src_is_int_q[i+1],            mo_early_pipe_src_is_int_q[i],            reg_ena, '0)
     `FFL(mo_early_pipe_dst_is_int_q[i+1],            mo_early_pipe_dst_is_int_q[i],            reg_ena, '0)
+    `FFL(mo_early_pipe_dst_is_mx_q[i+1],             mo_early_pipe_dst_is_mx_q[i],             reg_ena, '0)
+    `FFL(mo_early_pipe_dst_is_mxi_q[i+1],            mo_early_pipe_dst_is_mxi_q[i],            reg_ena, '0)
+    `FFL(mo_early_pipe_dst_is_mxscale_q[i+1],        mo_early_pipe_dst_is_mxscale_q[i],        reg_ena, '0)
+    `FFL(mo_early_pipe_dst_is_mxiscale_q[i+1],       mo_early_pipe_dst_is_mxiscale_q[i],       reg_ena, '0)
+    `FFL(mo_early_pipe_scale_nan_q[i+1],             mo_early_pipe_scale_nan_q[i],             reg_ena, '0)
+    `FFL(mo_early_pipe_mxscale_byte_q[i+1],          mo_early_pipe_mxscale_byte_q[i],          reg_ena, '0)
     `FFL(mo_early_pipe_info_q[i+1],                  mo_early_pipe_info_q[i],                  reg_ena, '0)
     `FFL(mo_early_pipe_mant_zero_q[i+1],             mo_early_pipe_mant_zero_q[i],             reg_ena, '0)
     `FFL(mo_early_pipe_op_mod_q[i+1],                mo_early_pipe_op_mod_q[i],                reg_ena, '0)
@@ -717,6 +864,12 @@ module fpnew_cast_multi #(
   assign dst_is_int_q2 = mo_early_pipe_dst_is_int_q[NUM_MO_EARLY_REGS];
   assign int_fmt_q3    = mo_early_pipe_int_fmt_q[NUM_MO_EARLY_REGS];
   assign dst_fmt_q3    = mo_early_pipe_dst_fmt_q[NUM_MO_EARLY_REGS];
+  assign dst_is_mx_q3       = mo_early_pipe_dst_is_mx_q[NUM_MO_EARLY_REGS];
+  assign dst_is_mxi_q3      = mo_early_pipe_dst_is_mxi_q[NUM_MO_EARLY_REGS];
+  assign dst_is_mxscale_q3  = mo_early_pipe_dst_is_mxscale_q[NUM_MO_EARLY_REGS];
+  assign dst_is_mxiscale_q3 = mo_early_pipe_dst_is_mxiscale_q[NUM_MO_EARLY_REGS];
+  assign scale_is_nan_q3    = mo_early_pipe_scale_nan_q[NUM_MO_EARLY_REGS];
+  assign mxscale_byte_q3    = mo_early_pipe_mxscale_byte_q[NUM_MO_EARLY_REGS];
 
   // ------------------------------
   // Rounding and classification 1
@@ -733,7 +886,7 @@ module fpnew_cast_multi #(
     localparam int unsigned EXP_BITS = fpnew_pkg::exp_bits(fpnew_pkg::fp_format_e'(fmt));
     localparam int unsigned MAN_BITS = fpnew_pkg::man_bits(fpnew_pkg::fp_format_e'(fmt));
 
-    if (FpFmtConfig[fmt]) begin : active_format
+    if (AllFpFmtConfig[fmt]) begin : active_format
       always_comb begin : assemble_result
         fmt_pre_round_abs[fmt] = {final_exp_q[EXP_BITS-1:0], final_mant_q[MAN_BITS-1:0]}; // 0-extend
       end
@@ -747,7 +900,7 @@ module fpnew_cast_multi #(
     // Set up some constants
     localparam int unsigned INT_WIDTH = fpnew_pkg::int_width(fpnew_pkg::int_format_e'(ifmt));
 
-    if (IntFmtConfig[ifmt]) begin : active_format
+    if (AllIntFmtConfig[ifmt]) begin : active_format
       always_comb begin : assemble_result
         // sign-extend reusult
         ifmt_pre_round_abs[ifmt]                = '{default: final_int_q[INT_WIDTH-1]};
@@ -779,8 +932,17 @@ module fpnew_cast_multi #(
   logic [1:0]                         fp_round_sticky_bits_q, int_round_sticky_bits_q;
   logic signed [INT_EXP_WIDTH-1:0]    input_exp_q2;
   logic                               of_before_round_q;
+  logic                               dst_is_mx_q4, dst_is_mxi_q4, dst_is_mxscale_q4, dst_is_mxiscale_q4;
+  logic                               scale_is_nan_q4;
+  logic [fpnew_pkg::MX_SCALE_WIDTH-1:0] mxscale_byte_q4;
 
   // Internal pipeline signals, index i holds signal after i register stages
+  logic                   [0:NUM_MO_LATE_REGS]                    mo_late_pipe_dst_is_mx_q;
+  logic                   [0:NUM_MO_LATE_REGS]                    mo_late_pipe_dst_is_mxi_q;
+  logic                   [0:NUM_MO_LATE_REGS]                    mo_late_pipe_dst_is_mxscale_q;
+  logic                   [0:NUM_MO_LATE_REGS]                    mo_late_pipe_dst_is_mxiscale_q;
+  logic                   [0:NUM_MO_LATE_REGS]                    mo_late_pipe_scale_nan_q;
+  logic                   [0:NUM_MO_LATE_REGS][fpnew_pkg::MX_SCALE_WIDTH-1:0] mo_late_pipe_mxscale_byte_q;
   logic                   [0:NUM_MO_LATE_REGS][WIDTH-1:0]         mo_late_pipe_pre_round_abs_q;
   logic                   [0:NUM_MO_LATE_REGS]                    mo_late_pipe_input_sign_q;
   logic                   [0:NUM_MO_LATE_REGS][1:0]               mo_late_pipe_round_sticky_bits_q;
@@ -814,6 +976,12 @@ module fpnew_cast_multi #(
   assign mo_late_pipe_mant_zero_q[0]                = mo_early_pipe_mant_zero_q[NUM_MO_EARLY_REGS];
   assign mo_late_pipe_src_is_int_q[0]               = mo_early_pipe_src_is_int_q[NUM_MO_EARLY_REGS];
   assign mo_late_pipe_dst_is_int_q[0]               = mo_early_pipe_dst_is_int_q[NUM_MO_EARLY_REGS];
+  assign mo_late_pipe_dst_is_mx_q[0]                = dst_is_mx_q3;
+  assign mo_late_pipe_dst_is_mxi_q[0]               = dst_is_mxi_q3;
+  assign mo_late_pipe_dst_is_mxscale_q[0]           = dst_is_mxscale_q3;
+  assign mo_late_pipe_dst_is_mxiscale_q[0]          = dst_is_mxiscale_q3;
+  assign mo_late_pipe_scale_nan_q[0]                = scale_is_nan_q3;
+  assign mo_late_pipe_mxscale_byte_q[0]             = mxscale_byte_q3;
   assign mo_late_pipe_info_q[0]                     = mo_early_pipe_info_q[NUM_MO_EARLY_REGS];
   assign mo_late_pipe_op_mod_q[0]                   = mo_early_pipe_op_mod_q[NUM_MO_EARLY_REGS];
   assign mo_late_pipe_rnd_mode_q[0]                 = mo_early_pipe_rnd_mode_q[NUM_MO_EARLY_REGS];
@@ -840,6 +1008,12 @@ module fpnew_cast_multi #(
     assign reg_ena = mo_late_pipe_ready[i] & mo_late_pipe_valid_q[i];
     // Generate the pipeline registers within the stages, use enable-registers
     `FFL(mo_late_pipe_dst_is_int_q[i+1],            mo_late_pipe_dst_is_int_q[i],            reg_ena, '0)
+    `FFL(mo_late_pipe_dst_is_mx_q[i+1],             mo_late_pipe_dst_is_mx_q[i],             reg_ena, '0)
+    `FFL(mo_late_pipe_dst_is_mxi_q[i+1],            mo_late_pipe_dst_is_mxi_q[i],            reg_ena, '0)
+    `FFL(mo_late_pipe_dst_is_mxscale_q[i+1],        mo_late_pipe_dst_is_mxscale_q[i],        reg_ena, '0)
+    `FFL(mo_late_pipe_dst_is_mxiscale_q[i+1],       mo_late_pipe_dst_is_mxiscale_q[i],       reg_ena, '0)
+    `FFL(mo_late_pipe_scale_nan_q[i+1],             mo_late_pipe_scale_nan_q[i],             reg_ena, '0)
+    `FFL(mo_late_pipe_mxscale_byte_q[i+1],          mo_late_pipe_mxscale_byte_q[i],          reg_ena, '0)
     `FFL(mo_late_pipe_src_is_int_q[i+1],            mo_late_pipe_src_is_int_q[i],            reg_ena, '0)
     `FFL(mo_late_pipe_pre_round_abs_q[i+1],         mo_late_pipe_pre_round_abs_q[i],         reg_ena, '0)
     `FFL(mo_late_pipe_round_sticky_bits_q[i+1],     mo_late_pipe_round_sticky_bits_q[i],     reg_ena, '0)
@@ -874,6 +1048,12 @@ module fpnew_cast_multi #(
   assign int_round_sticky_bits_q = mo_late_pipe_int_round_sticky_bits_q[NUM_MO_LATE_REGS];
   assign input_exp_q2            = mo_late_pipe_input_exp_q[NUM_MO_LATE_REGS];
   assign of_before_round_q       = mo_late_pipe_of_before_round_q[NUM_MO_LATE_REGS];
+  assign dst_is_mx_q4            = mo_late_pipe_dst_is_mx_q[NUM_MO_LATE_REGS];
+  assign dst_is_mxi_q4           = mo_late_pipe_dst_is_mxi_q[NUM_MO_LATE_REGS];
+  assign dst_is_mxscale_q4       = mo_late_pipe_dst_is_mxscale_q[NUM_MO_LATE_REGS];
+  assign dst_is_mxiscale_q4      = mo_late_pipe_dst_is_mxiscale_q[NUM_MO_LATE_REGS];
+  assign scale_is_nan_q4         = mo_late_pipe_scale_nan_q[NUM_MO_LATE_REGS];
+  assign mxscale_byte_q4         = mo_late_pipe_mxscale_byte_q[NUM_MO_LATE_REGS];
 
   // ------------------------------
   // Rounding and classification 2
@@ -920,18 +1100,37 @@ module fpnew_cast_multi #(
     localparam int unsigned FP_WIDTH = fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(fmt));
     localparam int unsigned EXP_BITS = fpnew_pkg::exp_bits(fpnew_pkg::fp_format_e'(fmt));
     localparam int unsigned MAN_BITS = fpnew_pkg::man_bits(fpnew_pkg::fp_format_e'(fmt));
+    localparam bit MX_FMT_HAS_INF = fpnew_pkg::fp_fmt_has_inf(fpnew_pkg::fp_format_e'(fmt), 1'b1);
+    localparam bit MX_FMT_HAS_NAN = fpnew_pkg::fp_fmt_has_nan(fpnew_pkg::fp_format_e'(fmt));
+    localparam logic [EXP_BITS-1:0] MX_MAX_FINITE_EXPONENT = {EXP_BITS{1'b1}} - (MX_FMT_HAS_INF ? 1 : 0);
+    localparam logic [MAN_BITS-1:0] MX_MAX_FINITE_MANTISSA =
+        (MX_FMT_HAS_INF || !MX_FMT_HAS_NAN) ? {MAN_BITS{1'b1}} : ({MAN_BITS{1'b1}} - 1'b1);
+    localparam logic [EXP_BITS+MAN_BITS-1:0] MX_MAX_FINITE_ABS =
+        {MX_MAX_FINITE_EXPONENT, MX_MAX_FINITE_MANTISSA};
 
-    if (FpFmtConfig[fmt]) begin : active_format
+    if (AllFpFmtConfig[fmt]) begin : active_format
       always_comb begin : post_process
+        logic [WIDTH-1:0] mx_max_finite_abs_wide;
+
+        mx_max_finite_abs_wide = '0;
+        mx_max_finite_abs_wide[EXP_BITS+MAN_BITS-1:0] = MX_MAX_FINITE_ABS;
         // detect of / uf
         fmt_uf_after_round[fmt] = rounded_abs[EXP_BITS+MAN_BITS-1:MAN_BITS] == '0; // denormal
-        fmt_of_after_round[fmt] = rounded_abs[EXP_BITS+MAN_BITS-1:MAN_BITS] == '1; // inf exp.
+        fmt_of_after_round[fmt] = !fpnew_pkg::fp_fmt_has_inf(fpnew_pkg::fp_format_e'(fmt), dst_is_mx_q4) ?
+                                  (rounded_abs > mx_max_finite_abs_wide) :
+                                  (rounded_abs[EXP_BITS+MAN_BITS-1:MAN_BITS] == '1);
 
-        // Assemble regular result, nan box short ones. Int zeroes need to be detected`
+        // Assemble regular result, nan box short ones. Int zeroes need to be detected.
+        // Formats without infinity saturate to the largest finite value on overflow.
         fmt_result[fmt]               = '1;
-        fmt_result[fmt][FP_WIDTH-1:0] = src_is_int_q3 & mant_is_zero_q
-                                        ? '0
-                                        : {rounded_sign, rounded_abs[EXP_BITS+MAN_BITS-1:0]};
+        if (!fpnew_pkg::fp_fmt_has_inf(fpnew_pkg::fp_format_e'(fmt), dst_is_mx_q4) &&
+            (of_before_round_q || fmt_of_after_round[fmt])) begin
+          fmt_result[fmt][FP_WIDTH-1:0] = {input_sign_q, MX_MAX_FINITE_ABS};
+        end else begin
+          fmt_result[fmt][FP_WIDTH-1:0] = (src_is_int_q3 && mant_is_zero_q)
+                                          ? '0
+                                          : {rounded_sign, rounded_abs[EXP_BITS+MAN_BITS-1:0]};
+        end
       end
     end else begin : inactive_format
       assign fmt_uf_after_round[fmt] = fpnew_pkg::DONT_CARE;
@@ -949,7 +1148,7 @@ module fpnew_cast_multi #(
     // Set up some constants
     localparam int unsigned INT_WIDTH = fpnew_pkg::int_width(fpnew_pkg::int_format_e'(ifmt));
 
-    if (IntFmtConfig[ifmt]) begin : active_format
+    if (AllIntFmtConfig[ifmt]) begin : active_format
       always_comb begin : detect_overflow
         ifmt_of_after_round[ifmt] = 1'b0;
         // Int result can overflow if we're at the max exponent
@@ -983,15 +1182,33 @@ module fpnew_cast_multi #(
     localparam int unsigned EXP_BITS = fpnew_pkg::exp_bits(fpnew_pkg::fp_format_e'(fmt));
     localparam int unsigned MAN_BITS = fpnew_pkg::man_bits(fpnew_pkg::fp_format_e'(fmt));
 
+    localparam bit MX_FMT_HAS_INF = fpnew_pkg::fp_fmt_has_inf(fpnew_pkg::fp_format_e'(fmt), 1'b1);
+    localparam bit MX_FMT_HAS_NAN = fpnew_pkg::fp_fmt_has_nan(fpnew_pkg::fp_format_e'(fmt));
     localparam logic [EXP_BITS-1:0] QNAN_EXPONENT = '1;
     localparam logic [MAN_BITS-1:0] QNAN_MANTISSA = 2**(MAN_BITS-1);
+    localparam logic [MAN_BITS-1:0] MX_CANONICAL_NAN_MANTISSA =
+        (fpnew_pkg::fp_format_e'(fmt) == fpnew_pkg::FP8ALT) ? '1 : QNAN_MANTISSA;
+    localparam logic [EXP_BITS-1:0] MX_MAX_FINITE_EXPONENT =
+        {EXP_BITS{1'b1}} - (MX_FMT_HAS_INF ? 1 : 0);
+    localparam logic [MAN_BITS-1:0] MX_MAX_FINITE_MANTISSA =
+        (MX_FMT_HAS_INF || !MX_FMT_HAS_NAN) ? {MAN_BITS{1'b1}} : ({MAN_BITS{1'b1}} - 1'b1);
 
-    if (FpFmtConfig[fmt]) begin : active_format
+    if (AllFpFmtConfig[fmt]) begin : active_format
       always_comb begin : special_results
         logic [FP_WIDTH-1:0] special_res;
-        special_res = info_q2.is_zero
-                      ? input_sign_q << FP_WIDTH-1 // signed zero
-                      : {1'b0, QNAN_EXPONENT, QNAN_MANTISSA}; // qNaN
+        if (info_q2.is_zero && !scale_is_nan_q4) begin
+          special_res = input_sign_q << (FP_WIDTH - 1); // signed zero
+        end else if (scale_is_nan_q4 || info_q2.is_nan || !info_q2.is_boxed) begin
+          if (!fpnew_pkg::fp_fmt_has_nan(fpnew_pkg::fp_format_e'(fmt))) begin
+            special_res = {1'b0, MX_MAX_FINITE_EXPONENT, MX_MAX_FINITE_MANTISSA}; // no NaN encoding
+          end else if ((fpnew_pkg::fp_format_e'(fmt) == fpnew_pkg::FP8ALT) && dst_is_mx_q4) begin
+            special_res = {1'b0, QNAN_EXPONENT, MX_CANONICAL_NAN_MANTISSA}; // E4M3 canonical NaN
+          end else begin
+            special_res = {1'b0, QNAN_EXPONENT, QNAN_MANTISSA}; // qNaN
+          end
+        end else begin
+          special_res = {1'b0, QNAN_EXPONENT, QNAN_MANTISSA}; // qNaN
+        end
 
         // Initialize special result with ones (NaN-box)
         fmt_special_result[fmt]               = '1;
@@ -1003,9 +1220,9 @@ module fpnew_cast_multi #(
   end
 
   // Detect special case from source format, I2F casts don't produce a special result
-  assign fp_result_is_special = ~src_is_int_q3 & (info_q2.is_zero |
-                                                 info_q2.is_nan |
-                                                 ~info_q2.is_boxed);
+  assign fp_result_is_special = scale_is_nan_q4 | (~src_is_int_q3 & (info_q2.is_zero |
+                                                                     info_q2.is_nan |
+                                                                     ~info_q2.is_boxed));
 
   // Signalling input NaNs raise invalid flag, otherwise no flags set
   assign fp_special_status = '{NV: info_q2.is_signalling, default: 1'b0};
@@ -1027,7 +1244,7 @@ module fpnew_cast_multi #(
     // Set up some constants
     localparam int unsigned INT_WIDTH = fpnew_pkg::int_width(fpnew_pkg::int_format_e'(ifmt));
 
-    if (IntFmtConfig[ifmt]) begin : active_format
+    if (AllIntFmtConfig[ifmt]) begin : active_format
       always_comb begin : special_results
         automatic logic [INT_WIDTH-1:0] special_res;
 
@@ -1036,7 +1253,8 @@ module fpnew_cast_multi #(
         special_res[INT_WIDTH-1]   = op_mod_q3; // for unsigned casts yields 2**INT_WIDTH-1
 
         // Negative special case (except for nans) tie to -max or 0
-        if (input_sign_q && !info_q2.is_nan) special_res = ~special_res;
+        if (input_sign_q && !(info_q2.is_nan || (dst_is_mxi_q4 && scale_is_nan_q4)))
+          special_res = ~special_res;
 
         // Initialize special result with sign-extension
         ifmt_special_result[ifmt]                = '{default: special_res[INT_WIDTH-1]};
@@ -1048,9 +1266,10 @@ module fpnew_cast_multi #(
   end
 
   // Detect special case from source format (inf, nan, overflow, nan-boxing or negative unsigned)
-  assign int_result_is_special = info_q2.is_nan | info_q2.is_inf |
-                                 of_before_round_q | of_after_round | ~info_q2.is_boxed |
-                                 (input_sign_q & op_mod_q3 & ~rounded_int_res_zero);
+  assign int_result_is_special = info_q2.is_nan | info_q2.is_inf | ~info_q2.is_boxed |
+                                 (dst_is_mxi_q4 & scale_is_nan_q4) |
+                                 (~info_q2.is_zero & (of_before_round_q | of_after_round |
+                                 (input_sign_q & op_mod_q3 & ~rounded_int_res_zero)));
 
   // All integer special cases are invalid
   assign int_special_status = '{NV: 1'b1, default: 1'b0};
@@ -1085,7 +1304,14 @@ module fpnew_cast_multi #(
   logic               extension_bit;
 
   // Select output depending on special case detection
-  assign result_d = dst_is_int_q3 ? int_result : fp_result;
+  if (EnableMXScale) begin : gen_mxscale_result
+    logic [WIDTH-1:0] mxscale_result;
+    assign mxscale_result = {{(WIDTH-fpnew_pkg::MX_SCALE_WIDTH){1'b0}}, mxscale_byte_q4};
+    assign result_d = (dst_is_mxscale_q4 || dst_is_mxiscale_q4) ? mxscale_result :
+                      dst_is_int_q3 ? int_result : fp_result;
+  end else begin : gen_no_mxscale_result
+    assign result_d = dst_is_int_q3 ? int_result : fp_result;
+  end
   assign status_d = dst_is_int_q3 ? int_status : fp_status;
 
   // MSB of int result decides extension, otherwise NaN box
