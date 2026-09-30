@@ -49,6 +49,7 @@ sources:
   - src/mxdotp/fpnew_mxdotp_multi_modules.sv
   - src/fpnew_mxdotp_multi.sv
   - src/fpnew_mxdotp_multi_flatten.sv
+  - src/fpnew_mxdotp_32.sv
   - src/fpnew_mxdotp_multi_wrapper.sv
   - src/pace/fpnew_pace_cast.sv
   - src/pace/fpnew_pace_decast.sv
