@@ -206,7 +206,7 @@ or on 16b inputs producing 32b outputs");
     localparam int unsigned MAX_WIDTH = fpnew_pkg::max_fp_width(ACTIVE_FORMATS);
     localparam fpnew_pkg::fmt_logic_t PaceActiveFormats =
         fpnew_pkg::get_pace_lane_formats(ACTIVE_FORMATS, PaceFmtConfig);
-    localparam int unsigned EnablePace = (PaceActiveFormats != 0);
+    localparam bit EnablePace = (PaceActiveFormats != 0);
     // Cast-specific parameters
     localparam fpnew_pkg::fmt_logic_t CONV_FORMATS =
         fpnew_pkg::get_conv_lane_formats(Width, FpFmtConfig, LANE);

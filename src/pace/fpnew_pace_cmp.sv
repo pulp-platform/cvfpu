@@ -135,5 +135,5 @@ module fpnew_pace_cmp #(
   assign operand_o   = out_pipe_operand_q[NumOutRegs];
   assign tag_o       = out_pipe_tag_q[NumOutRegs];
   assign out_valid_o = out_pipe_valid_q[NumOutRegs];
-  assign busy_o      = |inp_pipe_valid_vec | |out_pipe_valid_vec;
+  assign busy_o      = (|inp_pipe_valid_vec) | (|out_pipe_valid_vec);
 endmodule
