@@ -17,7 +17,7 @@ module fpnew_mxdotp_multi_wrapper
   import fpnew_mxdotp_multi_pkg::*;
 #(
   parameter int unsigned             LaneWidth       = 64,
-  parameter int unsigned             VectorSize      = 8,
+  parameter int unsigned             VectorSize      = LaneWidth/SRC_WIDTH,
   parameter fpnew_pkg::fmt_logic_t   FpSrcFmtConfig  = '1,  // Supported FP source formats (FP8, FP8ALT, FP6, FP6ALT, FP4)
   parameter fpnew_pkg::ifmt_logic_t  IntSrcFmtConfig = '1,  // Supported INT formats (INT8)
   parameter fpnew_pkg::fmt_logic_t   FpDstFmtConfig  = '1,  // Supported FP destination formats (FP32, FP16ALT)
@@ -82,6 +82,10 @@ module fpnew_mxdotp_multi_wrapper
 
   if (FpSrcFmtConfig[fpnew_pkg::FP6] || FpSrcFmtConfig[fpnew_pkg::FP6ALT]) begin : gen_fp6_operands
 
+    if ((LaneWidth + 2) % 6 != 0) begin : gen_fp6_lane_check
+      $fatal(1, "MXDOTP FP6 requires LaneWidth+2 (lane plus 2-bit FP6 remainder) to be a multiple of 6, got LaneWidth=%0d", LaneWidth);
+    end
+
     typedef enum logic [1:0] {
       STEP0 = 2'b00,
       STEP1 = 2'b01,
@@ -91,7 +95,7 @@ module fpnew_mxdotp_multi_wrapper
     fp6_step_e step;
 
     // Count for the number of FP6 extended operands processed
-    // Each 192b/6b = 32 FP6 operands are processed in 3 steps
+    // Each 3*LaneWidth bits (LaneWidth/2 FP6 operands) are processed in 3 steps
     logic [$clog2(3*Unroll)-1:0] count_q, count_d;
     logic [UNROLL_IDX_WIDTH-1:0] unroll_index;
 
@@ -120,22 +124,22 @@ module fpnew_mxdotp_multi_wrapper
 
       if (src_fmt_i == fpnew_pkg::FP6 || src_fmt_i == fpnew_pkg::FP6ALT) begin
         if (step == STEP0) begin
-          local_src_fmt_operand_a = {4'b0000, operands_i[0][59:0]};
-          local_fp6_stores[0]     = operands_i[0][63:60];
-          local_src_fmt_operand_b = {4'b0000, operands_i[1][59:0]};
-          local_fp6_stores[1]     = operands_i[1][63:60];
+          local_src_fmt_operand_a = {4'b0000, operands_i[0][LaneWidth-5:0]};
+          local_fp6_stores[0]     = operands_i[0][LaneWidth-1-:4];
+          local_src_fmt_operand_b = {4'b0000, operands_i[1][LaneWidth-5:0]};
+          local_fp6_stores[1]     = operands_i[1][LaneWidth-1-:4];
         end else if (step == STEP1) begin
-          local_src_fmt_operand_a     = {operands_i[0][59:0], local_fp6_stores_q[0][unroll_index][3:0]};
-          local_src_fmt_operand_a_rem = operands_i[0][61:60];
-          local_fp6_stores[0]         = {2'b00, operands_i[0][63:62]};
-          local_src_fmt_operand_b     = {operands_i[1][59:0], local_fp6_stores_q[1][unroll_index][3:0]};
-          local_src_fmt_operand_b_rem = operands_i[1][61:60];
-          local_fp6_stores[1]         = {2'b00, operands_i[1][63:62]};
+          local_src_fmt_operand_a     = {operands_i[0][LaneWidth-5:0], local_fp6_stores_q[0][unroll_index][3:0]};
+          local_src_fmt_operand_a_rem = operands_i[0][LaneWidth-3-:2];
+          local_fp6_stores[0]         = {2'b00, operands_i[0][LaneWidth-1-:2]};
+          local_src_fmt_operand_b     = {operands_i[1][LaneWidth-5:0], local_fp6_stores_q[1][unroll_index][3:0]};
+          local_src_fmt_operand_b_rem = operands_i[1][LaneWidth-3-:2];
+          local_fp6_stores[1]         = {2'b00, operands_i[1][LaneWidth-1-:2]};
         end else if (step == STEP2) begin
-          local_src_fmt_operand_a     = {operands_i[0][61:0], local_fp6_stores_q[0][unroll_index][1:0]};
-          local_src_fmt_operand_a_rem = operands_i[0][63:62];
-          local_src_fmt_operand_b     = {operands_i[1][61:0], local_fp6_stores_q[1][unroll_index][1:0]};
-          local_src_fmt_operand_b_rem = operands_i[1][63:62];
+          local_src_fmt_operand_a     = {operands_i[0][LaneWidth-3:0], local_fp6_stores_q[0][unroll_index][1:0]};
+          local_src_fmt_operand_a_rem = operands_i[0][LaneWidth-1-:2];
+          local_src_fmt_operand_b     = {operands_i[1][LaneWidth-3:0], local_fp6_stores_q[1][unroll_index][1:0]};
+          local_src_fmt_operand_b_rem = operands_i[1][LaneWidth-1-:2];
         end
 
         if (in_valid_i && in_ready_o) begin

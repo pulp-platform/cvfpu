@@ -23,7 +23,7 @@ module fpnew_mxdotp_multi
   parameter fpnew_pkg::ifmt_logic_t  IntSrcFmtConfig = MxdotpSrcIntFmtConfig,
   parameter fpnew_pkg::fmt_logic_t   FpDstFmtConfig  = MxdotpDstFpFmtConfig,
   parameter int unsigned             LaneWidth   = 64,
-  parameter int unsigned             VectorSize  = 8,
+  parameter int unsigned             VectorSize  = LaneWidth/SRC_WIDTH,
   parameter int unsigned             NumPipeRegs = 4,
   parameter fpnew_pkg::pipe_config_t PipeConfig  = fpnew_pkg::BEFORE,
   parameter type                     TagType     = logic,
@@ -70,6 +70,10 @@ module fpnew_mxdotp_multi
 
   if (LaneWidth != VectorSize*SRC_WIDTH) begin
     $fatal(1, "MXDOTP requires LaneWidth to be VectorSize*SRC_WIDTH, got LaneWidth=%0d and VectorSize=%0d", LaneWidth, VectorSize);
+  end
+
+  if ((FpSrcFmtConfig[fpnew_pkg::FP6] || FpSrcFmtConfig[fpnew_pkg::FP6ALT]) && ((LaneWidth + 2) % 6 != 0)) begin : gen_fp6_lane_check
+    $fatal(1, "MXDOTP FP6 requires LaneWidth+2 (lane plus 2-bit FP6 remainder) to be a multiple of 6, got LaneWidth=%0d", LaneWidth);
   end
 
   // ----------------
@@ -247,24 +251,24 @@ module fpnew_mxdotp_multi
     flat_operands_b_q = operands_b_q;
     // TODO: FP6 and FP4 without FP8
     if (src_fmt_q == fpnew_pkg::FP6 || src_fmt_q == fpnew_pkg::FP6ALT) begin
-      for (int i = 0; i < FP6_VECTOR_SIZE; i++) begin // Last 3 elements use FP6 datapath
-        fp6_operands_post_inp_pipe[i] = {{(SRC_WIDTH-6){1'b0}}, flat_operands_a_q[(48+i*6) +: 6]};
-        fp6_operands_post_inp_pipe[i+FP6_VECTOR_SIZE] = {{(SRC_WIDTH-6){1'b0}}, flat_operands_b_q[(48+i*6) +: 6]};
-        if (i == FP6_VECTOR_SIZE-1) begin // Last element of the FP6 remainder extends to 66 bits
+      for (int i = 0; i < FP6_VECTOR_SIZE; i++) begin // Last FP6_VECTOR_SIZE elements use FP6 datapath
+        fp6_operands_post_inp_pipe[i] = {{(SRC_WIDTH-6){1'b0}}, flat_operands_a_q[(VectorSize*6+i*6) +: 6]};
+        fp6_operands_post_inp_pipe[i+FP6_VECTOR_SIZE] = {{(SRC_WIDTH-6){1'b0}}, flat_operands_b_q[(VectorSize*6+i*6) +: 6]};
+        if (i == FP6_VECTOR_SIZE-1) begin // Last element of the FP6 remainder extends to LaneWidth+2 bits
           fp6_operands_post_inp_pipe[i][5:4] = operands_a_fp6_rem_q;
           fp6_operands_post_inp_pipe[i+FP6_VECTOR_SIZE][5:4] = operands_b_fp6_rem_q;
         end
       end
-      for (int i = 0; i < VectorSize; i++) begin // Top 8 elements use FP8 datapath
+      for (int i = 0; i < VectorSize; i++) begin // First VectorSize elements use FP8 datapath
         operands_post_inp_pipe[i] = {{(SRC_WIDTH-6){1'b0}}, flat_operands_a_q[(i*6) +: 6]};
         operands_post_inp_pipe[i+VectorSize] = {{(SRC_WIDTH-6){1'b0}}, flat_operands_b_q[(i*6) +: 6]};
       end
     end else if (src_fmt_q == fpnew_pkg::FP4) begin
       for (int i = 0; i < VectorSize; i++) begin
-        if (i < FP6_VECTOR_SIZE) begin // First 3 elements use FP6 datapath
+        if (i < FP6_VECTOR_SIZE) begin // First FP6_VECTOR_SIZE elements use FP6 datapath
           fp6_operands_post_inp_pipe[i] = {{(SRC_WIDTH-4){1'b0}}, operands_a_q[i][7:4]};
           fp6_operands_post_inp_pipe[i+FP6_VECTOR_SIZE] = {{(SRC_WIDTH-4){1'b0}}, operands_b_q[i][7:4]};
-        end else begin // Last 5 elements use FP4 datapath, remaining elements already use FP8 datapath via operands_post_inp_pipe
+        end else begin // Last FP4_VECTOR_SIZE elements use FP4 datapath, remaining elements already use FP8 datapath via operands_post_inp_pipe
           fp4_operands_post_inp_pipe[i-FP6_VECTOR_SIZE] = {{(SRC_WIDTH-4){1'b0}}, operands_a_q[i][7:4]};
           fp4_operands_post_inp_pipe[i-FP6_VECTOR_SIZE+FP4_VECTOR_SIZE] = {{(SRC_WIDTH-4){1'b0}}, operands_b_q[i][7:4]};
         end
