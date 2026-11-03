@@ -47,7 +47,13 @@ sources:
   - src/fpnew_noncomp.sv
   - src/mxdotp/fpnew_mxdotp_multi_pkg.sv
   - src/mxdotp/fpnew_mxdotp_multi_modules.sv
+  - src/mxdotp/fpnew_mxdotp_variant_modules.sv
+  - src/mxdotp/fpnew_mxdotp_multi_modules_param.sv
+  - src/mxdotp/fpnew_mxdotp_slim_classifier.sv
   - src/fpnew_mxdotp_multi.sv
+  - src/fpnew_mxdotp_multi_param.sv
+  - src/fpnew_mxdotp_multi_noearly_param.sv
+  - src/fpnew_mxdotp_multi_slim_param.sv
   - src/fpnew_mxdotp_multi_opt.sv
   - src/fpnew_mxdotp_multi_wrapper.sv
   - src/pace/fpnew_pace_cast.sv

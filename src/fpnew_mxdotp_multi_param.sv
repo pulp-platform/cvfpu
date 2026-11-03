@@ -182,10 +182,14 @@ module fpnew_mxdotp_multi_param
                                            `L1_MIN(L1_SPARE[4], L1_SPARE[5]));
   localparam int   L1_MAX_ADJUST = L1_REF_ANCHOR - L1_MIN_ANCHOR;
 
-  // Saturating accumulation in element order (FP8 lane, then FP6 lane, then FP4 lane) only where a format can overflow
-  localparam logic L1_SAT_FP8   = !L1Wrap && FP8_LANES && (L1_OVF[0] || L1_OVF[1] || L1_OVF[2] || L1_OVF[3] || L1_OVF[4] || L1_OVF[5]);
-  localparam logic L1_CHAIN_FP6 = !L1Wrap && FP8_LANES && FP6_LANES && (L1_OVF[2] || L1_OVF[3] || L1_OVF[4]);
-  localparam logic L1_CHAIN_FP4 = !L1Wrap && FP8_LANES && FP4_LANES && L1_OVF[4];
+  // Saturating accumulation only where a format can overflow: exact block sum on the L1 grid, clamped once to L1Width
+  localparam logic L1_SAT        = !L1Wrap && (L1_OVF[0] || L1_OVF[1] || L1_OVF[2] || L1_OVF[3] || L1_OVF[4] || L1_OVF[5]);
+  localparam int   L1_GROW   [6] = '{L1_OVF[0] ? L1_K[0] - L1_I[0] : 0, L1_OVF[1] ? L1_K[1] - L1_I[1] : 0,
+                                     L1_OVF[2] ? L1_K[2] - L1_I[2] : 0, L1_OVF[3] ? L1_K[3] - L1_I[3] : 0,
+                                     L1_OVF[4] ? L1_K[4] - L1_I[4] : 0, L1_OVF[5] ? L1_K[5] - L1_I[5] : 0};
+  localparam int   L1_GUARD      = `L1_MAX(`L1_MAX(`L1_MAX(L1_GROW[0], L1_GROW[1]), `L1_MAX(L1_GROW[2], L1_GROW[3])),
+                                           `L1_MAX(L1_GROW[4], L1_GROW[5]));
+  localparam int unsigned L1_SUM_WIDTH = L1Width + (L1_SAT ? L1_GUARD : 0);
 
   // FP8 lane: products on the L1 grid of the source format
   localparam int          FP8_OFFSET  [6] = '{L1_A[0] - 2*int'(SUPER_MAN_BITS), L1_A[1] - 2*int'(SUPER_MAN_BITS),
@@ -199,11 +203,28 @@ module fpnew_mxdotp_multi_param
   localparam int unsigned FP8_MAX_Q_WIDTH = (FP8_MAX_Q > 1) ? FP8_MAX_Q : 1;
   localparam int unsigned FP8_TERM_WIDTH  = (L1Wrap && (FP8_MAX_Q_WIDTH >= L1Width)) ? L1Width :
                                             ((FP8_MAX_Q_WIDTH < L1Width) ? FP8_MAX_Q_WIDTH : L1Width) + 1;
+  localparam int          FP8_SHIFT_LO[5] = '{L1_EN[0] ? 2*(1 - L1_BIAS[0]) + FP8_OFFSET[0] : 1024,
+                                              L1_EN[1] ? 2*(1 - L1_BIAS[1]) + FP8_OFFSET[1] : 1024,
+                                              L1_EN[2] ? 2*(1 - L1_BIAS[2]) + FP8_OFFSET[2] : 1024,
+                                              L1_EN[3] ? 2*(1 - L1_BIAS[3]) + FP8_OFFSET[3] : 1024,
+                                              L1_EN[4] ? 2*(1 - L1_BIAS[4]) + FP8_OFFSET[4] : 1024};
+  localparam int          FP8_SHIFT_HI[5] = '{L1_EN[0] ? L1_EXP[0] + FP8_OFFSET[0] : -1024, L1_EN[1] ? L1_EXP[1] + FP8_OFFSET[1] : -1024,
+                                              L1_EN[2] ? L1_EXP[2] + FP8_OFFSET[2] : -1024, L1_EN[3] ? L1_EXP[3] + FP8_OFFSET[3] : -1024,
+                                              L1_EN[4] ? L1_EXP[4] + FP8_OFFSET[4] : -1024};
+  localparam int          FP8_EXACT_LO[5] = '{FP8_SHIFT_LO[0] + 2*(int'(SUPER_MAN_BITS) - L1_MAN[0]),
+                                              FP8_SHIFT_LO[1] + 2*(int'(SUPER_MAN_BITS) - L1_MAN[1]),
+                                              FP8_SHIFT_LO[2] + 2*(int'(SUPER_MAN_BITS) - L1_MAN[2]),
+                                              FP8_SHIFT_LO[3] + 2*(int'(SUPER_MAN_BITS) - L1_MAN[3]),
+                                              FP8_SHIFT_LO[4] + 2*(int'(SUPER_MAN_BITS) - L1_MAN[4])};
+  localparam int          FP8_MIN_SHIFT   = `L1_MIN(`L1_MIN(`L1_MIN(FP8_SHIFT_LO[0], FP8_SHIFT_LO[1]),
+                                                            `L1_MIN(FP8_SHIFT_LO[2], FP8_SHIFT_LO[3])), FP8_SHIFT_LO[4]);
+  localparam int          FP8_MAX_SHIFT   = `L1_MAX(`L1_MAX(`L1_MAX(FP8_SHIFT_HI[0], FP8_SHIFT_HI[1]),
+                                                            `L1_MAX(FP8_SHIFT_HI[2], FP8_SHIFT_HI[3])), FP8_SHIFT_HI[4]);
+  localparam int          FP8_MIN_EXACT   = `L1_MIN(`L1_MIN(`L1_MIN(FP8_EXACT_LO[0], FP8_EXACT_LO[1]),
+                                                            `L1_MIN(FP8_EXACT_LO[2], FP8_EXACT_LO[3])), FP8_EXACT_LO[4]);
 
   // FP6 lane (FP6, FP6ALT, FP4 sources): lane grid no finer than the format needs, aligned to the L1 grid after the sum
-  localparam int          FP6_LA      [3] = '{L1_CHAIN_FP6 ? L1_A[2] : `L1_MIN(L1_A[2], L1_F[2]),
-                                              L1_CHAIN_FP6 ? L1_A[3] : `L1_MIN(L1_A[3], L1_F[3]),
-                                              L1_CHAIN_FP6 ? L1_A[4] : `L1_MIN(L1_A[4], L1_F[4])};
+  localparam int          FP6_LA      [3] = '{`L1_MIN(L1_A[2], L1_F[2]), `L1_MIN(L1_A[3], L1_F[3]), `L1_MIN(L1_A[4], L1_F[4])};
   localparam int          FP6_OFFSET  [3] = '{FP6_LA[0] - 2*int'(FP6_MAN_BITS), FP6_LA[1] - 2*int'(FP6_MAN_BITS),
                                               FP6_LA[2] - 2*int'(FP6_MAN_BITS)};
   localparam int          FP6_ALIGN   [3] = '{L1_A[2] - FP6_LA[0], L1_A[3] - FP6_LA[1], L1_A[4] - FP6_LA[2]};
@@ -214,9 +235,20 @@ module fpnew_mxdotp_multi_param
   localparam int unsigned FP6_TERM_WIDTH  = (L1Wrap && (FP6_MAX_Q_WIDTH >= L1Width)) ? L1Width :
                                             ((FP6_MAX_Q_WIDTH < L1Width) ? FP6_MAX_Q_WIDTH : L1Width) + 1;
   localparam int unsigned FP6_SUM_WIDTH   = FP6_TERM_WIDTH + $clog2(FP6_VECTOR_SIZE_GUARDED);
+  localparam int          FP6_SHIFT_LO[3] = '{L1_EN[2] ? 2*(1 - L1_BIAS[2]) + FP6_OFFSET[0] : 1024,
+                                              L1_EN[3] ? 2*(1 - L1_BIAS[3]) + FP6_OFFSET[1] : 1024,
+                                              L1_EN[4] ? 2*(1 - L1_BIAS[4]) + FP6_OFFSET[2] : 1024};
+  localparam int          FP6_SHIFT_HI[3] = '{L1_EN[2] ? L1_EXP[2] + FP6_OFFSET[0] : -1024, L1_EN[3] ? L1_EXP[3] + FP6_OFFSET[1] : -1024,
+                                              L1_EN[4] ? L1_EXP[4] + FP6_OFFSET[2] : -1024};
+  localparam int          FP6_EXACT_LO[3] = '{FP6_SHIFT_LO[0] + 2*(int'(FP6_MAN_BITS) - L1_MAN[2]),
+                                              FP6_SHIFT_LO[1] + 2*(int'(FP6_MAN_BITS) - L1_MAN[3]),
+                                              FP6_SHIFT_LO[2] + 2*(int'(FP6_MAN_BITS) - L1_MAN[4])};
+  localparam int          FP6_MIN_SHIFT   = `L1_MIN(`L1_MIN(FP6_SHIFT_LO[0], FP6_SHIFT_LO[1]), FP6_SHIFT_LO[2]);
+  localparam int          FP6_MAX_SHIFT   = `L1_MAX(`L1_MAX(FP6_SHIFT_HI[0], FP6_SHIFT_HI[1]), FP6_SHIFT_HI[2]);
+  localparam int          FP6_MIN_EXACT   = `L1_MIN(`L1_MIN(FP6_EXACT_LO[0], FP6_EXACT_LO[1]), FP6_EXACT_LO[2]);
 
   // FP4 lane (FP4 source)
-  localparam int          FP4_LA          = L1_CHAIN_FP4 ? L1_A[4] : `L1_MIN(L1_A[4], L1_F[4]);
+  localparam int          FP4_LA          = `L1_MIN(L1_A[4], L1_F[4]);
   localparam int          FP4_OFFSET      = FP4_LA - 2*int'(FP4_MAN_BITS);
   localparam int          FP4_ALIGN       = L1_A[4] - FP4_LA;
   localparam int          FP4_MAX_Q       = L1_P[4] + FP4_LA;
@@ -224,10 +256,9 @@ module fpnew_mxdotp_multi_param
   localparam int unsigned FP4_TERM_WIDTH  = (L1Wrap && (FP4_MAX_Q_WIDTH >= L1Width)) ? L1Width :
                                             ((FP4_MAX_Q_WIDTH < L1Width) ? FP4_MAX_Q_WIDTH : L1Width) + 1;
   localparam int unsigned FP4_SUM_WIDTH   = FP4_TERM_WIDTH + $clog2(FP4_VECTOR_SIZE_GUARDED);
+  localparam int          FP4_MIN_SHIFT   = 2*(1 - L1_BIAS[4]) + FP4_OFFSET;
+  localparam int          FP4_MAX_SHIFT   = L1_EXP[4] + FP4_OFFSET;
 
-  localparam int unsigned CHAIN_TERMS = VectorSize + (L1_CHAIN_FP6 ? FP6_VECTOR_SIZE : 0) + (L1_CHAIN_FP4 ? FP4_VECTOR_SIZE : 0);
-  localparam int unsigned CHAIN_WIDTH = `L1_MAX(`L1_MAX(FP8_TERM_WIDTH, L1_CHAIN_FP6 ? FP6_TERM_WIDTH : 0),
-                                                L1_CHAIN_FP4 ? FP4_TERM_WIDTH : 0);
   localparam int unsigned ALIGN_WIDTH = $clog2(int'(ANCHOR) + 1) + 1;
 
   // Scale: the format's L1 anchor is folded into the block scale relative to the reference anchor
@@ -505,7 +536,6 @@ module fpnew_mxdotp_multi_param
     fp4_align        = ALIGN_WIDTH'(FP4_ALIGN);
     scale_adjust     = SCALE_EFF_WIDTH'(L1_REF_ANCHOR - L1_A[0]);
     if (src_is_int) begin
-      fp8_shift_offset = 8'(FP8_OFFSET[5]);
       scale_adjust     = SCALE_EFF_WIDTH'(L1_REF_ANCHOR - L1_A[5]);
     end else begin
       case (src_fmt_q)
@@ -544,6 +574,9 @@ module fpnew_mxdotp_multi_param
   logic signed [VectorSize-1:0][FP8_TERM_WIDTH-1:0]              fp8_term;
   logic signed [FP6_VECTOR_SIZE_GUARDED-1:0][FP6_TERM_WIDTH-1:0] fp6_term;
   logic signed [FP4_VECTOR_SIZE_GUARDED-1:0][FP4_TERM_WIDTH-1:0] fp4_term;
+  logic        [VectorSize-1:0]                                  fp8_carry;
+  logic        [FP6_VECTOR_SIZE_GUARDED-1:0]                     fp6_carry;
+  logic        [FP4_VECTOR_SIZE_GUARDED-1:0]                     fp4_carry;
 
   if (FP8_LANES) begin : fp8_l1_lane
     fpnew_mxdotp_param_l1_lane #(
@@ -552,7 +585,11 @@ module fpnew_mxdotp_multi_param
       .PrecisionBits   ( PRECISION_BITS  ),
       .ExpWidth        ( EXP_WIDTH       ),
       .MaxQWidth       ( FP8_MAX_Q_WIDTH ),
+      .MinShift        ( FP8_MIN_SHIFT   ),
+      .MaxShift        ( FP8_MAX_SHIFT   ),
+      .MinExactShift   ( FP8_MIN_EXACT   ),
       .IntEnable       ( INT8_LANE       ),
+      .IntShift        ( FP8_OFFSET[5]   ),
       .L1Width         ( L1Width         ),
       .L1Wrap          ( L1Wrap          )
     ) i_fp8_l1_lane (
@@ -564,10 +601,12 @@ module fpnew_mxdotp_multi_param
       .int_fmt      ( int_fmt_q        ),
       .src_is_int   ( src_is_int       ),
       .shift_offset ( fp8_shift_offset ),
-      .term         ( fp8_term         )
+      .term         ( fp8_term         ),
+      .term_carry   ( fp8_carry        )
     );
   end else begin : no_fp8_l1_lane
-    assign fp8_term = '0;
+    assign fp8_term  = '0;
+    assign fp8_carry = '0;
   end
 
   if (FP6_LANES) begin : fp6_l1_lane
@@ -577,7 +616,11 @@ module fpnew_mxdotp_multi_param
       .PrecisionBits   ( FP6_PREC_BITS   ),
       .ExpWidth        ( 5               ),
       .MaxQWidth       ( FP6_MAX_Q_WIDTH ),
+      .MinShift        ( FP6_MIN_SHIFT   ),
+      .MaxShift        ( FP6_MAX_SHIFT   ),
+      .MinExactShift   ( FP6_MIN_EXACT   ),
       .IntEnable       ( 1'b0            ),
+      .IntShift        ( 0               ),
       .L1Width         ( L1Width         ),
       .L1Wrap          ( L1Wrap          )
     ) i_fp6_l1_lane (
@@ -589,10 +632,12 @@ module fpnew_mxdotp_multi_param
       .int_fmt      ( int_fmt_q        ),
       .src_is_int   ( 1'b0             ),
       .shift_offset ( fp6_shift_offset ),
-      .term         ( fp6_term         )
+      .term         ( fp6_term         ),
+      .term_carry   ( fp6_carry        )
     );
   end else begin : no_fp6_l1_lane
-    assign fp6_term = '0;
+    assign fp6_term  = '0;
+    assign fp6_carry = '0;
   end
 
   if (FP4_LANES) begin : fp4_l1_lane
@@ -602,7 +647,11 @@ module fpnew_mxdotp_multi_param
       .PrecisionBits   ( FP4_PREC_BITS   ),
       .ExpWidth        ( 4               ),
       .MaxQWidth       ( FP4_MAX_Q_WIDTH ),
+      .MinShift        ( FP4_MIN_SHIFT   ),
+      .MaxShift        ( FP4_MAX_SHIFT   ),
+      .MinExactShift   ( FP4_MIN_SHIFT   ),
       .IntEnable       ( 1'b0            ),
+      .IntShift        ( 0               ),
       .L1Width         ( L1Width         ),
       .L1Wrap          ( L1Wrap          )
     ) i_fp4_l1_lane (
@@ -614,10 +663,12 @@ module fpnew_mxdotp_multi_param
       .int_fmt      ( int_fmt_q        ),
       .src_is_int   ( 1'b0             ),
       .shift_offset ( fp4_shift_offset ),
-      .term         ( fp4_term         )
+      .term         ( fp4_term         ),
+      .term_carry   ( fp4_carry        )
     );
   end else begin : no_fp4_l1_lane
-    assign fp4_term = '0;
+    assign fp4_term  = '0;
+    assign fp4_carry = '0;
   end
 
   // --------------------
@@ -627,11 +678,17 @@ module fpnew_mxdotp_multi_param
   logic signed [VectorSize-1:0][FP8_TERM_WIDTH-1:0]              fp8_term_q;
   logic signed [FP6_VECTOR_SIZE_GUARDED-1:0][FP6_TERM_WIDTH-1:0] fp6_term_q;
   logic signed [FP4_VECTOR_SIZE_GUARDED-1:0][FP4_TERM_WIDTH-1:0] fp4_term_q;
+  logic        [VectorSize-1:0]                                  fp8_carry_q;
+  logic        [FP6_VECTOR_SIZE_GUARDED-1:0]                     fp6_carry_q;
+  logic        [FP4_VECTOR_SIZE_GUARDED-1:0]                     fp4_carry_q;
 
   // Inp-mid pipeline signals, index i holds signal after i register stages
   logic signed           [0:NUM_IM_REGS][VectorSize-1:0][FP8_TERM_WIDTH-1:0]              inp_mid_pipe_fp8_term_q;
   logic signed           [0:NUM_IM_REGS][FP6_VECTOR_SIZE_GUARDED-1:0][FP6_TERM_WIDTH-1:0] inp_mid_pipe_fp6_term_q;
   logic signed           [0:NUM_IM_REGS][FP4_VECTOR_SIZE_GUARDED-1:0][FP4_TERM_WIDTH-1:0] inp_mid_pipe_fp4_term_q;
+  logic                  [0:NUM_IM_REGS][VectorSize-1:0]                                  inp_mid_pipe_fp8_carry_q;
+  logic                  [0:NUM_IM_REGS][FP6_VECTOR_SIZE_GUARDED-1:0]                     inp_mid_pipe_fp6_carry_q;
+  logic                  [0:NUM_IM_REGS][FP4_VECTOR_SIZE_GUARDED-1:0]                     inp_mid_pipe_fp4_carry_q;
   fpnew_pkg::fp_format_e [0:NUM_IM_REGS]                                                  inp_mid_pipe_dst_fmt_q;
   logic                  [0:NUM_IM_REGS][SCALE_EFF_WIDTH-1:0]                             inp_mid_pipe_scale_q;
   logic                  [0:NUM_IM_REGS][ALIGN_WIDTH-1:0]                                 inp_mid_pipe_fp6_align_q;
@@ -652,6 +709,9 @@ module fpnew_mxdotp_multi_param
   assign inp_mid_pipe_fp8_term_q[0]    = fp8_term;
   assign inp_mid_pipe_fp6_term_q[0]    = fp6_term;
   assign inp_mid_pipe_fp4_term_q[0]    = fp4_term;
+  assign inp_mid_pipe_fp8_carry_q[0]   = fp8_carry;
+  assign inp_mid_pipe_fp6_carry_q[0]   = fp6_carry;
+  assign inp_mid_pipe_fp4_carry_q[0]   = fp4_carry;
   assign inp_mid_pipe_dst_fmt_q[0]     = inp_pipe_dst_fmt_q[NUM_INP_REGS];
   assign inp_mid_pipe_scale_q[0]       = scale_eff;
   assign inp_mid_pipe_fp6_align_q[0]   = fp6_align;
@@ -684,6 +744,9 @@ module fpnew_mxdotp_multi_param
     `FFL(inp_mid_pipe_fp8_term_q[i+1],    inp_mid_pipe_fp8_term_q[i],    reg_ena, '0)
     `FFL(inp_mid_pipe_fp6_term_q[i+1],    inp_mid_pipe_fp6_term_q[i],    reg_ena, '0)
     `FFL(inp_mid_pipe_fp4_term_q[i+1],    inp_mid_pipe_fp4_term_q[i],    reg_ena, '0)
+    `FFL(inp_mid_pipe_fp8_carry_q[i+1],   inp_mid_pipe_fp8_carry_q[i],   reg_ena, '0)
+    `FFL(inp_mid_pipe_fp6_carry_q[i+1],   inp_mid_pipe_fp6_carry_q[i],   reg_ena, '0)
+    `FFL(inp_mid_pipe_fp4_carry_q[i+1],   inp_mid_pipe_fp4_carry_q[i],   reg_ena, '0)
     `FFL(inp_mid_pipe_dst_fmt_q[i+1],     inp_mid_pipe_dst_fmt_q[i],     reg_ena, fpnew_pkg::fp_format_e'(0))
     `FFL(inp_mid_pipe_scale_q[i+1],       inp_mid_pipe_scale_q[i],       reg_ena, '0)
     `FFL(inp_mid_pipe_fp6_align_q[i+1],   inp_mid_pipe_fp6_align_q[i],   reg_ena, '0)
@@ -698,77 +761,80 @@ module fpnew_mxdotp_multi_param
     `FFL(inp_mid_pipe_aux_q[i+1],         inp_mid_pipe_aux_q[i],         reg_ena, AuxType'('0))
   end
   // Output stage: assign selected pipe outputs to signals for later use
-  assign fp8_term_q = inp_mid_pipe_fp8_term_q[NUM_IM_REGS];
-  assign fp6_term_q = inp_mid_pipe_fp6_term_q[NUM_IM_REGS];
-  assign fp4_term_q = inp_mid_pipe_fp4_term_q[NUM_IM_REGS];
+  assign fp8_term_q  = inp_mid_pipe_fp8_term_q[NUM_IM_REGS];
+  assign fp6_term_q  = inp_mid_pipe_fp6_term_q[NUM_IM_REGS];
+  assign fp4_term_q  = inp_mid_pipe_fp4_term_q[NUM_IM_REGS];
+  assign fp8_carry_q = inp_mid_pipe_fp8_carry_q[NUM_IM_REGS];
+  assign fp6_carry_q = inp_mid_pipe_fp6_carry_q[NUM_IM_REGS];
+  assign fp4_carry_q = inp_mid_pipe_fp4_carry_q[NUM_IM_REGS];
 
   // ------------------
   // Adder data path
   // ------------------
-  logic signed [CHAIN_TERMS-1:0][CHAIN_WIDTH-1:0] chain_term;
-  logic signed [L1Width-1:0]                      fp8_sum;
-  logic signed [FP6_SUM_WIDTH-1:0]                fp6_sum;
-  logic signed [FP4_SUM_WIDTH-1:0]                fp4_sum;
-  logic signed [L1Width-1:0]                      l1_sum;
-
-  for (genvar i = 0; i < VectorSize; i++) begin : gen_chain_fp8
-    assign chain_term[i] = CHAIN_WIDTH'(signed'(fp8_term_q[i]));
-  end
-  if (L1_CHAIN_FP6) begin : gen_chain_fp6
-    for (genvar i = 0; i < FP6_VECTOR_SIZE; i++) begin : gen_chain_fp6_term
-      assign chain_term[VectorSize+i] = CHAIN_WIDTH'(signed'(fp6_term_q[i]));
-    end
-  end
-  if (L1_CHAIN_FP4) begin : gen_chain_fp4
-    for (genvar i = 0; i < FP4_VECTOR_SIZE; i++) begin : gen_chain_fp4_term
-      assign chain_term[VectorSize+FP6_VECTOR_SIZE+i] = CHAIN_WIDTH'(signed'(fp4_term_q[i]));
-    end
-  end
+  logic signed [L1_SUM_WIDTH-1:0]  fp8_sum;
+  logic signed [FP6_SUM_WIDTH-1:0] fp6_sum;
+  logic signed [FP4_SUM_WIDTH-1:0] fp4_sum;
+  logic signed [L1_SUM_WIDTH-1:0]  l1_sum_exact;
+  logic signed [L1Width-1:0]       l1_sum;
 
   if (FP8_LANES) begin : fp8_l1_sum
     fpnew_mxdotp_l1_sum #(
-      .LocalVectorSize ( CHAIN_TERMS ),
-      .TermWidth       ( CHAIN_WIDTH ),
-      .SumWidth        ( L1Width     ),
-      .Saturate        ( L1_SAT_FP8  )
+      .LocalVectorSize ( VectorSize     ),
+      .TermWidth       ( FP8_TERM_WIDTH ),
+      .SumWidth        ( L1_SUM_WIDTH   )
     ) i_fp8_l1_sum (
-      .term ( chain_term ),
-      .sum  ( fp8_sum    )
+      .term  ( fp8_term_q  ),
+      .carry ( fp8_carry_q ),
+      .sum   ( fp8_sum     )
     );
   end else begin : no_fp8_l1_sum
     assign fp8_sum = '0;
   end
 
-  if (FP6_LANES && !L1_CHAIN_FP6) begin : fp6_l1_sum
+  if (FP6_LANES) begin : fp6_l1_sum
     fpnew_mxdotp_l1_sum #(
       .LocalVectorSize ( FP6_VECTOR_SIZE ),
       .TermWidth       ( FP6_TERM_WIDTH  ),
-      .SumWidth        ( FP6_SUM_WIDTH   ),
-      .Saturate        ( 1'b0            )
+      .SumWidth        ( FP6_SUM_WIDTH   )
     ) i_fp6_l1_sum (
-      .term ( fp6_term_q ),
-      .sum  ( fp6_sum    )
+      .term  ( fp6_term_q  ),
+      .carry ( fp6_carry_q ),
+      .sum   ( fp6_sum     )
     );
   end else begin : no_fp6_l1_sum
     assign fp6_sum = '0;
   end
 
-  if (FP4_LANES && !L1_CHAIN_FP4) begin : fp4_l1_sum
+  if (FP4_LANES) begin : fp4_l1_sum
     fpnew_mxdotp_l1_sum #(
       .LocalVectorSize ( FP4_VECTOR_SIZE ),
       .TermWidth       ( FP4_TERM_WIDTH  ),
-      .SumWidth        ( FP4_SUM_WIDTH   ),
-      .Saturate        ( 1'b0            )
+      .SumWidth        ( FP4_SUM_WIDTH   )
     ) i_fp4_l1_sum (
-      .term ( fp4_term_q ),
-      .sum  ( fp4_sum    )
+      .term  ( fp4_term_q  ),
+      .carry ( fp4_carry_q ),
+      .sum   ( fp4_sum     )
     );
   end else begin : no_fp4_l1_sum
     assign fp4_sum = '0;
   end
 
-  assign l1_sum = fp8_sum + (L1Width'(fp6_sum) <<< inp_mid_pipe_fp6_align_q[NUM_IM_REGS])
-                          + (L1Width'(fp4_sum) <<< inp_mid_pipe_fp4_align_q[NUM_IM_REGS]);
+  assign l1_sum_exact = fp8_sum + (L1_SUM_WIDTH'(fp6_sum) <<< inp_mid_pipe_fp6_align_q[NUM_IM_REGS])
+                                + (L1_SUM_WIDTH'(fp4_sum) <<< inp_mid_pipe_fp4_align_q[NUM_IM_REGS]);
+
+  if (L1_SAT) begin : gen_l1_clamp
+    localparam logic signed [L1Width-1:0] L1_SUM_MAX = {1'b0, {(L1Width-1){1'b1}}};
+    localparam logic signed [L1Width-1:0] L1_SUM_MIN = {1'b1, {(L1Width-1){1'b0}}};
+
+    logic l1_overflow;
+
+    assign l1_overflow = (l1_sum_exact[L1_SUM_WIDTH-1:L1Width-1] != '0) &&
+                         (l1_sum_exact[L1_SUM_WIDTH-1:L1Width-1] != '1);
+    assign l1_sum      = l1_overflow ? (l1_sum_exact[L1_SUM_WIDTH-1] ? L1_SUM_MIN : L1_SUM_MAX) :
+                                       l1_sum_exact[L1Width-1:0];
+  end else begin : gen_l1_no_clamp
+    assign l1_sum = l1_sum_exact[L1Width-1:0];
+  end
 
   // ---------------
   // Internal pipeline
