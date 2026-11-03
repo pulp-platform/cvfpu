@@ -52,6 +52,8 @@ sources:
   - src/mxdotp/fpnew_mxdotp_slim_classifier.sv
   - src/fpnew_mxdotp_multi.sv
   - src/fpnew_mxdotp_multi_param.sv
+  - src/fpnew_mxdotp_multi_anchorin_param.sv
+  - src/fpnew_mxdotp_multi_dynanchor_param.sv
   - src/fpnew_mxdotp_multi_noearly_param.sv
   - src/fpnew_mxdotp_multi_slim_param.sv
   - src/fpnew_mxdotp_multi_opt.sv

@@ -165,6 +165,289 @@ module fpnew_mxdotp_param_l1_lane
   end
 endmodule
 
+module fpnew_mxdotp_anchorin_l1_lane
+  import fpnew_mxdotp_multi_pkg::*;
+#(
+  parameter type          SrcType         = logic,
+  parameter int unsigned  LocalVectorSize = 8,
+  parameter int unsigned  PrecisionBits   = 4,
+  parameter int unsigned  ExpWidth        = 6,
+  parameter int           MaxQWidth       = 8,
+  parameter int           MinShift        = 0,
+  parameter int           MaxShift        = 0,
+  parameter int           MinExactShift   = 0,
+  parameter logic         IntEnable       = 1'b0,
+  parameter int unsigned  L1Width         = 72,
+  parameter logic         L1Wrap          = 1'b0,
+  // Do not change the following parameters
+  localparam int unsigned MAX_Q_WIDTH     = (MaxQWidth > 1) ? MaxQWidth : 1,
+  localparam int unsigned TERM_WIDTH      = (L1Wrap && (MAX_Q_WIDTH >= L1Width)) ? L1Width :
+                                            ((MAX_Q_WIDTH < L1Width) ? MAX_Q_WIDTH : L1Width) + 1
+) (
+  input  SrcType              [LocalVectorSize-1:0]                 operands_a,
+  input  SrcType              [LocalVectorSize-1:0]                 operands_b,
+  input  fpnew_pkg::fp_info_t [LocalVectorSize-1:0]                 info_a,
+  input  fpnew_pkg::fp_info_t [LocalVectorSize-1:0]                 info_b,
+  input  fpnew_pkg::fp_format_e                                     src_fmt,
+  input  fpnew_pkg::int_format_e                                    int_fmt,
+  input  logic                                                      src_is_int,
+  input  logic signed         [7:0]                                 shift_offset,
+  output logic signed         [LocalVectorSize-1:0][TERM_WIDTH-1:0] term,
+  output logic                [LocalVectorSize-1:0]                 term_carry
+);
+  localparam int unsigned MUL_WIDTH     = IntEnable ? 8 : PrecisionBits;
+  localparam int unsigned PRODUCT_WIDTH = IntEnable ? 2*MUL_WIDTH : 2*PrecisionBits + 1;
+  localparam logic        CLIP          = !L1Wrap && (MAX_Q_WIDTH > L1Width);
+  localparam int unsigned Q_WIDTH       = (MAX_Q_WIDTH < L1Width) ? MAX_Q_WIDTH : L1Width;
+  localparam int unsigned CLIP_WIDTH    = PRODUCT_WIDTH + ((MaxShift > 0) ? MaxShift : 0);
+  localparam int unsigned WIDE_WIDTH    = !CLIP ? TERM_WIDTH : ((CLIP_WIDTH > Q_WIDTH + 1) ? CLIP_WIDTH : Q_WIDTH + 1);
+  localparam int unsigned EXT_WIDTH     = (WIDE_WIDTH > PRODUCT_WIDTH) ? WIDE_WIDTH : PRODUCT_WIDTH;
+  localparam int unsigned RIGHT_BITS    = (MinShift < 0) ? -MinShift : 0;
+  localparam int          AMT_RANGE     = MaxShift + int'(RIGHT_BITS);
+  localparam int unsigned AMT_WIDTH     = (AMT_RANGE > 1) ? $clog2(AMT_RANGE + 1) : 1;
+  localparam logic        STICKY        = (MinExactShift < 0);
+
+  logic is_int8;
+
+  assign is_int8 = IntEnable && src_is_int && (int_fmt == fpnew_pkg::INT8);
+
+  for (genvar i = 0; i < LocalVectorSize; i++) begin : gen_lane
+    logic signed [PRODUCT_WIDTH-1:0] product;
+    logic signed [ExpWidth-1:0]      exponent_product;
+    logic signed [7:0]               shift;
+    logic        [AMT_WIDTH-1:0]     shift_amount;
+    logic signed [WIDE_WIDTH-1:0]    floor_value;
+    logic                            sticky;
+    logic                            negative;
+
+    if (IntEnable) begin : gen_signed_product
+      logic signed [MUL_WIDTH-1:0] mantissa_a, mantissa_b;
+
+      always_comb begin : signed_operands
+        if (is_int8) begin
+          mantissa_a = operands_a[i][7:0];
+          mantissa_b = operands_b[i][7:0];
+        end else begin
+          mantissa_a = MUL_WIDTH'({info_a[i].is_normal, operands_a[i].mantissa});
+          mantissa_b = MUL_WIDTH'({info_b[i].is_normal, operands_b[i].mantissa});
+          if (operands_a[i].sign ^ operands_b[i].sign) mantissa_a = -mantissa_a;
+        end
+      end
+
+      assign product = mantissa_a * mantissa_b;
+    end else begin : gen_unsigned_product
+      logic [2*PrecisionBits-1:0] magnitude;
+
+      assign magnitude = {info_a[i].is_normal, operands_a[i].mantissa} * {info_b[i].is_normal, operands_b[i].mantissa};
+      assign product   = (operands_a[i].sign ^ operands_b[i].sign) ? -signed'({1'b0, magnitude}) : signed'({1'b0, magnitude});
+    end
+
+    assign exponent_product = is_int8 ? '0 :
+                                        operands_a[i].exponent + info_a[i].is_subnormal
+                                        + operands_b[i].exponent + info_b[i].is_subnormal
+                                        - 2*signed'(bias_constant(src_fmt));
+    assign shift            = signed'(exponent_product) + shift_offset;
+    assign shift_amount     = AMT_WIDTH'(shift + signed'(9'(RIGHT_BITS)));
+
+    if (RIGHT_BITS > 0) begin : gen_bidirectional_shift
+      logic [EXT_WIDTH+RIGHT_BITS-1:0] shifted;
+
+      assign shifted     = (EXT_WIDTH+RIGHT_BITS)'(product) << shift_amount;
+      assign floor_value = shifted[RIGHT_BITS+:WIDE_WIDTH];
+    end else begin : gen_left_shift
+      assign floor_value = WIDE_WIDTH'(EXT_WIDTH'(product) << shift_amount);
+    end
+
+    if (STICKY) begin : gen_sticky
+      logic [cc_pkg::idx_width(PRODUCT_WIDTH)-1:0] trailing_zeros;
+      logic                                        product_zero;
+
+      cc_lzc #(
+        .Width ( PRODUCT_WIDTH                 ),
+        .Mode  ( cc_pkg::LZC_TRAILING_ZERO_CNT )
+      ) i_trailing_zeros (
+        .in_i    ( product        ),
+        .cnt_o   ( trailing_zeros ),
+        .empty_o ( product_zero   )
+      );
+
+      assign sticky = !product_zero && (shift < 0) && (signed'({1'b0, trailing_zeros}) < -shift);
+    end else begin : gen_no_sticky
+      assign sticky = 1'b0;
+    end
+
+    assign negative = product[PRODUCT_WIDTH-1];
+
+    if (CLIP) begin : gen_clipped_term
+      logic overflow;
+
+      assign overflow      = negative ? ((floor_value[WIDE_WIDTH-1:Q_WIDTH] != '1) ||
+                                         ((floor_value[Q_WIDTH-1:0] == '0) && !sticky)) :
+                                        (floor_value[WIDE_WIDTH-1:Q_WIDTH] != '0);
+      assign term[i]       = overflow ? {negative, {Q_WIDTH{~negative}}} : floor_value[Q_WIDTH:0];
+      assign term_carry[i] = negative && (overflow || sticky);
+    end else begin : gen_term
+      assign term[i]       = floor_value;
+      assign term_carry[i] = negative && sticky;
+    end
+  end
+endmodule
+
+module fpnew_mxdotp_dynanchor_l1_lane
+  import fpnew_mxdotp_multi_pkg::*;
+#(
+  parameter type          SrcType         = logic,
+  parameter int unsigned  LocalVectorSize = 8,
+  parameter int unsigned  PrecisionBits   = 4,
+  parameter int unsigned  ExpWidth        = 6,
+  parameter int unsigned  TermWidth       = 8,
+  parameter int           MinShift        = 0,
+  parameter int           MaxShift        = 0,
+  parameter int           MinExactShift   = 0,
+  parameter logic         IntEnable       = 1'b0
+) (
+  input  SrcType              [LocalVectorSize-1:0]                operands_a,
+  input  SrcType              [LocalVectorSize-1:0]                operands_b,
+  input  fpnew_pkg::fp_info_t [LocalVectorSize-1:0]                info_a,
+  input  fpnew_pkg::fp_info_t [LocalVectorSize-1:0]                info_b,
+  input  fpnew_pkg::fp_format_e                                    src_fmt,
+  input  fpnew_pkg::int_format_e                                   int_fmt,
+  input  logic                                                     src_is_int,
+  input  logic signed         [7:0]                                shift_offset,
+  output logic signed         [LocalVectorSize-1:0][7:0]           exponent_sum,
+  output logic                [LocalVectorSize-1:0]                exponent_valid,
+  output logic signed         [LocalVectorSize-1:0][TermWidth-1:0] term,
+  output logic                [LocalVectorSize-1:0]                term_carry
+);
+  localparam int unsigned MUL_WIDTH     = IntEnable ? 8 : PrecisionBits;
+  localparam int unsigned PRODUCT_WIDTH = IntEnable ? 2*MUL_WIDTH : 2*PrecisionBits + 1;
+  localparam logic        SHIFT_CLAMP   = (MinShift < -int'(PRODUCT_WIDTH));
+  localparam int          LO_SHIFT      = SHIFT_CLAMP ? -int'(PRODUCT_WIDTH) : MinShift;
+  localparam int unsigned EXT_WIDTH     = (TermWidth > PRODUCT_WIDTH) ? TermWidth : PRODUCT_WIDTH;
+  localparam int unsigned RIGHT_BITS    = (LO_SHIFT < 0) ? -LO_SHIFT : 0;
+  localparam int          AMT_RANGE     = MaxShift + int'(RIGHT_BITS);
+  localparam int unsigned AMT_WIDTH     = (AMT_RANGE > 1) ? $clog2(AMT_RANGE + 1) : 1;
+  localparam logic        STICKY        = (MinExactShift < 0);
+
+  logic is_int8;
+
+  assign is_int8 = IntEnable && src_is_int && (int_fmt == fpnew_pkg::INT8);
+
+  for (genvar i = 0; i < LocalVectorSize; i++) begin : gen_lane
+    logic signed [PRODUCT_WIDTH-1:0] product;
+    logic signed [ExpWidth-1:0]      exponent_product;
+    logic signed [7:0]               shift_raw;
+    logic signed [7:0]               shift;
+    logic        [AMT_WIDTH-1:0]     shift_amount;
+    logic signed [TermWidth-1:0]     floor_value;
+    logic                            sticky;
+
+    if (IntEnable) begin : gen_signed_product
+      logic signed [MUL_WIDTH-1:0] mantissa_a, mantissa_b;
+
+      always_comb begin : signed_operands
+        if (is_int8) begin
+          mantissa_a = operands_a[i][7:0];
+          mantissa_b = operands_b[i][7:0];
+        end else begin
+          mantissa_a = MUL_WIDTH'({info_a[i].is_normal, operands_a[i].mantissa});
+          mantissa_b = MUL_WIDTH'({info_b[i].is_normal, operands_b[i].mantissa});
+          if (operands_a[i].sign ^ operands_b[i].sign) mantissa_a = -mantissa_a;
+        end
+      end
+
+      assign product = mantissa_a * mantissa_b;
+    end else begin : gen_unsigned_product
+      logic [2*PrecisionBits-1:0] magnitude;
+
+      assign magnitude = {info_a[i].is_normal, operands_a[i].mantissa} * {info_b[i].is_normal, operands_b[i].mantissa};
+      assign product   = (operands_a[i].sign ^ operands_b[i].sign) ? -signed'({1'b0, magnitude}) : signed'({1'b0, magnitude});
+    end
+
+    assign exponent_product = is_int8 ? '0 :
+                                        operands_a[i].exponent + info_a[i].is_subnormal
+                                        + operands_b[i].exponent + info_b[i].is_subnormal
+                                        - 2*signed'(bias_constant(src_fmt));
+    assign shift_raw        = signed'(exponent_product) + shift_offset;
+
+    if (SHIFT_CLAMP) begin : gen_shift_clamp
+      assign shift = (shift_raw < 8'(LO_SHIFT)) ? 8'(LO_SHIFT) : shift_raw;
+    end else begin : gen_no_shift_clamp
+      assign shift = shift_raw;
+    end
+
+    assign shift_amount = AMT_WIDTH'(shift + signed'(9'(RIGHT_BITS)));
+
+    if (RIGHT_BITS > 0) begin : gen_bidirectional_shift
+      logic [EXT_WIDTH+RIGHT_BITS-1:0] shifted;
+
+      assign shifted     = (EXT_WIDTH+RIGHT_BITS)'(product) << shift_amount;
+      assign floor_value = shifted[RIGHT_BITS+:TermWidth];
+    end else begin : gen_left_shift
+      assign floor_value = TermWidth'(EXT_WIDTH'(product) << shift_amount);
+    end
+
+    if (STICKY) begin : gen_sticky
+      logic [cc_pkg::idx_width(PRODUCT_WIDTH)-1:0] trailing_zeros;
+      logic                                        product_zero;
+
+      cc_lzc #(
+        .Width ( PRODUCT_WIDTH                 ),
+        .Mode  ( cc_pkg::LZC_TRAILING_ZERO_CNT )
+      ) i_trailing_zeros (
+        .in_i    ( product        ),
+        .cnt_o   ( trailing_zeros ),
+        .empty_o ( product_zero   )
+      );
+
+      assign sticky = !product_zero && (shift < 0) && (signed'({1'b0, trailing_zeros}) < -shift);
+    end else begin : gen_no_sticky
+      assign sticky = 1'b0;
+    end
+
+    assign exponent_sum[i]   = 8'(exponent_product);
+    assign exponent_valid[i] = !info_a[i].is_zero && !info_b[i].is_zero;
+    assign term[i]           = floor_value;
+    assign term_carry[i]     = product[PRODUCT_WIDTH-1] && sticky;
+  end
+endmodule
+
+module fpnew_mxdotp_max_tree #(
+  parameter int unsigned NumInputs = 32,
+  parameter int unsigned Width     = 8,
+  localparam int unsigned LEVELS   = (NumInputs > 1) ? $clog2(NumInputs) : 1,
+  localparam int unsigned NUM_PAD  = 2**LEVELS
+) (
+  input  logic signed [NumInputs-1:0][Width-1:0] value,
+  input  logic        [NumInputs-1:0]            valid,
+  output logic signed [Width-1:0]                max_value,
+  output logic                                   max_valid
+);
+  logic [2*NUM_PAD-2:0][Width-1:0] node_value;
+  logic [2*NUM_PAD-2:0]            node_valid;
+
+  for (genvar i = 0; i < NUM_PAD; i++) begin : gen_leaf
+    if (i < NumInputs) begin : gen_input
+      assign node_value[NUM_PAD-1+i] = value[i];
+      assign node_valid[NUM_PAD-1+i] = valid[i];
+    end else begin : gen_pad
+      assign node_value[NUM_PAD-1+i] = '0;
+      assign node_valid[NUM_PAD-1+i] = 1'b0;
+    end
+  end
+
+  for (genvar n = 0; n < NUM_PAD-1; n++) begin : gen_node
+    logic pick_right;
+
+    assign pick_right    = node_valid[2*n+2] && (!node_valid[2*n+1] || (signed'(node_value[2*n+2]) > signed'(node_value[2*n+1])));
+    assign node_value[n] = pick_right ? node_value[2*n+2] : node_value[2*n+1];
+    assign node_valid[n] = node_valid[2*n+1] || node_valid[2*n+2];
+  end
+
+  assign max_value = node_value[0];
+  assign max_valid = node_valid[0];
+endmodule
+
 module fpnew_mxdotp_l1_sum
   import fpnew_mxdotp_multi_pkg::*;
 #(
