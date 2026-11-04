@@ -157,8 +157,20 @@ module fpnew_mxdotp_multi_dynanchor_param
                                    $clog2(L1_SIG[4]**2 + 1) - 2*L1_MAN[4] + L1_EXP[4], $clog2(L1_SIG[5]**2 + 1)};
   localparam int   L1_F    [6] = '{2*(L1_BIAS[0] - 1 + L1_MAN[0]), 2*(L1_BIAS[1] - 1 + L1_MAN[1]), 2*(L1_BIAS[2] - 1 + L1_MAN[2]),
                                    2*(L1_BIAS[3] - 1 + L1_MAN[3]), 2*(L1_BIAS[4] - 1 + L1_MAN[4]), 0};
-  localparam int   L1_K    [6] = '{L1_P[0] + $clog2(VectorSize), L1_P[1] + $clog2(VectorSize), L1_P[2] + $clog2(FP6_ELEMS),
+  localparam int   L1_KN   [6] = '{L1_P[0] + $clog2(VectorSize), L1_P[1] + $clog2(VectorSize), L1_P[2] + $clog2(FP6_ELEMS),
                                    L1_P[3] + $clog2(FP6_ELEMS), L1_P[4] + $clog2(FP4_ELEMS), L1_P[5] + $clog2(VectorSize)};
+  localparam int   L1_HEAD [6] = '{(L1Width <=  8) ? 1 : (L1Width <= 11) ? 2 : (L1Width <= 15) ? 3 : 4,
+                                   (L1Width <=  8) ? 1 : (L1Width <= 12) ? 2 : (L1Width <= 18) ? 3 : 4,
+                                   (L1Width <=  8) ? 1 : (L1Width <= 11) ? 2 :                        3,
+                                   (L1Width <=  8) ? 1 : (L1Width <= 11) ? 2 :                        3,
+                                   (L1Width <=  8) ? 1 : (L1Width <= 11) ? 2 :                        3,
+                                   (L1Width <=  9) ? 0 : (L1Width <= 13) ? 1 :                        2};
+  localparam int   L1_K    [6] = '{(L1_W >= L1_KN[0]) ? L1_KN[0] : L1_P[0] + `L1_MIN(L1_HEAD[0], L1_KN[0] - L1_P[0]),
+                                   (L1_W >= L1_KN[1]) ? L1_KN[1] : L1_P[1] + `L1_MIN(L1_HEAD[1], L1_KN[1] - L1_P[1]),
+                                   (L1_W >= L1_KN[2]) ? L1_KN[2] : L1_P[2] + `L1_MIN(L1_HEAD[2], L1_KN[2] - L1_P[2]),
+                                   (L1_W >= L1_KN[3]) ? L1_KN[3] : L1_P[3] + `L1_MIN(L1_HEAD[3], L1_KN[3] - L1_P[3]),
+                                   (L1_W >= L1_KN[4]) ? L1_KN[4] : L1_P[4] + `L1_MIN(L1_HEAD[4], L1_KN[4] - L1_P[4]),
+                                   (L1_W >= L1_KN[5]) ? L1_KN[5] : L1_P[5] + `L1_MIN(L1_HEAD[5], L1_KN[5] - L1_P[5])};
 
   localparam int   L1_D    [6] = '{L1_W - L1_K[0] + L1_EXP[0], L1_W - L1_K[1] + L1_EXP[1], L1_W - L1_K[2] + L1_EXP[2],
                                    L1_W - L1_K[3] + L1_EXP[3], L1_W - L1_K[4] + L1_EXP[4], L1_W - L1_K[5] + L1_EXP[5]};
@@ -166,6 +178,9 @@ module fpnew_mxdotp_multi_dynanchor_param
   localparam int   L1_A_MIN[6] = '{`L1_MIN(L1_W - L1_K[0], L1_F[0]), `L1_MIN(L1_W - L1_K[1], L1_F[1]),
                                    `L1_MIN(L1_W - L1_K[2], L1_F[2]), `L1_MIN(L1_W - L1_K[3], L1_F[3]),
                                    `L1_MIN(L1_W - L1_K[4], L1_F[4]), `L1_MIN(L1_W - L1_K[5], L1_F[5])};
+  localparam logic L1_OVF  [6] = '{L1_EN[0] && (L1_W - L1_A_MIN[0] < L1_KN[0]), L1_EN[1] && (L1_W - L1_A_MIN[1] < L1_KN[1]),
+                                   L1_EN[2] && (L1_W - L1_A_MIN[2] < L1_KN[2]), L1_EN[3] && (L1_W - L1_A_MIN[3] < L1_KN[3]),
+                                   L1_EN[4] && (L1_W - L1_A_MIN[4] < L1_KN[4]), L1_EN[5] && (L1_W - L1_A_MIN[5] < L1_KN[5])};
   localparam int   L1_LOG_N[6] = '{L1_EN[0] ? L1_K[0] - L1_P[0] : 1024, L1_EN[1] ? L1_K[1] - L1_P[1] : 1024,
                                    L1_EN[2] ? L1_K[2] - L1_P[2] : 1024, L1_EN[3] ? L1_K[3] - L1_P[3] : 1024,
                                    L1_EN[4] ? L1_K[4] - L1_P[4] : 1024, L1_EN[5] ? L1_K[5] - L1_P[5] : 1024};
@@ -183,6 +198,14 @@ module fpnew_mxdotp_multi_dynanchor_param
   localparam int   L1_MIN_SPARE  = `L1_MIN(`L1_MIN(`L1_MIN(L1_SPARE[0], L1_SPARE[1]), `L1_MIN(L1_SPARE[2], L1_SPARE[3])),
                                            `L1_MIN(L1_SPARE[4], L1_SPARE[5]));
   localparam int   L1_MAX_ADJUST = L1_REF_ANCHOR - L1_MIN_ANCHOR;
+
+  localparam logic L1_SAT        = L1_OVF[0] || L1_OVF[1] || L1_OVF[2] || L1_OVF[3] || L1_OVF[4] || L1_OVF[5];
+  localparam int   L1_GROW   [6] = '{L1_OVF[0] ? L1_KN[0] - L1_W + L1_A_MIN[0] : 0, L1_OVF[1] ? L1_KN[1] - L1_W + L1_A_MIN[1] : 0,
+                                     L1_OVF[2] ? L1_KN[2] - L1_W + L1_A_MIN[2] : 0, L1_OVF[3] ? L1_KN[3] - L1_W + L1_A_MIN[3] : 0,
+                                     L1_OVF[4] ? L1_KN[4] - L1_W + L1_A_MIN[4] : 0, L1_OVF[5] ? L1_KN[5] - L1_W + L1_A_MIN[5] : 0};
+  localparam int   L1_GUARD      = `L1_MAX(`L1_MAX(`L1_MAX(L1_GROW[0], L1_GROW[1]), `L1_MAX(L1_GROW[2], L1_GROW[3])),
+                                           `L1_MAX(L1_GROW[4], L1_GROW[5]));
+  localparam int unsigned L1_SUM_WIDTH = L1Width + (L1_SAT ? L1_GUARD : 0);
 
   // FP8 lane: products on the L1 grid of the source format
   localparam int          FP8_LOG_N       = `L1_MIN(`L1_MIN(`L1_MIN(L1_LOG_N[0], L1_LOG_N[1]), `L1_MIN(L1_LOG_N[2], L1_LOG_N[3])),
@@ -763,16 +786,17 @@ module fpnew_mxdotp_multi_dynanchor_param
   // ------------------
   // Adder data path
   // ------------------
-  logic signed [L1Width-1:0] fp8_sum;
-  logic signed [L1Width-1:0] fp6_sum;
-  logic signed [L1Width-1:0] fp4_sum;
-  logic signed [L1Width-1:0] l1_sum;
+  logic signed [L1_SUM_WIDTH-1:0] fp8_sum;
+  logic signed [L1_SUM_WIDTH-1:0] fp6_sum;
+  logic signed [L1_SUM_WIDTH-1:0] fp4_sum;
+  logic signed [L1_SUM_WIDTH-1:0] l1_sum_exact;
+  logic signed [L1Width-1:0]      l1_sum;
 
   if (FP8_LANES) begin : fp8_l1_sum
     fpnew_mxdotp_l1_sum #(
       .LocalVectorSize ( VectorSize     ),
       .TermWidth       ( FP8_TERM_WIDTH ),
-      .SumWidth        ( L1Width        )
+      .SumWidth        ( L1_SUM_WIDTH   )
     ) i_fp8_l1_sum (
       .term  ( fp8_term_q  ),
       .carry ( fp8_carry_q ),
@@ -786,7 +810,7 @@ module fpnew_mxdotp_multi_dynanchor_param
     fpnew_mxdotp_l1_sum #(
       .LocalVectorSize ( FP6_VECTOR_SIZE ),
       .TermWidth       ( FP6_TERM_WIDTH  ),
-      .SumWidth        ( L1Width         )
+      .SumWidth        ( L1_SUM_WIDTH    )
     ) i_fp6_l1_sum (
       .term  ( fp6_term_q  ),
       .carry ( fp6_carry_q ),
@@ -800,7 +824,7 @@ module fpnew_mxdotp_multi_dynanchor_param
     fpnew_mxdotp_l1_sum #(
       .LocalVectorSize ( FP4_VECTOR_SIZE ),
       .TermWidth       ( FP4_TERM_WIDTH  ),
-      .SumWidth        ( L1Width         )
+      .SumWidth        ( L1_SUM_WIDTH    )
     ) i_fp4_l1_sum (
       .term  ( fp4_term_q  ),
       .carry ( fp4_carry_q ),
@@ -810,7 +834,21 @@ module fpnew_mxdotp_multi_dynanchor_param
     assign fp4_sum = '0;
   end
 
-  assign l1_sum = fp8_sum + fp6_sum + fp4_sum;
+  assign l1_sum_exact = fp8_sum + fp6_sum + fp4_sum;
+
+  if (L1_SAT) begin : gen_l1_clamp
+    localparam logic signed [L1Width-1:0] L1_SUM_MAX = {1'b0, {(L1Width-1){1'b1}}};
+    localparam logic signed [L1Width-1:0] L1_SUM_MIN = {1'b1, {(L1Width-1){1'b0}}};
+
+    logic l1_overflow;
+
+    assign l1_overflow = (l1_sum_exact[L1_SUM_WIDTH-1:L1Width-1] != '0) &&
+                         (l1_sum_exact[L1_SUM_WIDTH-1:L1Width-1] != '1);
+    assign l1_sum      = l1_overflow ? (l1_sum_exact[L1_SUM_WIDTH-1] ? L1_SUM_MIN : L1_SUM_MAX) :
+                                       l1_sum_exact[L1Width-1:0];
+  end else begin : gen_l1_no_clamp
+    assign l1_sum = l1_sum_exact[L1Width-1:0];
+  end
 
   // ---------------
   // Internal pipeline

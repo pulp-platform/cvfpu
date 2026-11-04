@@ -161,9 +161,12 @@ module fpnew_mxdotp_multi_anchorin_param
                                    2*(L1_BIAS[3] - 1 + L1_MAN[3]), 2*(L1_BIAS[4] - 1 + L1_MAN[4]), 0};
   localparam int   L1_K    [6] = '{L1_P[0] + $clog2(VectorSize), L1_P[1] + $clog2(VectorSize), L1_P[2] + $clog2(FP6_ELEMS),
                                    L1_P[3] + $clog2(FP6_ELEMS), L1_P[4] + $clog2(FP4_ELEMS), L1_P[5] + $clog2(VectorSize)};
-  localparam int   L1_A_MAX[6] = '{`L1_MIN(L1_W - L1_P[0], int'(ANCHOR)), `L1_MIN(L1_W - L1_P[1], int'(ANCHOR)),
-                                   `L1_MIN(L1_W - L1_P[2], int'(ANCHOR)), `L1_MIN(L1_W - L1_P[3], int'(ANCHOR)),
-                                   `L1_MIN(L1_W - L1_P[4], int'(ANCHOR)), `L1_MIN(L1_W - L1_P[5], int'(ANCHOR))};
+  localparam int   L1_A_MAX[6] = '{`L1_MIN(L1_W - ((L1_W >= L1_K[0]) ? L1_K[0] : L1_P[0]), int'(ANCHOR)),
+                                   `L1_MIN(L1_W - ((L1_W >= L1_K[1]) ? L1_K[1] : L1_P[1]), int'(ANCHOR)),
+                                   `L1_MIN(L1_W - ((L1_W >= L1_K[2]) ? L1_K[2] : L1_P[2]), int'(ANCHOR)),
+                                   `L1_MIN(L1_W - ((L1_W >= L1_K[3]) ? L1_K[3] : L1_P[3]), int'(ANCHOR)),
+                                   `L1_MIN(L1_W - ((L1_W >= L1_K[4]) ? L1_K[4] : L1_P[4]), int'(ANCHOR)),
+                                   `L1_MIN(L1_W - ((L1_W >= L1_K[5]) ? L1_K[5] : L1_P[5]), int'(ANCHOR))};
   localparam int   L1_A_MIN[6] = '{`L1_MIN(L1_W - L1_K[0], int'(ANCHOR)), `L1_MIN(L1_W - L1_K[1], int'(ANCHOR)),
                                    `L1_MIN(L1_W - L1_K[2], int'(ANCHOR)), `L1_MIN(L1_W - L1_K[3], int'(ANCHOR)),
                                    `L1_MIN(L1_W - L1_K[4], int'(ANCHOR)), `L1_MIN(L1_W - L1_K[5], int'(ANCHOR))};
@@ -556,7 +559,7 @@ module fpnew_mxdotp_multi_anchorin_param
     logic signed [7:0] int_bits;
     logic signed [7:0] lsb_offset;
 
-    assign int_bits          = (L1_P[f] + int'(anchor_q) > L1_K[f]) ? 8'(L1_K[f]) : 8'(L1_P[f] + int'(anchor_q));
+    assign int_bits          = ((L1_W >= L1_K[f]) || (L1_P[f] + int'(anchor_q) > L1_K[f])) ? 8'(L1_K[f]) : 8'(L1_P[f] + int'(anchor_q));
     assign lsb_offset        = 8'(L1_W) - int_bits;
     assign l1_anchor[f]      = (int'(lsb_offset) > int'(ANCHOR)) ? 8'(int'(ANCHOR)) : lsb_offset;
     assign l1_lane_anchor[f] = (int'(l1_anchor[f]) > L1_F[f])    ? 8'(L1_F[f])      : l1_anchor[f];
