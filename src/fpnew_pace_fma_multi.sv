@@ -273,6 +273,8 @@ module fpnew_pace_fma_multi #(
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
       inflight_q <= '0;
+    end else if (flush_i) begin
+      inflight_q <= '0;
     end else begin
       inflight_q <= inflight_d;
     end
