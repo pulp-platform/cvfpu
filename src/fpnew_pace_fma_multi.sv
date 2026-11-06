@@ -321,6 +321,13 @@ module fpnew_pace_fma_multi #(
       pin_vld = in_valid_i;
     end
 
+    if (!pace_op && (part_inflight | (|inflight_q) | horn_fb)) begin
+      in_ready_o = 1'b0;
+      // Held off at the input, so it must not enter the FMA either. With horn_act
+      // set, fma_in_valid belongs to the PACE op entering the FMA and set below.
+      fma_in_valid = 1'b0;
+    end
+
     if (horn_act) begin
       fma_round_mode = fpnew_pkg::RNE;
       fma_op = fpnew_pkg::FMADD;
@@ -347,10 +354,6 @@ module fpnew_pace_fma_multi #(
       out_valid_o = 1'b0;
       pin_vld = 1'b0;
       pout_rdy = 1'b0;
-    end
-
-    if (!pace_op && (part_inflight | (|inflight_q) | horn_fb)) begin
-      in_ready_o = 1'b0;
     end
   end
 
